@@ -1,0 +1,1 @@
+{"GameSetting": {"Seed": 9430, "EnvType": "Indoor", "ArenaSize": [30, 30, 10], "Walls1": [10, 100, 100], "MinimumDistance": 10, "PlayerStart": [0, 0, 0], "End": [-10.887348687101431, 7.668581171463562, 0], "NumberOfDynamicObjects": 0, "VelocityRange": [5, 25]}, "Indoor": [{"Name": "Name", "NumberOfObjects": 11}]}
