@@ -1,0 +1,112 @@
+{
+  "SeeDocsAt": "https://github.com/Microsoft/AirSim/blob/master/docs/settings.md",
+  "SettingsVersion": 1.2,
+  "ApiServerPort": 41451,
+  "LocalHostIp": "127.0.0.1",
+  "SimMode": "Multirotor",
+  "ViewMode": "",
+  "ClockSpeed": 5.0,
+  "SubWindows": [
+    {
+      "WindowID": 0,
+      "CameraID": 0,
+      "ImageType": 3,
+      "Visible": true
+    },
+    {
+      "WindowID": 1,
+      "CameraID": 0,
+      "ImageType": 5,
+      "Visible": true
+    },
+    {
+      "WindowID": 2,
+      "CameraID": 0,
+      "ImageType": 0,
+      "Visible": true
+    }
+  ],
+  "CameraDefaults": {
+    "CaptureSettings": [
+      {
+        "ImageType": 1,
+        "Width": 128,
+        "Height": 128,
+        "FOV_Degrees": 86,
+        "AutoExposureSpeed": 100,
+        "AutoExposureBias": 0,
+        "AutoExposureMaxBrightness": 0.64,
+        "AutoExposureMinBrightness": 0.03,
+        "MotionBlurAmount": 0,
+        "TargetGamma": 1.0,
+        "ProjectionMode": "",
+        "OrthoWidth": 5.12
+      },
+      {
+        "ImageType": 2,
+        "Width": 128,
+        "Height": 128,
+        "FOV_Degrees": 86,
+        "AutoExposureSpeed": 100,
+        "AutoExposureBias": 0,
+        "AutoExposureMaxBrightness": 0.64,
+        "AutoExposureMinBrightness": 0.03,
+        "MotionBlurAmount": 0,
+        "TargetGamma": 1.0,
+        "ProjectionMode": "",
+        "OrthoWidth": 5.12
+      },
+      {
+        "ImageType": 3,
+        "Width": 128,
+        "Height": 128,
+        "FOV_Degrees": 86,
+        "AutoExposureSpeed": 100,
+        "AutoExposureBias": 0,
+        "AutoExposureMaxBrightness": 0.64,
+        "AutoExposureMinBrightness": 0.03,
+        "MotionBlurAmount": 0,
+        "TargetGamma": 1.0,
+        "ProjectionMode": "",
+        "OrthoWidth": 5.12
+      },
+      {
+        "ImageType": 0,
+        "Width": 128,
+        "Height": 128,
+        "FOV_Degrees": 69,
+        "AutoExposureSpeed": 100,
+        "AutoExposureBias": 0,
+        "AutoExposureMaxBrightness": 0.64,
+        "AutoExposureMinBrightness": 0.03,
+        "MotionBlurAmount": 0,
+        "TargetGamma": 1.0,
+        "ProjectionMode": "",
+        "OrthoWidth": 5.12
+      },
+      {
+        "ImageType": 5,
+        "Width": 128,
+        "Height": 128,
+        "FOV_Degrees": 86,
+        "AutoExposureSpeed": 100,
+        "AutoExposureBias": 0,
+        "AutoExposureMaxBrightness": 0.64,
+        "AutoExposureMinBrightness": 0.03,
+        "MotionBlurAmount": 0,
+        "TargetGamma": 1.0,
+        "ProjectionMode": "",
+        "OrthoWidth": 5.12
+      }
+    ]
+  },
+  "Vehicles": {
+    "SimpleFlight": {
+      "VehicleType": "SimpleFlight",
+      "AutoCreate": true,
+      "Parameters": {
+        "Mass": 1.0
+      }
+    }
+  }
+}
