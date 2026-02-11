@@ -6,7 +6,7 @@ from torch.optim import Adam
 from collections import deque
 import copy
 
-from .networks import STE_Encoder, Actor, Critic, StateMLP
+from .networks import STE_Encoder, Actor, Critic
 from ..lstm_td3.buffer import SequenceReplayBuffer
 
 class ST_VMamba_Agent:
@@ -42,12 +42,8 @@ class ST_VMamba_Agent:
             args=args
         ).to(self.device)
         
-        # 2. State Encoder
-        state_hidden_dim = getattr(args, 'state_feature_dim', 64)
-        self.actor_state_net = StateMLP(base_dim, state_hidden_dim).to(self.device)
-        
-        # Determine feature dim for head
-        feature_dim = self.actor_visual.out_dim + state_hidden_dim
+        # Determine feature dim for head (visual + base state)
+        feature_dim = self.actor_visual.out_dim + self.base_dim
         
         # 3. Head
         self.actor_head = Actor(
@@ -63,8 +59,6 @@ class ST_VMamba_Agent:
             args=args
         ).to(self.device)
         
-        self.critic_state_net = StateMLP(base_dim, state_hidden_dim).to(self.device)
-        
         self.critic_head = Critic(
             feature_dim=feature_dim,
             action_dim=self.action_dim,
@@ -73,24 +67,20 @@ class ST_VMamba_Agent:
 
         # --- Target Networks ---
         self.actor_visual_target = copy.deepcopy(self.actor_visual)
-        self.actor_state_net_target = copy.deepcopy(self.actor_state_net)
         self.actor_head_target = copy.deepcopy(self.actor_head)
         
         self.critic_visual_target = copy.deepcopy(self.critic_visual)
-        self.critic_state_net_target = copy.deepcopy(self.critic_state_net)
         self.critic_head_target = copy.deepcopy(self.critic_head)
 
         # Optimizers
         lr = getattr(args, 'lr', 1e-4) # default lr
         self.actor_optimizer = Adam(
             list(self.actor_visual.parameters()) + 
-            list(self.actor_state_net.parameters()) + 
             list(self.actor_head.parameters()), 
             lr=lr
         )
         self.critic_optimizer = Adam(
             list(self.critic_visual.parameters()) + 
-            list(self.critic_state_net.parameters()) + 
             list(self.critic_head.parameters()), 
             lr=lr
         )
@@ -129,9 +119,7 @@ class ST_VMamba_Agent:
         
         with torch.no_grad():
             visual_feat = self.actor_visual(depth_img) # (1, D)
-            state_feat = self.actor_state_net(current_base_state) # (1, S)
-
-            feat = torch.cat([visual_feat, state_feat], dim=1)
+            feat = torch.cat([visual_feat, current_base_state], dim=1)
             action = self.actor_head(feat).cpu().numpy().flatten()
 
         if noise:
@@ -215,8 +203,7 @@ class ST_VMamba_Agent:
             # Target Policy
             # (B, T, C, H, W) -> STE -> (B, D)
             next_vis_feat = self.actor_visual_target(next_depth)
-            next_s_feat = self.actor_state_net_target(next_state_curr)
-            next_feat = torch.cat([next_vis_feat, next_s_feat], dim=1)
+            next_feat = torch.cat([next_vis_feat, next_state_curr], dim=1)
             
             raw_next_action = self.actor_head_target(next_feat)
             scaled_next_action = raw_next_action * self.action_scale + self.action_bias
@@ -226,8 +213,7 @@ class ST_VMamba_Agent:
 
             # Target Q
             t_vis_feat_q = self.critic_visual_target(next_depth)
-            t_s_feat_q = self.critic_state_net_target(next_state_curr)
-            t_feat_q = torch.cat([t_vis_feat_q, t_s_feat_q], dim=1)
+            t_feat_q = torch.cat([t_vis_feat_q, next_state_curr], dim=1)
             
             target_Q1, target_Q2 = self.critic_head_target(t_feat_q, next_action)
             target_Q = torch.min(target_Q1, target_Q2)
@@ -235,8 +221,7 @@ class ST_VMamba_Agent:
 
         # Critic Update
         vis_feat_q = self.critic_visual(depth)
-        s_feat_q = self.critic_state_net(current_state)
-        feat_q = torch.cat([vis_feat_q, s_feat_q], dim=1)
+        feat_q = torch.cat([vis_feat_q, current_state], dim=1)
         
         current_Q1, current_Q2 = self.critic_head(feat_q, action)
 
@@ -251,8 +236,7 @@ class ST_VMamba_Agent:
             # We re-compute features for actor update to get gradient flow
             # (Features computed for critic update might not be reusable if networks are separate)
             vis_feat_pi = self.actor_visual(depth)
-            s_feat_pi = self.actor_state_net(current_state)
-            feat_pi = torch.cat([vis_feat_pi, s_feat_pi], dim=1)
+            feat_pi = torch.cat([vis_feat_pi, current_state], dim=1)
             
             raw_pi = self.actor_head(feat_pi)
             scaled_pi = raw_pi * self.action_scale + self.action_bias
@@ -265,11 +249,9 @@ class ST_VMamba_Agent:
 
             # Soft Update
             self.soft_update(self.actor_visual, self.actor_visual_target, self.tau)
-            self.soft_update(self.actor_state_net, self.actor_state_net_target, self.tau)
             self.soft_update(self.actor_head, self.actor_head_target, self.tau)
             
             self.soft_update(self.critic_visual, self.critic_visual_target, self.tau)
-            self.soft_update(self.critic_state_net, self.critic_state_net_target, self.tau)
             self.soft_update(self.critic_head, self.critic_head_target, self.tau)
             
             return {'critic_loss': critic_loss.item(), 'actor_loss': actor_loss.item()}
@@ -282,16 +264,12 @@ class ST_VMamba_Agent:
 
     def save(self, filename):
         torch.save(self.actor_visual.state_dict(), filename + "_actor_visual")
-        torch.save(self.actor_state_net.state_dict(), filename + "_actor_state")
         torch.save(self.actor_head.state_dict(), filename + "_actor_head")
         torch.save(self.critic_visual.state_dict(), filename + "_critic_visual")
-        torch.save(self.critic_state_net.state_dict(), filename + "_critic_state")
         torch.save(self.critic_head.state_dict(), filename + "_critic_head")
 
     def load(self, filename):
         self.actor_visual.load_state_dict(torch.load(filename + "_actor_visual"))
-        self.actor_state_net.load_state_dict(torch.load(filename + "_actor_state"))
         self.actor_head.load_state_dict(torch.load(filename + "_actor_head"))
         self.critic_visual.load_state_dict(torch.load(filename + "_critic_visual"))
-        self.critic_state_net.load_state_dict(torch.load(filename + "_critic_state"))
         self.critic_head.load_state_dict(torch.load(filename + "_critic_head"))

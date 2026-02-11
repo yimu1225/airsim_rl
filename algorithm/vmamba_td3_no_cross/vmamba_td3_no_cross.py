@@ -4,7 +4,7 @@ import torch.nn.functional as F
 from torch import nn
 from torch.optim import Adam
 
-from .networks import Actor, Critic, VMambaVisualEncoder, SimpleFusionEncoder, StateMLP
+from .networks import Actor, Critic, VMambaVisualEncoder
 # Use the buffer from existing algorithm if possible, or copy it.
 # We will use the same SequenceReplayBuffer as it is generic.
 from ..lstm_td3.buffer import SequenceReplayBuffer
@@ -40,18 +40,6 @@ class VMambaTD3NoCrossAgent:
 
         # Encoders
         C, h, w = depth_shape
-        feature_dim = args.feature_dim
-        state_feature_dim = getattr(args, "state_feature_dim", feature_dim)
-
-        # State MLP Encoder
-        self.actor_state_encoder = StateMLP(self.base_dim, state_feature_dim).to(self.device)
-        self.actor_state_encoder_target = StateMLP(self.base_dim, state_feature_dim).to(self.device)
-        self.actor_state_encoder_target.load_state_dict(self.actor_state_encoder.state_dict())
-
-        self.critic_state_encoder = StateMLP(self.base_dim, state_feature_dim).to(self.device)
-        self.critic_state_encoder_target = StateMLP(self.base_dim, state_feature_dim).to(self.device)
-        self.critic_state_encoder_target.load_state_dict(self.critic_state_encoder.state_dict())
-
         # CRITIC Encoders - 修改为支持4帧输入 (4通道)
         self.critic_visual_encoder = VMambaVisualEncoder(input_height=h, input_width=w, input_channels=4, args=args).to(self.device)
         self.critic_visual_encoder_target = VMambaVisualEncoder(input_height=h, input_width=w, input_channels=4, args=args).to(self.device)
@@ -59,20 +47,6 @@ class VMambaTD3NoCrossAgent:
         
         # 获取实际的视觉特征维度
         critic_visual_dim = self.critic_visual_encoder.feature_dim
-        
-        # Simple Fusion Encoder (no cross-attention)
-        self.mamba_hidden_dim = args.lstm_hidden_dim  # Reusing this arg name for consistency, conceptually hidden dim
-        self.critic_encoder = SimpleFusionEncoder(
-            visual_dim=critic_visual_dim,
-            state_dim=state_feature_dim,
-            hidden_dim=self.mamba_hidden_dim
-        ).to(self.device)
-        self.critic_encoder_target = SimpleFusionEncoder(
-            visual_dim=critic_visual_dim,
-            state_dim=state_feature_dim,
-            hidden_dim=self.mamba_hidden_dim
-        ).to(self.device)
-        self.critic_encoder_target.load_state_dict(self.critic_encoder.state_dict())
         
         # ACTOR Encoders - 修改为支持4帧输入 (4通道)
         self.actor_visual_encoder = VMambaVisualEncoder(input_height=h, input_width=w, input_channels=4, args=args).to(self.device)
@@ -82,20 +56,8 @@ class VMambaTD3NoCrossAgent:
         # 获取实际的视觉特征维度
         actor_visual_dim = self.actor_visual_encoder.feature_dim
 
-        self.actor_encoder = SimpleFusionEncoder(
-            visual_dim=actor_visual_dim,
-            state_dim=state_feature_dim,
-            hidden_dim=self.mamba_hidden_dim
-        ).to(self.device)
-        self.actor_encoder_target = SimpleFusionEncoder(
-            visual_dim=actor_visual_dim,
-            state_dim=state_feature_dim,
-            hidden_dim=self.mamba_hidden_dim
-        ).to(self.device)
-        self.actor_encoder_target.load_state_dict(self.actor_encoder.state_dict())
-        
-        # State dim for Actor/Critic is the output of SimpleFusionEncoder
-        self.state_dim = self.mamba_hidden_dim
+        # State dim for Actor/Critic is visual feature + base state
+        self.state_dim = critic_visual_dim + self.base_dim
 
         # Actor & Critic
         self.actor = Actor(self.state_dim, action_space.shape, args.hidden_dim).to(self.device)
@@ -107,10 +69,10 @@ class VMambaTD3NoCrossAgent:
         self.critic_target.load_state_dict(self.critic.state_dict())
 
         # Optimizers - 修复参数引用
-        self.actor_params = list(self.actor.parameters()) + list(self.actor_visual_encoder.parameters()) + list(self.actor_encoder.parameters()) + list(self.actor_state_encoder.parameters())
+        self.actor_params = list(self.actor.parameters()) + list(self.actor_visual_encoder.parameters())
         self.actor_optimizer = Adam(self.actor_params, lr=args.actor_lr)
         
-        self.critic_params = list(self.critic.parameters()) + list(self.critic_visual_encoder.parameters()) + list(self.critic_encoder.parameters()) + list(self.critic_state_encoder.parameters())
+        self.critic_params = list(self.critic.parameters()) + list(self.critic_visual_encoder.parameters())
         self.critic_optimizer = Adam(self.critic_params, lr=args.critic_lr)
 
         self.replay_buffer = SequenceReplayBuffer(args.buffer_size, self.seq_len)
@@ -128,14 +90,14 @@ class VMambaTD3NoCrossAgent:
 
         self.total_it = 0
 
-    def _process_stacked_frames(self, base, depth_seq, visual_encoder, encoder, state_encoder=None, detach_encoder=False):
+    def _process_stacked_frames(self, base, depth_seq, visual_encoder, detach_encoder=False):
         """
-        Process 4-frame stacked images with simple fusion encoder (no cross-attention).
+        Process 4-frame stacked images and concatenate with base state.
         Args:
             base: (B, S) - current state
             depth_seq: (B, 4, H, W) - 4-frame stacked depth images
         Returns:
-            state: (B, hidden_dim)
+            state: (B, visual_dim + base_dim)
         """
         if depth_seq.dim() == 5 and depth_seq.size(2) == 1:
             depth_seq = depth_seq.squeeze(2)
@@ -147,13 +109,8 @@ class VMambaTD3NoCrossAgent:
         if detach_encoder:
             visual_feat = visual_feat.detach()
             
-        if state_encoder is not None:
-            base = state_encoder(base)
-
-        # Simple Fusion Encoder: Visual + State -> Context (no cross-attention)
-        state = encoder(visual_feat, base)  # (B, hidden_dim)
-        
-        return state
+        visual_pooled = torch.mean(visual_feat, dim=1)
+        return torch.cat([visual_pooled, base], dim=-1)
 
     def select_action(self, base_seq, depth_seq, noise=True):
         # Inputs are numpy arrays of shape (K, ...)
@@ -180,9 +137,7 @@ class VMambaTD3NoCrossAgent:
             state = self._process_stacked_frames(
                 base,
                 depth,
-                self.actor_visual_encoder,
-                self.actor_encoder,
-                state_encoder=self.actor_state_encoder
+                self.actor_visual_encoder
             )
             action = self.actor(state).cpu().numpy().flatten()
 
@@ -247,8 +202,6 @@ class VMambaTD3NoCrossAgent:
             current_base,
             current_depth,
             self.critic_visual_encoder,
-            self.critic_encoder,
-            state_encoder=self.critic_state_encoder,
             detach_encoder=False
         )
 
@@ -257,16 +210,12 @@ class VMambaTD3NoCrossAgent:
                 next_current_base,
                 next_current_depth,
                 self.critic_visual_encoder_target,
-                self.critic_encoder_target,
-                state_encoder=self.critic_state_encoder_target,
                 detach_encoder=True
             )
             next_state_actor = self._process_stacked_frames(
                 next_current_base,
                 next_current_depth,
                 self.actor_visual_encoder_target,
-                self.actor_encoder_target,
-                state_encoder=self.actor_state_encoder_target,
                 detach_encoder=True
             )
             next_action = self.actor_target(next_state_actor)
@@ -286,7 +235,6 @@ class VMambaTD3NoCrossAgent:
         
         torch.nn.utils.clip_grad_norm_(self.critic.parameters(), self.grad_clip)
         torch.nn.utils.clip_grad_norm_(self.critic_visual_encoder.parameters(), self.grad_clip)
-        torch.nn.utils.clip_grad_norm_(self.critic_encoder.parameters(), self.grad_clip)
 
         self.critic_optimizer.step()
 
@@ -296,8 +244,6 @@ class VMambaTD3NoCrossAgent:
                 current_base,
                 current_depth,
                 self.actor_visual_encoder,
-                self.actor_encoder,
-                state_encoder=self.actor_state_encoder,
                 detach_encoder=False
             )
             
@@ -306,8 +252,6 @@ class VMambaTD3NoCrossAgent:
                     current_base,
                     current_depth,
                     self.critic_visual_encoder,
-                    self.critic_encoder,
-                    state_encoder=self.critic_state_encoder,
                     detach_encoder=False
                 )
 
@@ -318,8 +262,6 @@ class VMambaTD3NoCrossAgent:
             actor_loss.backward()
             torch.nn.utils.clip_grad_norm_(self.actor.parameters(), self.grad_clip)
             torch.nn.utils.clip_grad_norm_(self.actor_visual_encoder.parameters(), self.grad_clip)
-            torch.nn.utils.clip_grad_norm_(self.actor_encoder.parameters(), self.grad_clip)
-            torch.nn.utils.clip_grad_norm_(self.actor_state_encoder.parameters(), self.grad_clip)
             self.actor_optimizer.step()
 
             # Target network updates
@@ -327,18 +269,10 @@ class VMambaTD3NoCrossAgent:
                 target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
             for param, target_param in zip(self.critic_visual_encoder.parameters(), self.critic_visual_encoder_target.parameters()):
                 target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
-            for param, target_param in zip(self.critic_encoder.parameters(), self.critic_encoder_target.parameters()):
-                target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
-            for param, target_param in zip(self.critic_state_encoder.parameters(), self.critic_state_encoder_target.parameters()):
-                target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
 
             for param, target_param in zip(self.actor.parameters(), self.actor_target.parameters()):
                 target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
             for param, target_param in zip(self.actor_visual_encoder.parameters(), self.actor_visual_encoder_target.parameters()):
-                target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
-            for param, target_param in zip(self.actor_encoder.parameters(), self.actor_encoder_target.parameters()):
-                target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
-            for param, target_param in zip(self.actor_state_encoder.parameters(), self.actor_state_encoder_target.parameters()):
                 target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
 
         return {
@@ -355,17 +289,9 @@ class VMambaTD3NoCrossAgent:
             
             'actor_visual_encoder': self.actor_visual_encoder.state_dict(),
             'actor_visual_encoder_target': self.actor_visual_encoder_target.state_dict(),
-            'actor_encoder': self.actor_encoder.state_dict(),
-            'actor_encoder_target': self.actor_encoder_target.state_dict(),
-            'actor_state_encoder': self.actor_state_encoder.state_dict(),
-            'actor_state_encoder_target': self.actor_state_encoder_target.state_dict(),
             
             'critic_visual_encoder': self.critic_visual_encoder.state_dict(),
             'critic_visual_encoder_target': self.critic_visual_encoder_target.state_dict(),
-            'critic_encoder': self.critic_encoder.state_dict(),
-            'critic_encoder_target': self.critic_encoder_target.state_dict(),
-            'critic_state_encoder': self.critic_state_encoder.state_dict(),
-            'critic_state_encoder_target': self.critic_state_encoder_target.state_dict(),
             
             'actor_optimizer': self.actor_optimizer.state_dict(),
             'critic_optimizer': self.critic_optimizer.state_dict(),
@@ -386,19 +312,9 @@ class VMambaTD3NoCrossAgent:
         if 'actor_visual_encoder' in checkpoint:
             self.actor_visual_encoder.load_state_dict(checkpoint['actor_visual_encoder'])
             self.actor_visual_encoder_target.load_state_dict(checkpoint['actor_visual_encoder_target'])
-            self.actor_encoder.load_state_dict(checkpoint['actor_encoder'])
-            self.actor_encoder_target.load_state_dict(checkpoint['actor_encoder_target'])
-            if 'actor_state_encoder' in checkpoint:
-                self.actor_state_encoder.load_state_dict(checkpoint['actor_state_encoder'])
-                self.actor_state_encoder_target.load_state_dict(checkpoint['actor_state_encoder_target'])
             
             self.critic_visual_encoder.load_state_dict(checkpoint['critic_visual_encoder'])
             self.critic_visual_encoder_target.load_state_dict(checkpoint['critic_visual_encoder_target'])
-            self.critic_encoder.load_state_dict(checkpoint['critic_encoder'])
-            self.critic_encoder_target.load_state_dict(checkpoint['critic_encoder_target'])
-            if 'critic_state_encoder' in checkpoint:
-                self.critic_state_encoder.load_state_dict(checkpoint['critic_state_encoder'])
-                self.critic_state_encoder_target.load_state_dict(checkpoint['critic_state_encoder_target'])
             
             self.actor_optimizer.load_state_dict(checkpoint['actor_optimizer'])
             self.critic_optimizer.load_state_dict(checkpoint['critic_optimizer'])

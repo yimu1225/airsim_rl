@@ -4,9 +4,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch import distributions as pyd
 from torch.distributions.utils import _standard_normal
-from ..cnn_modules import CNN, BaseStateExpander
+from ..cnn_modules import CNN
 
-# from perception.d_lgmd import LGMD # Moved definition here as requested
 
 
 class VisualEncoder(CNN):

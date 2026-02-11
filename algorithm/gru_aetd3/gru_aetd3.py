@@ -4,7 +4,7 @@ import torch.nn.functional as F
 from torch import nn
 from torch.optim import Adam
 
-from .networks import Actor, Critic, VisualEncoder, GRUEncoder, MetaNet, BaseStateExpander
+from .networks import Actor, Critic, VisualEncoder, GRUEncoder, MetaNet
 from .buffer import SequenceReplayBuffer
 
 
@@ -39,16 +39,6 @@ class GRUAETD3Agent:
         feature_dim = args.feature_dim
         self.step_feature_dim = self.base_dim + feature_dim
 
-        # Base State Expanders (separate for actor/critic)
-        expanded_base_dim = 32
-        self.actor_base_expander = BaseStateExpander(self.base_dim, expanded_dim=expanded_base_dim).to(self.device)
-        self.actor_base_expander_target = BaseStateExpander(self.base_dim, expanded_dim=expanded_base_dim).to(self.device)
-        self.actor_base_expander_target.load_state_dict(self.actor_base_expander.state_dict())
-
-        self.critic_base_expander = BaseStateExpander(self.base_dim, expanded_dim=expanded_base_dim).to(self.device)
-        self.critic_base_expander_target = BaseStateExpander(self.base_dim, expanded_dim=expanded_base_dim).to(self.device)
-        self.critic_base_expander_target.load_state_dict(self.critic_base_expander.state_dict())
-
         # CRITIC Encoders
         self.critic_visual_encoder = VisualEncoder(input_height=h, input_width=w, feature_dim=feature_dim, input_channels=C).to(self.device)
         self.critic_visual_encoder_target = VisualEncoder(input_height=h, input_width=w, feature_dim=feature_dim, input_channels=C).to(self.device)
@@ -57,8 +47,8 @@ class GRUAETD3Agent:
         # GRU Encoder (Critic)
         self.gru_hidden_dim = args.gru_hidden_dim
         gru_layers = getattr(args, 'gru_num_layers', 1)
-        self.critic_gru = GRUEncoder(expanded_base_dim=expanded_base_dim, visual_feature_dim=feature_dim, hidden_dim=self.gru_hidden_dim, num_layers=gru_layers).to(self.device)
-        self.critic_gru_target = GRUEncoder(expanded_base_dim=expanded_base_dim, visual_feature_dim=feature_dim, hidden_dim=self.gru_hidden_dim, num_layers=gru_layers).to(self.device)
+        self.critic_gru = GRUEncoder(base_dim=self.base_dim, visual_feature_dim=feature_dim, hidden_dim=self.gru_hidden_dim, num_layers=gru_layers).to(self.device)
+        self.critic_gru_target = GRUEncoder(base_dim=self.base_dim, visual_feature_dim=feature_dim, hidden_dim=self.gru_hidden_dim, num_layers=gru_layers).to(self.device)
         self.critic_gru_target.load_state_dict(self.critic_gru.state_dict())
         
         # ACTOR Encoders
@@ -66,8 +56,8 @@ class GRUAETD3Agent:
         self.actor_visual_encoder_target = VisualEncoder(input_height=h, input_width=w, feature_dim=feature_dim, input_channels=C).to(self.device)
         self.actor_visual_encoder_target.load_state_dict(self.actor_visual_encoder.state_dict())
 
-        self.actor_gru = GRUEncoder(expanded_base_dim=expanded_base_dim, visual_feature_dim=feature_dim, hidden_dim=self.gru_hidden_dim, num_layers=gru_layers).to(self.device)
-        self.actor_gru_target = GRUEncoder(expanded_base_dim=expanded_base_dim, visual_feature_dim=feature_dim, hidden_dim=self.gru_hidden_dim, num_layers=gru_layers).to(self.device)
+        self.actor_gru = GRUEncoder(base_dim=self.base_dim, visual_feature_dim=feature_dim, hidden_dim=self.gru_hidden_dim, num_layers=gru_layers).to(self.device)
+        self.actor_gru_target = GRUEncoder(base_dim=self.base_dim, visual_feature_dim=feature_dim, hidden_dim=self.gru_hidden_dim, num_layers=gru_layers).to(self.device)
         self.actor_gru_target.load_state_dict(self.actor_gru.state_dict())
         
         # State dim for Actor/Critic is the GRU output
@@ -89,10 +79,10 @@ class GRUAETD3Agent:
         self.meta_net = MetaNet(meta_input_dim, self.adaptive_k).to(self.device)
 
         # Optimizers
-        self.actor_params = list(self.actor.parameters()) + list(self.actor_visual_encoder.parameters()) + list(self.actor_base_expander.parameters()) + list(self.actor_gru.parameters())
+        self.actor_params = list(self.actor.parameters()) + list(self.actor_visual_encoder.parameters()) + list(self.actor_gru.parameters())
         self.actor_optimizer = Adam(self.actor_params, lr=args.actor_lr)
         
-        self.critic_params = list(self.critic.parameters()) + list(self.critic_visual_encoder.parameters()) + list(self.critic_base_expander.parameters()) + list(self.critic_gru.parameters())
+        self.critic_params = list(self.critic.parameters()) + list(self.critic_visual_encoder.parameters()) + list(self.critic_gru.parameters())
         self.critic_optimizer = Adam(self.critic_params, lr=args.critic_lr)
         self.meta_optimizer = Adam(self.meta_net.parameters(), lr=args.adaptive_meta_lr)
 
@@ -112,7 +102,7 @@ class GRUAETD3Agent:
 
         self.total_it = 0
 
-    def _process_sequence(self, base, depth, visual_encoder, gru_encoder, base_expander, detach_encoder=False):
+    def _process_sequence(self, base, depth, visual_encoder, gru_encoder, detach_encoder=False):
         """
         Process sequence with frame-by-frame GRU.
         Args:
@@ -134,12 +124,9 @@ class GRUAETD3Agent:
         if detach_encoder:
             visual_feat = visual_feat.detach()
         
-        # Base State Expansion: Batch process for efficiency
-        base_expanded = base_expander(base)  # (B, K, expanded_base_dim)
-            
         # GRU Processing: Strictly frame-by-frame inside GRUEncoder
         # For each t: concat(base_expanded_t, visual_feat_t) -> GRU(h_{t-1}) -> h_t
-        state = gru_encoder(base_expanded, visual_feat)  # (B, gru_hidden_dim)
+        state = gru_encoder(base, visual_feat)  # (B, gru_hidden_dim)
         
         return state
 
@@ -150,7 +137,7 @@ class GRUAETD3Agent:
         depth = torch.as_tensor(depth_seq, dtype=torch.float32, device=self.device).unsqueeze(0)
         
         with torch.no_grad():
-            state = self._process_sequence(base, depth, self.actor_visual_encoder, self.actor_gru, self.actor_base_expander)
+            state = self._process_sequence(base, depth, self.actor_visual_encoder, self.actor_gru)
             action = self.actor(state).cpu().numpy().flatten()
 
         if noise:
@@ -184,14 +171,14 @@ class GRUAETD3Agent:
         action = (action - self.action_bias_tensor) / self.action_scale_tensor
 
         # Forward pass for current state (with gradients, using Critic encoders)
-        state = self._process_sequence(base, depth, self.critic_visual_encoder, self.critic_gru, self.critic_base_expander, detach_encoder=False)
+        state = self._process_sequence(base, depth, self.critic_visual_encoder, self.critic_gru, detach_encoder=False)
 
         with torch.no_grad():
             # Forward pass for next state (no gradients)
-            next_state = self._process_sequence(next_base, next_depth, self.critic_visual_encoder_target, self.critic_gru_target, self.critic_base_expander_target, detach_encoder=True)
+            next_state = self._process_sequence(next_base, next_depth, self.critic_visual_encoder_target, self.critic_gru_target, detach_encoder=True)
 
             # AE-TD3 Target
-            next_state_actor = self._process_sequence(next_base, next_depth, self.actor_visual_encoder_target, self.actor_gru_target, self.actor_base_expander_target, detach_encoder=True)
+            next_state_actor = self._process_sequence(next_base, next_depth, self.actor_visual_encoder_target, self.actor_gru_target, detach_encoder=True)
             base_next_action = self.actor_target(next_state_actor)
             
             q_samples = []
@@ -224,7 +211,6 @@ class GRUAETD3Agent:
         # Clip gradients
         torch.nn.utils.clip_grad_norm_(self.critic.parameters(), self.grad_clip)
         torch.nn.utils.clip_grad_norm_(self.critic_visual_encoder.parameters(), self.grad_clip)
-        torch.nn.utils.clip_grad_norm_(self.critic_base_expander.parameters(), self.grad_clip)
         torch.nn.utils.clip_grad_norm_(self.critic_gru.parameters(), self.grad_clip)
         torch.nn.utils.clip_grad_norm_(self.meta_net.parameters(), self.grad_clip)
                 
@@ -235,11 +221,11 @@ class GRUAETD3Agent:
         actor_loss = 0.0
         if self.total_it % self.policy_freq == 0:
             # 1. State from Actor (gradients flow to actor encoders)
-            state_actor = self._process_sequence(base, depth, self.actor_visual_encoder, self.actor_gru, self.actor_base_expander, detach_encoder=False)
+            state_actor = self._process_sequence(base, depth, self.actor_visual_encoder, self.actor_gru, detach_encoder=False)
             
             # 2. State for Critic (detached/no_grad)
             with torch.no_grad():
-                state_critic = self._process_sequence(base, depth, self.critic_visual_encoder, self.critic_gru, self.critic_base_expander, detach_encoder=False)
+                state_critic = self._process_sequence(base, depth, self.critic_visual_encoder, self.critic_gru, detach_encoder=False)
 
             q1, _ = self.critic(state_critic, self.actor(state_actor))
             actor_loss = -q1.mean()
@@ -248,7 +234,6 @@ class GRUAETD3Agent:
             actor_loss.backward()
             torch.nn.utils.clip_grad_norm_(self.actor.parameters(), self.grad_clip)
             torch.nn.utils.clip_grad_norm_(self.actor_visual_encoder.parameters(), self.grad_clip)
-            torch.nn.utils.clip_grad_norm_(self.actor_base_expander.parameters(), self.grad_clip)
             torch.nn.utils.clip_grad_norm_(self.actor_gru.parameters(), self.grad_clip)
             self.actor_optimizer.step()
 
@@ -257,16 +242,12 @@ class GRUAETD3Agent:
                 target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
             for param, target_param in zip(self.critic_visual_encoder.parameters(), self.critic_visual_encoder_target.parameters()):
                 target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
-            for param, target_param in zip(self.critic_base_expander.parameters(), self.critic_base_expander_target.parameters()):
-                target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
             for param, target_param in zip(self.critic_gru.parameters(), self.critic_gru_target.parameters()):
                 target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
 
             for param, target_param in zip(self.actor.parameters(), self.actor_target.parameters()):
                 target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
             for param, target_param in zip(self.actor_visual_encoder.parameters(), self.actor_visual_encoder_target.parameters()):
-                target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
-            for param, target_param in zip(self.actor_base_expander.parameters(), self.actor_base_expander_target.parameters()):
                 target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
             for param, target_param in zip(self.actor_gru.parameters(), self.actor_gru_target.parameters()):
                 target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
@@ -287,16 +268,10 @@ class GRUAETD3Agent:
             'actor_visual_encoder_target': self.actor_visual_encoder_target.state_dict(),
             'actor_gru': self.actor_gru.state_dict(),
             'actor_gru_target': self.actor_gru_target.state_dict(),
-            'actor_base_expander': self.actor_base_expander.state_dict(),
-            'actor_base_expander_target': self.actor_base_expander_target.state_dict(),
-            
             'critic_visual_encoder': self.critic_visual_encoder.state_dict(),
             'critic_visual_encoder_target': self.critic_visual_encoder_target.state_dict(),
             'critic_gru': self.critic_gru.state_dict(),
             'critic_gru_target': self.critic_gru_target.state_dict(),
-            'critic_base_expander': self.critic_base_expander.state_dict(),
-            'critic_base_expander_target': self.critic_base_expander_target.state_dict(),
-            
             'meta_net': self.meta_net.state_dict(),
             'actor_optimizer': self.actor_optimizer.state_dict(),
             'critic_optimizer': self.critic_optimizer.state_dict(),
@@ -319,18 +294,10 @@ class GRUAETD3Agent:
             self.actor_visual_encoder_target.load_state_dict(checkpoint['actor_visual_encoder_target'])
             self.actor_gru.load_state_dict(checkpoint['actor_gru'])
             self.actor_gru_target.load_state_dict(checkpoint['actor_gru_target'])
-            if 'actor_base_expander' in checkpoint:
-                self.actor_base_expander.load_state_dict(checkpoint['actor_base_expander'])
-                self.actor_base_expander_target.load_state_dict(checkpoint['actor_base_expander_target'])
-            
             self.critic_visual_encoder.load_state_dict(checkpoint['critic_visual_encoder'])
             self.critic_visual_encoder_target.load_state_dict(checkpoint['critic_visual_encoder_target'])
             self.critic_gru.load_state_dict(checkpoint['critic_gru'])
             self.critic_gru_target.load_state_dict(checkpoint['critic_gru_target'])
-            if 'critic_base_expander' in checkpoint:
-                self.critic_base_expander.load_state_dict(checkpoint['critic_base_expander'])
-                self.critic_base_expander_target.load_state_dict(checkpoint['critic_base_expander_target'])
-            
             self.actor_optimizer.load_state_dict(checkpoint['actor_optimizer'])
             self.critic_optimizer.load_state_dict(checkpoint['critic_optimizer'])
         else:

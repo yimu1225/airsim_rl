@@ -36,18 +36,19 @@ class ST_Mamba_Agent:
             args=args
         ).to(self.device)
         self.actor = Actor(
-            feature_dim=args.st_mamba_embed_dim,
+            feature_dim=args.st_mamba_embed_dim + self.base_dim,
             action_dim=self.action_dim,
             hidden_dim=args.hidden_dim
         ).to(self.device)
 
         self.critic_encoder = STMambaEncoder(
             state_dim=self.base_dim,
-            action_dim=self.action_dim,
+            action_dim=None,
             args=args
         ).to(self.device)
         self.critic = Critic(
-            feature_dim=args.st_mamba_embed_dim,
+            feature_dim=args.st_mamba_embed_dim + self.base_dim,
+            action_dim=self.action_dim,
             hidden_dim=args.hidden_dim
         ).to(self.device)
 
@@ -103,8 +104,9 @@ class ST_Mamba_Agent:
         current_state = base_state[:, -1, :]
 
         with torch.no_grad():
-            feature = self.actor_encoder(depth_img, current_state)
-            action = self.actor(feature).cpu().numpy().flatten()
+            visual_feat = self.actor_encoder(depth_img, current_state)
+            actor_input = torch.cat([visual_feat, current_state], dim=-1)
+            action = self.actor(actor_input).cpu().numpy().flatten()
 
         if noise:
             noise = np.random.normal(0, self.exploration_noise, size=self.action_dim)
@@ -156,8 +158,9 @@ class ST_Mamba_Agent:
         not_done = not_done.view(-1, 1)
 
         with torch.no_grad():
-            next_feature = self.actor_encoder_target(next_depth, next_state_curr)
-            next_action = self.actor_target(next_feature)
+            next_visual = self.actor_encoder_target(next_depth, next_state_curr)
+            next_actor_input = torch.cat([next_visual, next_state_curr], dim=-1)
+            next_action = self.actor_target(next_actor_input)
             next_action = self._scale_action(next_action)
 
             noise = (torch.randn_like(next_action) * self.policy_noise).clamp(-self.noise_clip, self.noise_clip)
@@ -166,13 +169,15 @@ class ST_Mamba_Agent:
                 self.max_action_tensor
             )
 
-            target_feature = self.critic_encoder_target(next_depth, next_state_curr, action=next_action)
-            target_Q1, target_Q2 = self.critic_target(target_feature)
+            target_visual = self.critic_encoder_target(next_depth, next_state_curr)
+            target_input = torch.cat([target_visual, next_state_curr], dim=-1)
+            target_Q1, target_Q2 = self.critic_target(target_input, next_action)
             target_Q = torch.min(target_Q1, target_Q2)
             target_Q = reward + not_done * self.gamma * target_Q
 
-        current_feature = self.critic_encoder(depth, current_state, action=action)
-        current_Q1, current_Q2 = self.critic(current_feature)
+        current_visual = self.critic_encoder(depth, current_state)
+        critic_input = torch.cat([current_visual, current_state], dim=-1)
+        current_Q1, current_Q2 = self.critic(critic_input, action)
 
         critic_loss = F.mse_loss(current_Q1, target_Q) + F.mse_loss(current_Q2, target_Q)
 
@@ -186,12 +191,14 @@ class ST_Mamba_Agent:
 
         actor_loss_value = 0.0
         if self.total_it % self.policy_freq == 0:
-            actor_feature = self.actor_encoder(depth, current_state)
-            actor_action = self.actor(actor_feature)
+            actor_visual = self.actor_encoder(depth, current_state)
+            actor_input = torch.cat([actor_visual, current_state], dim=-1)
+            actor_action = self.actor(actor_input)
             actor_action = self._scale_action(actor_action)
 
-            q_feature = self.critic_encoder(depth, current_state, action=actor_action)
-            actor_loss = -self.critic.q1(q_feature).mean()
+            q_visual = self.critic_encoder(depth, current_state)
+            q_input = torch.cat([q_visual, current_state], dim=-1)
+            actor_loss = -self.critic.q1(q_input, actor_action).mean()
 
             self.actor_optimizer.zero_grad()
             actor_loss.backward()

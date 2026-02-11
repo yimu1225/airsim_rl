@@ -31,10 +31,6 @@ from algorithm.lstm_td3.lstm_td3 import LSTMTD3Agent
 from algorithm.gru_aetd3.gru_aetd3 import GRUAETD3Agent
 from algorithm.lstm_aetd3.lstm_aetd3 import LSTMAETD3Agent
 from algorithm.cfc_td3.cfc_td3 import CFCTD3Agent
-from algorithm.lgmd_gru_td3.lgmd_gru_td3 import D_LGMDGRUTD3Agent
-from algorithm.lgmd_lstm_td3.lgmd_lstm_td3 import D_LGMDLSTMTD3Agent
-from algorithm.lgmd_gru_aetd3.lgmd_gru_aetd3 import D_LGMDGRUAETD3Agent
-from algorithm.lgmd_lstm_aetd3.lgmd_lstm_aetd3 import D_LGMDLSTMAETD3Agent
 from algorithm.vmamba_td3.vmamba_td3 import VMambaTD3Agent
 from algorithm.vmamba_td3_no_cross.vmamba_td3_no_cross import VMambaTD3NoCrossAgent
 from algorithm.st_vmamba_td3.st_vmamba_td3 import ST_VMamba_Agent
@@ -50,10 +46,9 @@ def expand_algorithms(algo_str):
     """
     # Predefined algorithm groups
     groups = {
-        'all': ['td3', 'aetd3', 'per_td3', 'per_aetd3', 'gru_td3', 'lstm_td3', 'gru_aetd3', 'lstm_aetd3', 'cfc_td3', 'lgmd_gru_td3', 'lgmd_lstm_td3', 'lgmd_gru_aetd3', 'lgmd_lstm_aetd3', 'vmamba_td3', 'vmamba_td3_no_cross', 'st_vmamba_td3', 'st_mamba_td3', 'ST-VimTD3', 'st_cnn_td3'],
+        'all': ['td3', 'aetd3', 'per_td3', 'per_aetd3', 'gru_td3', 'lstm_td3', 'gru_aetd3', 'lstm_aetd3', 'cfc_td3', 'vmamba_td3', 'vmamba_td3_no_cross', 'st_vmamba_td3', 'st_mamba_td3', 'ST-VimTD3', 'st_cnn_td3'],
         'base': ['td3', 'aetd3', 'per_td3', 'per_aetd3'],
-        'seq': ['gru_td3', 'lstm_td3', 'gru_aetd3', 'lstm_aetd3', 'cfc_td3', 'lgmd_gru_td3', 'lgmd_lstm_td3', 'lgmd_gru_aetd3', 'lgmd_lstm_aetd3', 'vmamba_td3', 'vmamba_td3_no_cross', 'st_vmamba_td3', 'st_mamba_td3', 'ST-VimTD3', 'st_cnn_td3'],
-        'lgmd': ['lgmd_gru_td3', 'lgmd_lstm_td3', 'lgmd_gru_aetd3', 'lgmd_lstm_aetd3']
+        'seq': ['gru_td3', 'lstm_td3', 'gru_aetd3', 'lstm_aetd3', 'cfc_td3', 'vmamba_td3', 'vmamba_td3_no_cross', 'st_vmamba_td3', 'st_mamba_td3', 'ST-VimTD3', 'st_cnn_td3']
     }
     
     # Check if it's a predefined group
@@ -78,10 +73,6 @@ def get_agent_class(algo_name):
     if algo_name == 'gru_aetd3': return GRUAETD3Agent
     if algo_name == 'lstm_aetd3': return LSTMAETD3Agent
     if algo_name == 'cfc_td3': return CFCTD3Agent
-    if algo_name == 'lgmd_gru_td3': return D_LGMDGRUTD3Agent
-    if algo_name == 'lgmd_lstm_td3': return D_LGMDLSTMTD3Agent
-    if algo_name == 'lgmd_gru_aetd3': return D_LGMDGRUAETD3Agent
-    if algo_name == 'lgmd_lstm_aetd3': return D_LGMDLSTMAETD3Agent
     if algo_name == 'vmamba_td3': return VMambaTD3Agent
     if algo_name == 'vmamba_td3_no_cross': return VMambaTD3NoCrossAgent
     if algo_name == 'st_vmamba_td3': return ST_VMamba_Agent
@@ -108,13 +99,10 @@ def main():
         # Determine properties for this algorithm
         recurrent_algos = [
             'gru_td3', 'lstm_td3', 'gru_aetd3', 'lstm_aetd3', 'cfc_td3',
-            'lgmd_gru_td3', 'lgmd_lstm_td3', 'st_cnn_td3', 'lgmd_gru_aetd3', 'lgmd_lstm_aetd3',
-            'vmamba_td3', 'st_vmamba_td3', 'st_mamba_td3', 'ST-VimTD3', 'vmamba_td3_no_cross'  # vmamba_td3 也是时序算法
+            'st_cnn_td3', 'vmamba_td3', 'st_vmamba_td3', 'st_mamba_td3', 'ST-VimTD3', 'vmamba_td3_no_cross'  # vmamba_td3 也是时序算法
         ]
-        lgmd_algos = ['lgmd_gru_td3', 'lgmd_lstm_td3', 'lgmd_gru_aetd3', 'lgmd_lstm_aetd3']
         
         is_recurrent = algo_name in recurrent_algos
-        is_lgmd = algo_name in lgmd_algos
         
         stack_frames = args.stack_frames_recurrent if is_recurrent else args.stack_frames
 
@@ -124,37 +112,30 @@ def main():
 
         # Initial Reset
         obs, _ = env.reset(seed=args.seed)
-        # Obs is a dict keys: 'depth', 'gray', 'base'
+        # Obs is a dict keys: 'depth', 'base'
         
         depth_image = obs['depth']
         base_state = obs['base']
-        gray_image = obs['gray'] # For LGMD
 
         # Dimensions
         base_dim = base_state.shape[0]
         depth_shape = depth_image.shape # (C, H, W)
-        gray_shape = gray_image.shape if is_lgmd else None
         action_space = env.action_space
 
         print(f"Observation shapes: Depth {depth_shape}, Base {base_dim}")
-        if is_lgmd:
-            print(f"Gray shape: {gray_shape}")
         print(f"Action space: {action_space}")
 
         # Initialize Agent
         device = torch.device("cuda" if args.cuda and torch.cuda.is_available() else "cpu")
         AgentClass = get_agent_class(algo_name)
         
-        if is_lgmd:
-            agent = AgentClass(base_dim, depth_shape, gray_shape, action_space, args, device=device)
-        else:
-            agent = AgentClass(base_dim, depth_shape, action_space, args, device=device)
+        agent = AgentClass(base_dim, depth_shape, action_space, args, device=device)
 
         # Run training for this algorithm
-        env = train_single_algorithm(env, agent, args, algo_name, is_recurrent, is_lgmd, device, base_state, depth_image, gray_image, stack_frames)
+        env = train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, base_state, depth_image, stack_frames)
 
 
-def train_single_algorithm(env, agent, args, algo_name, is_recurrent, is_lgmd, device, base_state, depth_image, gray_image, stack_frames):
+def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, base_state, depth_image, stack_frames):
 
     if args.load_model != "":
         print(f"Loading model: {args.load_model}")
@@ -196,8 +177,6 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, is_lgmd, d
         # Deques to store history
         base_hist = deque(maxlen=seq_len)
         depth_hist = deque(maxlen=seq_len)
-        if is_lgmd:
-            gray_hist = deque(maxlen=seq_len)
 
         # Initialize history
         # Env returns (1, H, W) for recurrent.
@@ -206,8 +185,6 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, is_lgmd, d
         for _ in range(seq_len):
             base_hist.append(base_state)
             depth_hist.append(depth_image)
-            if is_lgmd:
-                gray_hist.append(gray_image)
 
     # Training parameters
     max_timesteps = args.max_timesteps
@@ -222,7 +199,6 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, is_lgmd, d
 
     state = depth_image
     base = base_state
-    gray = gray_image
 
     print("Start Asynchronous Training Loop...")
 
@@ -238,16 +214,13 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, is_lgmd, d
             obs, _ = env.reset(seed=args.seed)
             state = obs['depth']
             base = obs['base']
-            gray = obs['gray']
             
             if is_recurrent:
                 base_hist.clear()
                 depth_hist.clear()
-                if is_lgmd: gray_hist.clear()
                 for _ in range(seq_len):
                     base_hist.append(base)
                     depth_hist.append(state)
-                    if is_lgmd: gray_hist.append(gray)
 
         # Collect steps_per_update
         for step in range(steps_per_update):
@@ -262,11 +235,7 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, is_lgmd, d
                     base_seq = np.array(base_hist) # (Seq, BaseDim)
                     depth_seq = np.array(depth_hist) # (Seq, 1, H, W)
                     
-                    if is_lgmd:
-                        gray_seq = np.array(gray_hist) # (Seq, 1, H, W)
-                        action = agent.select_action(base_seq, depth_seq, gray_seq)
-                    else:
-                        action = agent.select_action(base_seq, depth_seq)
+                    action = agent.select_action(base_seq, depth_seq)
                 else:
                     # Non-recurrent: state is (4, H, W)
                     action = agent.select_action(base, state)
@@ -299,7 +268,6 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, is_lgmd, d
             
             next_state = next_obs['depth']
             next_base = next_obs['base']
-            next_gray = next_obs['gray']
 
             if args.render_window:
                 vis_imgs = []
@@ -342,17 +310,12 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, is_lgmd, d
             
             if is_recurrent:
                 # Recurrent buffer usually expects single step data, sample() builds sequences.
-                if is_lgmd:
-                    agent.replay_buffer.add(base, state, gray, action, reward, done_bool)
-                else:
-                    # Generic recurrent buffer: store current step only, next state is derived by shifting on sample.
-                    agent.replay_buffer.add(base, state, action, reward, done_bool)
+                # Generic recurrent buffer: store current step only, next state is derived by shifting on sample.
+                agent.replay_buffer.add(base, state, action, reward, done_bool)
                 
                 # Update history queues
                 base_hist.append(next_base)
                 depth_hist.append(next_state)
-                if is_lgmd:
-                    gray_hist.append(next_gray)
             else:
                 # Non-recurrent buffer
                 agent.replay_buffer.add(base, state, action, reward, next_base, next_state, done_bool)
@@ -360,7 +323,6 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, is_lgmd, d
             # State Update
             state = next_state
             base = next_base
-            gray = next_gray
 
             # Episode End Handling
             if done:
@@ -423,20 +385,15 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, is_lgmd, d
                 obs, _ = env.reset(seed=args.seed + episode_num)
                 state = obs['depth']
                 base = obs['base']
-                gray = obs['gray']
 
                 # Reset History
                 if is_recurrent:
                     base_hist.clear()
                     depth_hist.clear()
-                    if is_lgmd:
-                        gray_hist.clear()
                     
                     for _ in range(seq_len):
                         base_hist.append(base)
                         depth_hist.append(state)
-                        if is_lgmd:
-                            gray_hist.append(gray)
                 
                 # Memory cleanup after episode end
                 if torch.cuda.is_available():
