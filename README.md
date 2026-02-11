@@ -7,6 +7,10 @@
 
 本项目实现了一个基于AirSim模拟器的无人机导航强化学习框架，支持多种先进的深度强化学习算法，特别是针对视觉导航任务的TD3变体。
 
+## ⚠️ 免责声明
+
+**本仓库为作者的个人学习项目，主要用于强化学习算法研究和技术积累。代码和实现仅供参考学习，不保证生产环境适用性。欢迎交流学习，但请尊重作者劳动成果。**
+
 ## 🚁 项目概述
 
 本项目提供了一个完整的无人机强化学习训练和评估框架，主要特点包括：
@@ -234,7 +238,7 @@ graph TD
 
 ### 训练曲线
 
-![训练曲线示例](ac_l1.png)
+
 
 ## 🧪 实验设置
 
@@ -338,13 +342,3 @@ airsim_rl/
 - **Mamba**: [Mamba: Linear-Time Sequence Modeling with Selective State Spaces](https://arxiv.org/abs/2312.00752)
 - **Vision Mamba**: [Vision Mamba: Efficient Visual Representation Learning with Bidirectional State Space Model](https://arxiv.org/abs/2401.13666)
 - **AirSim**: [AirSim: High-Fidelity Visual and Physical Simulation for Unmanned Aerial Vehicles](https://arxiv.org/abs/1705.09530)
-
-## 🙏 致谢
-
-- Microsoft AirSim团队提供优秀的模拟器
-- Mamba和Vision Mamba研究团队的贡献
-- 开源社区的支持和反馈
-
----
-
-**⭐ 如果这个项目对你有帮助，请给个Star支持！**
