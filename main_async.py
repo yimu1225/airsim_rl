@@ -83,56 +83,60 @@ def get_agent_class(algo_name):
 
 def main():
     args = get_config()
-    torch.manual_seed(args.seed)
-    np.random.seed(args.seed)
+    seeds = args.seed if isinstance(args.seed, (list, tuple)) else [args.seed]
 
     # Expand algorithm names
     algorithms = expand_algorithms(args.algorithm_name)
     print(f"Training algorithms: {algorithms}")
 
-    # Run training for each algorithm
-    for algo_name in algorithms:
-        print(f"\n{'='*50}")
-        print(f"Training algorithm: {algo_name}")
-        print(f"{'='*50}")
+    for seed in seeds:
+        args.seed = seed
+        torch.manual_seed(seed)
+        np.random.seed(seed)
 
-        # Determine properties for this algorithm
-        recurrent_algos = [
-            'gru_td3', 'lstm_td3', 'gru_aetd3', 'lstm_aetd3', 'cfc_td3',
-            'st_cnn_td3', 'vmamba_td3', 'st_vmamba_td3', 'st_mamba_td3', 'ST-VimTD3', 'vmamba_td3_no_cross'  # vmamba_td3 也是时序算法
-        ]
-        
-        is_recurrent = algo_name in recurrent_algos
-        
-        stack_frames = args.stack_frames_recurrent if is_recurrent else args.stack_frames
+        # Run training for each algorithm
+        for algo_name in algorithms:
+            print(f"\n{'='*50}")
+            print(f"Training algorithm: {algo_name} (seed={seed})")
+            print(f"{'='*50}")
 
-        # Initialize Environment
-        print(f"Initialize AirSimEnv with stack_frames={stack_frames} for {algo_name}...")
-        env = AirSimEnv(need_render=args.need_render, takeoff_height=args.takeoff_height, config=args, stack_frames=stack_frames)
+            # Determine properties for this algorithm
+            recurrent_algos = [
+                'gru_td3', 'lstm_td3', 'gru_aetd3', 'lstm_aetd3', 'cfc_td3',
+                'st_cnn_td3', 'vmamba_td3', 'st_vmamba_td3', 'st_mamba_td3', 'ST-VimTD3', 'vmamba_td3_no_cross'  # vmamba_td3 也是时序算法
+            ]
+            
+            is_recurrent = algo_name in recurrent_algos
+            
+            stack_frames = args.stack_frames_recurrent if is_recurrent else args.stack_frames
 
-        # Initial Reset
-        obs, _ = env.reset(seed=args.seed)
-        # Obs is a dict keys: 'depth', 'base'
-        
-        depth_image = obs['depth']
-        base_state = obs['base']
+            # Initialize Environment
+            print(f"Initialize AirSimEnv with stack_frames={stack_frames} for {algo_name} (seed={seed})...")
+            env = AirSimEnv(need_render=args.need_render, takeoff_height=args.takeoff_height, config=args, stack_frames=stack_frames)
 
-        # Dimensions
-        base_dim = base_state.shape[0]
-        depth_shape = depth_image.shape # (C, H, W)
-        action_space = env.action_space
+            # Initial Reset
+            obs, _ = env.reset(seed=seed)
+            # Obs is a dict keys: 'depth', 'base'
+            
+            depth_image = obs['depth']
+            base_state = obs['base']
 
-        print(f"Observation shapes: Depth {depth_shape}, Base {base_dim}")
-        print(f"Action space: {action_space}")
+            # Dimensions
+            base_dim = base_state.shape[0]
+            depth_shape = depth_image.shape # (C, H, W)
+            action_space = env.action_space
 
-        # Initialize Agent
-        device = torch.device("cuda" if args.cuda and torch.cuda.is_available() else "cpu")
-        AgentClass = get_agent_class(algo_name)
-        
-        agent = AgentClass(base_dim, depth_shape, action_space, args, device=device)
+            print(f"Observation shapes: Depth {depth_shape}, Base {base_dim}")
+            print(f"Action space: {action_space}")
 
-        # Run training for this algorithm
-        env = train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, base_state, depth_image, stack_frames)
+            # Initialize Agent
+            device = torch.device("cuda" if args.cuda and torch.cuda.is_available() else "cpu")
+            AgentClass = get_agent_class(algo_name)
+            
+            agent = AgentClass(base_dim, depth_shape, action_space, args, device=device)
+
+            # Run training for this algorithm
+            env = train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, base_state, depth_image, stack_frames)
 
 
 def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, base_state, depth_image, stack_frames):

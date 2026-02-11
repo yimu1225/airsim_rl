@@ -25,8 +25,15 @@ def plot_curves(algorithms, save_path="learning_curves.png", smooth_window=10):
         algo_data = []
         
         # Find all log files for this algorithm
-        search_pattern = os.path.join(results_dir, f"{algo}*", f"{algo}_log.csv")
-        csv_files = glob.glob(search_pattern)
+        search_patterns = [
+            os.path.join(results_dir, f"{algo}*", f"{algo}_log.csv"),
+            os.path.join(results_dir, f"{algo}*", "**", f"{algo}_log.csv"),
+            os.path.join(results_dir, f"{algo}*", "*_log.csv"),
+        ]
+        csv_files = []
+        for pattern in search_patterns:
+            csv_files.extend(glob.glob(pattern, recursive=True))
+        csv_files = sorted(set(csv_files))
         
         if not csv_files:
             print(f"No logs found for algorithm: {algo}")
@@ -78,8 +85,9 @@ def plot_curves(algorithms, save_path="learning_curves.png", smooth_window=10):
         algo_df = full_df[full_df['Algorithm'] == algo.upper()]
         if not algo_df.empty:
             # Calculate mean reward across all runs for this algorithm
-            mean_reward = algo_df.groupby('total_timesteps')['reward_smooth'].mean()
-            std_reward = algo_df.groupby('total_timesteps')['reward_smooth'].std()
+            grouped = algo_df.groupby('total_timesteps', sort=True)['reward_smooth']
+            mean_reward = grouped.mean()
+            std_reward = grouped.std().fillna(0.0)
             
             # Plot mean line
             ax_reward.plot(mean_reward.index, mean_reward.values, 
@@ -112,8 +120,9 @@ def plot_curves(algorithms, save_path="learning_curves.png", smooth_window=10):
         algo_df = full_df[full_df['Algorithm'] == algo.upper()]
         if not algo_df.empty:
             # Calculate mean success rate across all runs for this algorithm
-            mean_success = algo_df.groupby('total_timesteps')['success_rate_smooth'].mean()
-            std_success = algo_df.groupby('total_timesteps')['success_rate_smooth'].std()
+            grouped = algo_df.groupby('total_timesteps', sort=True)['success_rate_smooth']
+            mean_success = grouped.mean()
+            std_success = grouped.std().fillna(0.0)
             
             # Plot mean line
             ax_success.plot(mean_success.index, mean_success.values, 
