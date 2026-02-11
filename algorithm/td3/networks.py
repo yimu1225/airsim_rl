@@ -31,12 +31,15 @@ class TruncatedNormal(pyd.Normal):
         return self._clamp(x)
 
 
+# RunningMeanStd removed — wasn't integrated in agent pipeline.
+
+
 class Encoder(CNN):
     """
     Encoder that uses the unified CNN from cnn_modules.
     """
-    def __init__(self, input_height, input_width, feature_dim):
-        super().__init__(input_height, input_width, feature_dim)
+    def __init__(self, input_height, input_width, feature_dim, input_channels=1):
+        super().__init__(input_height, input_width, feature_dim, input_channels)
    
 
 class Actor(nn.Module):
@@ -55,6 +58,14 @@ class Actor(nn.Module):
             nn.ReLU(inplace=True),
             nn.Linear(hidden_dim, action_shape[0])
         )
+        self.apply(self._init_weights)
+
+    def _init_weights(self, m):
+        if isinstance(m, nn.Linear):
+            std = (2.0 / m.in_features) ** 0.5
+            nn.init.trunc_normal_(m.weight, mean=0.0, std=std, a=-2.0 * std, b=2.0 * std)
+            if m.bias is not None:
+                nn.init.constant_(m.bias, 0)
 
     def forward(self, obs, std=None):
         # apply input normalization
@@ -92,6 +103,15 @@ class Critic(nn.Module):
             nn.ReLU(inplace=True),
             nn.Linear(hidden_dim, 1)
         )
+
+        self.apply(self._init_weights)
+
+    def _init_weights(self, m):
+        if isinstance(m, nn.Linear):
+            std = (2.0 / m.in_features) ** 0.5
+            nn.init.trunc_normal_(m.weight, mean=0.0, std=std, a=-2.0 * std, b=2.0 * std)
+            if m.bias is not None:
+                nn.init.constant_(m.bias, 0)
 
     def forward(self, obs, action):
         h_action = torch.cat([obs, action], dim=-1)

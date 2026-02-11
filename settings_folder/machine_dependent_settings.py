@@ -6,13 +6,13 @@
 
 
 # Valid path to a json file for game configuration
-json_file_addr = r"D:\Projects\airlearning-ue4\Content\JsonFiles\EnvGenConfig.json"
+json_file_addr = "/mnt/d/Projects/airlearning-ue4/Content/JsonFiles/EnvGenConfig.json"
 
 # Path to the game executable or configuration file
-game_file = "D:\\Projects\\airlearning-ue4\\AirLearning.uproject"
+game_file = "/mnt/d/Projects/airlearning-ue4/AirLearning.uproject"
 
 # Directory shared with the unreal host
 unreal_host_shared_dir = ""
 
 # Path to the Unreal Engine executable
-unreal_exe_path = "D:\\SoftWare\\Epic Games\\Game\\UE_4.18\\Engine\\Binaries\\Win64\\UE4Editor.exe"
+unreal_exe_path = "/mnt/d/SoftWare/Epic Games/Game/UE_4.18/Engine/Binaries/Win64/UE4Editor.exe"

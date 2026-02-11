@@ -6,7 +6,6 @@ from torch.optim import Adam
 
 from .networks import Actor, Critic, Encoder
 from .buffer import ReplayBuffer
-from ..ou_noise import OUNoise
 
 
 class TD3Agent:
@@ -29,18 +28,18 @@ class TD3Agent:
         self.grad_clip = getattr(args, "grad_clip", 1.0)
 
         # Encoder
-        _, depth_h, depth_w = depth_shape
-        feature_dim = args.depth_feature_dim
+        C, depth_h, depth_w = depth_shape
+        feature_dim = args.feature_dim
         
         # Split Encoders for Actor and Critic
-        self.actor_encoder = Encoder(input_height=depth_h, input_width=depth_w, feature_dim=feature_dim).to(self.device)
-        self.critic_encoder = Encoder(input_height=depth_h, input_width=depth_w, feature_dim=feature_dim).to(self.device)
+        self.actor_encoder = Encoder(input_height=depth_h, input_width=depth_w, feature_dim=feature_dim, input_channels=C).to(self.device)
+        self.critic_encoder = Encoder(input_height=depth_h, input_width=depth_w, feature_dim=feature_dim, input_channels=C).to(self.device)
         
         # Target Encoders (Soft Update)
-        self.actor_encoder_target = Encoder(input_height=depth_h, input_width=depth_w, feature_dim=feature_dim).to(self.device)
+        self.actor_encoder_target = Encoder(input_height=depth_h, input_width=depth_w, feature_dim=feature_dim, input_channels=C).to(self.device)
         self.actor_encoder_target.load_state_dict(self.actor_encoder.state_dict())
         
-        self.critic_encoder_target = Encoder(input_height=depth_h, input_width=depth_w, feature_dim=feature_dim).to(self.device)
+        self.critic_encoder_target = Encoder(input_height=depth_h, input_width=depth_w, feature_dim=feature_dim, input_channels=C).to(self.device)
         self.critic_encoder_target.load_state_dict(self.critic_encoder.state_dict())
         
         # State dim = base_dim + encoder.repr_dim
@@ -72,25 +71,19 @@ class TD3Agent:
         self.noise_clip = args.noise_clip
         self.policy_freq = args.policy_freq
         self.batch_size = args.batch_size
+
         self.exploration_noise = args.exploration_noise
 
-        # OU Noise initialization - replace Gaussian noise with OU noise
-        self.ou_noise = OUNoise(
-            size=self.action_dim,
-            mu=0.0,
-            theta=getattr(args, 'ou_theta', 0.15),
-            sigma=getattr(args, 'ou_sigma', 0.2),
-            sigma_min=getattr(args, 'ou_sigma_min', 0.01),
-            dt=getattr(args, 'ou_dt', 1.0)
-        )
-        # Reset OU noise to initialize properly
-        self.ou_noise.reset()
-
+        
         self.total_it = 0
 
     def _encode(self, depth_batch: torch.Tensor, encoder_net) -> torch.Tensor:
+        # depth_batch shape: (frames, H, W) for non-recurrent
+        # print(f"Debug: _encode input shape: {depth_batch.shape}")
         if depth_batch.dim() == 3:
-            depth_batch = depth_batch.unsqueeze(1)
+            # Non-recurrent: (frames, H, W) -> (1, frames, H, W)
+            depth_batch = depth_batch.unsqueeze(0)
+            # print(f"Debug: after unsqueeze(0): {depth_batch.shape}")
         return encoder_net(depth_batch)
 
     def _concat_state(self, base: torch.Tensor, depth: torch.Tensor, encoder_net, detach_encoder: bool = False) -> torch.Tensor:
@@ -109,9 +102,8 @@ class TD3Agent:
             action = self.actor(state).cpu().numpy().flatten()
 
         if noise:
-            # Use OU noise instead of Gaussian noise
-            ou_noise = self.ou_noise.sample()
-            action = action + ou_noise
+            noise = np.random.normal(0, self.exploration_noise, size=self.action_dim)
+            action = action + noise
         
         # Clip to (-1, 1)
         action = np.clip(action, -1.0, 1.0)
@@ -122,6 +114,7 @@ class TD3Agent:
 
     def train(self, progress_ratio=0.0):
         self.total_it += 1
+
         if self.replay_buffer.size() < self.batch_size:
             return
 

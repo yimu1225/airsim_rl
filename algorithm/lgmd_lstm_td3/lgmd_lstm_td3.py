@@ -6,7 +6,6 @@ from torch.optim import Adam
 
 from .networks import Actor, Critic, DepthEncoder, MotionEncoder, LSTMEncoder, D_LGMD, BaseStateExpander
 from .buffer import SequenceReplayBuffer
-from ..ou_noise import OUNoise
 
 
 class D_LGMDLSTMTD3Agent:
@@ -104,17 +103,9 @@ class D_LGMDLSTMTD3Agent:
         self.policy_freq = args.policy_freq
         self.batch_size = args.batch_size
         self.grad_clip = getattr(args, "grad_clip", 1.0)
+        
+        self.exploration_noise = args.exploration_noise
 
-        # OU Noise initialization
-        self.ou_noise = OUNoise(
-            size=self.action_dim,
-            mu=0.0,
-            theta=getattr(args, 'ou_theta', 0.15),
-            sigma=getattr(args, 'ou_sigma', 0.2),
-            sigma_min=getattr(args, 'ou_sigma_min', 0.01),
-            dt=getattr(args, 'ou_dt', 1.0)
-        )
-        self.ou_noise.reset()
 
         self.total_it = 0
 
@@ -184,7 +175,8 @@ class D_LGMDLSTMTD3Agent:
             action = self.actor(state).cpu().numpy().flatten()
 
         if noise:
-            action = action + self.ou_noise.sample()
+            noise = np.random.normal(0, self.exploration_noise, size=self.action_dim)
+            action = action + noise
         
         action = np.clip(action, -1.0, 1.0)
         return action * self.action_scale + self.action_bias
@@ -192,8 +184,6 @@ class D_LGMDLSTMTD3Agent:
     def train(self, progress_ratio=0.0):
         self.total_it += 1
         
-        # 应用OU噪声衰减
-        self.ou_noise.scale_sigma(progress_ratio)
         
         if self.replay_buffer.size < self.batch_size:
             return

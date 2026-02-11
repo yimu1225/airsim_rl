@@ -36,12 +36,21 @@ class OUNoise:
     def scale_sigma(self, decay_ratio):
         """
         Explicitly scale sigma based on a decay ratio (e.g. from training progress).
-        New sigma = initial_sigma * (1 - decay_ratio)
+        Uses sigmoid-like decay: 前期慢，中期快，后期平缓
+        
+        Args:
+            decay_ratio: float between 0 and 1, representing training progress
         """
+        # Sigmoid-like decay: 前期慢，中期快，后期平缓
+        # 使用调整的sigmoid函数，从初始值衰减到最小值
+        x = 10 * (decay_ratio - 0.6)  # 调整sigmoid的中心和陡度
+        sigmoid_factor = 1 / (1 + np.exp(-x))  # 从0到1
+        current_sigma = self.initial_sigma - (self.initial_sigma - self.sigma_min) * sigmoid_factor
+        
         if self.sigma_min is not None:
-            self.sigma = max(self.sigma_min, self.initial_sigma * (1 - decay_ratio))
+            self.sigma = max(self.sigma_min, current_sigma)
         else:
-            self.sigma = self.initial_sigma * (1 - decay_ratio)
+            self.sigma = current_sigma
 
     def sample(self):
         noise = np.random.normal(size=self.size).astype(np.float32)

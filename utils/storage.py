@@ -11,7 +11,7 @@ class RolloutStorage(object):
                  recurrent_hidden_state_size):
 
         self.obs = torch.zeros(episode_length + 1, n_rollout_threads, *obs_shape)
-        self.inform = torch.zeros(episode_length + 1, n_rollout_threads, 9)
+        self.inform = torch.zeros(episode_length + 1, n_rollout_threads, 10)
         self.recurrent_hidden_states = torch.zeros(
             episode_length + 1, n_rollout_threads, recurrent_hidden_state_size)
         self.rewards = torch.zeros(episode_length, n_rollout_threads, 1)

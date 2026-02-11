@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import math
 
-class D_LGMD_Generic(nn.Module):
+class D_LGMD(nn.Module):
     """
     D-LGMD 通用版 (Generic Implementation)
     支持任意长度的时间序列输入 (T >= 4)。
@@ -132,21 +132,3 @@ class D_LGMD_Generic(nn.Module):
         S = F.relu(S_raw)
         
         return S
-
-# --- 测试用例 ---
-if __name__ == "__main__":
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    model = D_LGMD_Generic(device=device)
-    
-    # 模拟一个长序列输入: Batch=2, Time=10帧, RGB
-    T_input = 10
-    input_frames = torch.randn(2, T_input, 3, 224, 224).to(device)
-    
-    output = model(input_frames)
-    
-    print(f"输入形状: {input_frames.shape} (B, T, C, H, W)")
-    print(f"输出形状: {output.shape} (B, T-3, 1, H, W)")
-    
-    # 验证: 输入10帧，前3帧用于建立历史缓存，应该输出 7 帧结果
-    assert output.shape[1] == T_input - 3
-    print("测试通过：通用序列处理正常。")

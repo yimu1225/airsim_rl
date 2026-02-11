@@ -13,6 +13,10 @@ import cv2
 import time
 import numpy as np
 import os
+
+# Set CUDA memory allocator configuration to reduce fragmentation
+os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'expandable_segments:True'
+
 import collections
 from tqdm import trange
 
@@ -68,7 +72,10 @@ def main():
     if args.continue_last:
         actor_critic=torch.load(args.model_dir + "/agent_model" + ".pt")['model']
     else:
-        actor_critic = Policy(env.observation_space.shape,
+        # PPO Policy expects image shape for CNNBase initialization
+        # Observation is a Dict, so we grab the depth image shape
+        obs_shape = env.observation_space['depth'].shape
+        actor_critic = Policy(obs_shape,
                               env.action_space,
                               base_kwargs={'recurrent': args.recurrent_policy,
                                            'recurrent_input_size': args.recurrent_input_size,

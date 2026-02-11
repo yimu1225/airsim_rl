@@ -47,7 +47,7 @@ def train(env, agent, args):
     episode_num = 0
     total_timesteps = 0
     
-    start_timesteps = args.start_timesteps
+    start_timesteps = args.learning_starts
     max_timesteps = args.max_timesteps
     
     state = depth_image # Current depth
@@ -86,7 +86,7 @@ def train(env, agent, args):
              curr_frame = state[-1:]
              next_frame = next_state[-1:]
              
-             agent.replay_buffer.add(base, curr_frame, action, reward, next_base, next_frame, done_bool)
+             agent.replay_buffer.add(base, curr_frame, action, reward, done_bool)
              
              # Update history
              base_hist.append(next_base)

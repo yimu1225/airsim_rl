@@ -1,4 +1,8 @@
 import os
+
+# Set CUDA memory allocator configuration to reduce fragmentation
+os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'expandable_segments:True'
+
 import time
 import numpy as np
 import torch
@@ -28,9 +32,10 @@ def main():
     np.random.seed(args.seed)
 
     # State dim & Action dim
-    # env.reset() returns ([depth, inform], info)
+    # env.reset() returns (obs_dict, info)
     obs, _ = env.reset()
-    depth_image, inform = obs
+    depth_image = obs['depth']
+    inform = obs['base']
     
     base_dim = inform.shape[0]
     depth_shape = depth_image.shape
@@ -65,7 +70,7 @@ def main():
         episode_timesteps += 1
         
         # Select action
-        if total_timesteps < args.start_timesteps and args.load_model == "":
+        if total_timesteps < args.learning_starts and args.load_model == "":
             action = env.action_space.sample()
         else:
             action = agent.select_action(inform, state) # noise is True by default
@@ -75,7 +80,8 @@ def main():
         # state is [depth, inform]
         next_obs, reward, terminated, truncated, _ = env.step(action)
         done = terminated or truncated
-        next_state, next_inform = next_obs
+        next_state = next_obs['depth']
+        next_inform = next_obs['base']
         
         # Store data in replay buffer
         done_bool = float(done) 
@@ -87,7 +93,7 @@ def main():
         episode_reward += reward
 
         # Train (if enough samples)
-        if total_timesteps >= args.start_timesteps:
+        if total_timesteps >= args.learning_starts:
             train_info = agent.train()
             if train_info:
                 if total_timesteps % 100 == 0:

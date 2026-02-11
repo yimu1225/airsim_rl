@@ -1,6 +1,11 @@
+import os
+
+# Set CUDA memory allocator configuration to reduce fragmentation
+os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'expandable_segments:True'
+
 import math, random
 from gym_airsim.envs.AirGym import AirSimEnv
-import gym
+import gymnasium as gym
 import numpy as np
 from tensorboardX import SummaryWriter
 import torch
@@ -12,7 +17,7 @@ from pathlib import Path
 from collections import deque
 import os
 from tqdm import trange
-INCORPORATE=9
+INCORPORATE=10
 
 class ReplayBuffer(object):
     def __init__(self, capacity):

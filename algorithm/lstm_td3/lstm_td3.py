@@ -6,7 +6,6 @@ from torch.optim import Adam
 
 from .networks import Actor, Critic, VisualEncoder, LSTMEncoder, BaseStateExpander
 from .buffer import SequenceReplayBuffer
-from ..ou_noise import OUNoise
 
 
 class LSTMTD3Agent:
@@ -57,12 +56,10 @@ class LSTMTD3Agent:
         # LSTM Encoder
         self.lstm_hidden_dim = args.lstm_hidden_dim
         self.critic_lstm = LSTMEncoder(
-            expanded_base_dim=expanded_base_dim,
             visual_feature_dim=feature_dim,
             hidden_dim=self.lstm_hidden_dim
         ).to(self.device)
         self.critic_lstm_target = LSTMEncoder(
-            expanded_base_dim=expanded_base_dim,
             visual_feature_dim=feature_dim,
             hidden_dim=self.lstm_hidden_dim
         ).to(self.device)
@@ -73,19 +70,17 @@ class LSTMTD3Agent:
         self.actor_visual_encoder_target = VisualEncoder(input_height=h, input_width=w, feature_dim=feature_dim, input_channels=C).to(self.device)
 
         self.actor_lstm = LSTMEncoder(
-            expanded_base_dim=expanded_base_dim,
             visual_feature_dim=feature_dim,
             hidden_dim=self.lstm_hidden_dim
         ).to(self.device)
         self.actor_lstm_target = LSTMEncoder(
-            expanded_base_dim=expanded_base_dim,
             visual_feature_dim=feature_dim,
             hidden_dim=self.lstm_hidden_dim
         ).to(self.device)
         self.actor_lstm_target.load_state_dict(self.actor_lstm.state_dict())
         
-        # State dim for Actor/Critic is the LSTM output
-        self.state_dim = self.lstm_hidden_dim
+        # State dim for Actor/Critic is LSTM output + current base state
+        self.state_dim = self.lstm_hidden_dim + self.base_dim
 
         # Actor & Critic
         self.actor = Actor(self.state_dim, action_space.shape, args.hidden_dim).to(self.device)
@@ -112,28 +107,21 @@ class LSTMTD3Agent:
         self.policy_freq = args.policy_freq
         self.batch_size = args.batch_size
         self.grad_clip = getattr(args, "grad_clip", 1.0)
+        
+        self.exploration_noise = args.exploration_noise
 
-        # OU Noise initialization
-        self.ou_noise = OUNoise(
-            size=self.action_dim,
-            mu=0.0,
-            theta=getattr(args, 'ou_theta', 0.15),
-            sigma=getattr(args, 'ou_sigma', 0.2),
-            sigma_min=getattr(args, 'ou_sigma_min', 0.01),
-            dt=getattr(args, 'ou_dt', 1.0)
-        )
-        self.ou_noise.reset()
 
         self.total_it = 0
 
     def _process_sequence(self, base, depth, visual_encoder, lstm_encoder, base_expander, detach_encoder=False):
         """
         Process sequence with frame-by-frame LSTM.
+        LSTM only processes visual features, base state is concatenated at the end.
         Args:
             base: (B, K, D_base)
             depth: (B, K, 1, H, W)
         Returns:
-            state: (B, lstm_hidden_dim)
+            state: (B, lstm_hidden_dim + base_dim) - LSTM output concatenated with current base state
         """
         B, K, _, H, W = depth.shape
         
@@ -147,14 +135,15 @@ class LSTMTD3Agent:
         
         if detach_encoder:
             visual_feat = visual_feat.detach()
-        
-        # Base State Expansion: Batch process for efficiency
-        # Similarly, linear transformation is independent per frame
-        base_expanded = base_expander(base)  # (B, K, expanded_base_dim)
             
-        # LSTM Processing: Strictly frame-by-frame inside LSTMEncoder
-        # For each t: concat(base_expanded_t, visual_feat_t) -> LSTM(h_{t-1}) -> h_t
-        state = lstm_encoder(base_expanded, visual_feat)  # (B, lstm_hidden_dim)
+        # LSTM Processing: Only visual features
+        lstm_state = lstm_encoder(visual_feat)  # (B, lstm_hidden_dim)
+        
+        # Get current base state (last timestep)
+        current_base = base[:, -1, :]  # (B, base_dim)
+        
+        # Concatenate LSTM output with current base state
+        state = torch.cat([lstm_state, current_base], dim=1)  # (B, lstm_hidden_dim + base_dim)
         
         return state
 
@@ -169,17 +158,14 @@ class LSTMTD3Agent:
             action = self.actor(state).cpu().numpy().flatten()
 
         if noise:
-            action = action + self.ou_noise.sample()
+            noise = np.random.normal(0, self.exploration_noise, size=self.action_dim)
+            action = action + noise
         
         action = np.clip(action, -1.0, 1.0)
         return action * self.action_scale + self.action_bias
 
     def train(self, progress_ratio=0.0):
         self.total_it += 1
-        
-        # 应用OU噪声衰减
-        self.ou_noise.scale_sigma(progress_ratio)
-        
         if self.replay_buffer.size < self.batch_size:
             return
 

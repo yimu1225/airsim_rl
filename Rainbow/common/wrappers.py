@@ -1,7 +1,7 @@
 import numpy as np
 from collections import deque
-import gym
-from gym import spaces
+import gymnasium as gym
+from gymnasium import spaces
 import cv2
 cv2.ocl.setUseOpenCL(False)
 
