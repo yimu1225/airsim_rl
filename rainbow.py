@@ -1,4 +1,9 @@
-import gym
+import os
+
+# Set CUDA memory allocator configuration to reduce fragmentation
+os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'expandable_segments:True'
+
+import gymnasium as gym
 import numpy as np
 import random,math
 import torch

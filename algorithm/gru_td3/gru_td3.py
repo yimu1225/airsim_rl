@@ -6,7 +6,6 @@ from torch.optim import Adam
 
 from .networks import Actor, Critic, VisualEncoder, GRUEncoder, BaseStateExpander
 from .buffer import SequenceReplayBuffer
-from ..ou_noise import OUNoise
 
 
 class GRUTD3Agent:
@@ -36,8 +35,8 @@ class GRUTD3Agent:
         self.action_bias_tensor = torch.from_numpy(self.action_bias).float().to(self.device)
 
         # Encoders
-        _, h, w = depth_shape
-        feature_dim = args.depth_feature_dim
+        C, h, w = depth_shape
+        feature_dim = args.feature_dim
 
         # Base State Expander
         expanded_base_dim = 32
@@ -50,21 +49,19 @@ class GRUTD3Agent:
         self.critic_base_expander_target.load_state_dict(self.critic_base_expander.state_dict())
 
         # CRITIC Encoders
-        self.critic_visual_encoder = VisualEncoder(input_height=h, input_width=w, feature_dim=feature_dim).to(self.device)
-        self.critic_visual_encoder_target = VisualEncoder(input_height=h, input_width=w, feature_dim=feature_dim).to(self.device)
+        self.critic_visual_encoder = VisualEncoder(input_height=h, input_width=w, feature_dim=feature_dim, input_channels=C).to(self.device)
+        self.critic_visual_encoder_target = VisualEncoder(input_height=h, input_width=w, feature_dim=feature_dim, input_channels=C).to(self.device)
         self.critic_visual_encoder_target.load_state_dict(self.critic_visual_encoder.state_dict())
         
         # GRU Encoder (Critic)
         self.gru_hidden_dim = args.gru_hidden_dim
         gru_layers = getattr(args, 'gru_num_layers', 1)
         self.critic_gru = GRUEncoder(
-            expanded_base_dim=expanded_base_dim,
             visual_feature_dim=feature_dim,
             hidden_dim=self.gru_hidden_dim,
             num_layers=gru_layers
         ).to(self.device)
         self.critic_gru_target = GRUEncoder(
-            expanded_base_dim=expanded_base_dim,
             visual_feature_dim=feature_dim,
             hidden_dim=self.gru_hidden_dim,
             num_layers=gru_layers
@@ -72,32 +69,30 @@ class GRUTD3Agent:
         self.critic_gru_target.load_state_dict(self.critic_gru.state_dict())
         
         # ACTOR Encoders
-        self.actor_visual_encoder = VisualEncoder(input_height=h, input_width=w, feature_dim=feature_dim).to(self.device)
-        self.actor_visual_encoder_target = VisualEncoder(input_height=h, input_width=w, feature_dim=feature_dim).to(self.device)
+        self.actor_visual_encoder = VisualEncoder(input_height=h, input_width=w, feature_dim=feature_dim, input_channels=C).to(self.device)
+        self.actor_visual_encoder_target = VisualEncoder(input_height=h, input_width=w, feature_dim=feature_dim, input_channels=C).to(self.device)
         self.actor_visual_encoder_target.load_state_dict(self.actor_visual_encoder.state_dict())
 
         self.actor_gru = GRUEncoder(
-            expanded_base_dim=expanded_base_dim,
             visual_feature_dim=feature_dim,
             hidden_dim=self.gru_hidden_dim,
             num_layers=gru_layers
         ).to(self.device)
         self.actor_gru_target = GRUEncoder(
-            expanded_base_dim=expanded_base_dim,
             visual_feature_dim=feature_dim,
             hidden_dim=self.gru_hidden_dim,
             num_layers=gru_layers
         ).to(self.device)
         self.actor_gru_target.load_state_dict(self.actor_gru.state_dict())
         
-        # State dim for Actor/Critic is the GRU output
-        self.state_dim = self.gru_hidden_dim
+        # State dim for Actor/Critic is GRU output + current base state
+        self.state_dim = self.gru_hidden_dim + self.base_dim
 
         # Actor & Critic
         self.actor = Actor(self.state_dim, action_space.shape, args.hidden_dim).to(self.device)
         self.actor_target = Actor(self.state_dim, action_space.shape, args.hidden_dim).to(self.device)
         self.actor_target.load_state_dict(self.actor.state_dict())
-        
+
         self.critic = Critic(self.state_dim, action_space.shape, args.hidden_dim).to(self.device)
         self.critic_target = Critic(self.state_dim, action_space.shape, args.hidden_dim).to(self.device)
         self.critic_target.load_state_dict(self.critic.state_dict())
@@ -117,30 +112,22 @@ class GRUTD3Agent:
         self.noise_clip = args.noise_clip
         self.policy_freq = args.policy_freq
         self.batch_size = args.batch_size
-        self.exploration_noise = args.exploration_noise
         self.grad_clip = getattr(args, "grad_clip", 1.0)
+        
+        self.exploration_noise = args.exploration_noise
 
-        # OU Noise initialization
-        self.ou_noise = OUNoise(
-            size=self.action_dim,
-            mu=0.0,
-            theta=getattr(args, 'ou_theta', 0.15),
-            sigma=getattr(args, 'ou_sigma', 0.2),
-            sigma_min=getattr(args, 'ou_sigma_min', 0.01),
-            dt=getattr(args, 'ou_dt', 1.0)
-        )
-        self.ou_noise.reset()
 
         self.total_it = 0
 
     def _process_sequence(self, base, depth, visual_encoder, gru_encoder, base_expander, detach_encoder=False):
         """
         Process sequence with frame-by-frame GRU.
+        GRU only processes visual features, base state is concatenated at the end.
         Args:
             base: (B, K, D_base)
             depth: (B, K, 1, H, W)
         Returns:
-            state: (B, gru_hidden_dim)
+            state: (B, gru_hidden_dim + base_dim) - GRU output concatenated with current base state
         """
         B, K, _, H, W = depth.shape
         
@@ -154,13 +141,15 @@ class GRUTD3Agent:
         
         if detach_encoder:
             visual_feat = visual_feat.detach()
+            
+        # GRU Processing: Only visual features
+        gru_state = gru_encoder(visual_feat)  # (B, gru_hidden_dim)
         
-        # Base State Expansion: Batch process for efficiency
-        base_expanded = base_expander(base)  # (B, K, expanded_base_dim)
+        # Get current base state (last timestep)
+        current_base = base[:, -1, :]  # (B, base_dim)
         
-        # GRU Processing: Strictly frame-by-frame inside GRUEncoder
-        # For each t: concat(base_expanded_t, visual_feat_t) -> GRU(h_{t-1}) -> h_t
-        state = gru_encoder(base_expanded, visual_feat)  # (B, gru_hidden_dim)
+        # Concatenate GRU output with current base state
+        state = torch.cat([gru_state, current_base], dim=1)  # (B, gru_hidden_dim + base_dim)
         
         return state
 
@@ -175,7 +164,8 @@ class GRUTD3Agent:
             action = self.actor(state).cpu().numpy().flatten()
 
         if noise:
-            action = action + self.ou_noise.sample()
+            noise = np.random.normal(0, self.exploration_noise, size=self.action_dim)
+            action = action + noise
         
         action = np.clip(action, -1.0, 1.0)
         return action * self.action_scale + self.action_bias

@@ -4,6 +4,8 @@ import math
 import time
 import cv2
 from settings_folder import settings
+import msgpackrpc
+import functools
 
 class CompatImageResponse:
     """
@@ -94,7 +96,8 @@ class AirLearningClient(object):
         client_port = port if port is not None else getattr(settings, 'port', 41451)
         
         # connect to the AirSim simulator
-        self.client = airsim.MultirotorClient(ip=client_ip, port=client_port)
+        # Set timeout to 10 seconds to prevent hanging if game crashes
+        self.client = airsim.MultirotorClient(ip=client_ip, port=client_port, timeout_value=10)
         self._apply_client_patches()
         self.client.confirmConnection()
         self.client.enableApiControl(True)
@@ -148,7 +151,7 @@ class AirLearningClient(object):
         response = responses[0]
         img1d = np.fromstring(response.image_data_uint8, dtype=np.uint8)
         if ((response.width != 0 or response.height != 0)):
-            img_rgba = img1d.reshape((response.height, response.width, 3)) # AirSim 如果不压缩通常返回3通道？还是4通道BGRA？
+            # img_rgba = img1d.reshape((response.height, response.width, 3)) # AirSim 如果不压缩通常返回3通道？还是4通道BGRA？
             # 然而，如果 compressed=False（上面的默认值），它返回未压缩的 "image_data_uint8"。
             # 通常是 BGRA（4通道）。
             # 如果设置了默认捕获，我们需要验证。
@@ -166,10 +169,10 @@ class AirLearningClient(object):
             self.last_rgb=rgb
         else:
             print("Something bad happened! Restting AirSim!")
-            #self.AirSim_reset()
+            self.AirSim_reset()
 
             rgb=self.last_rgb
-        #rgb = cv2.resize(rgb, (self.width, self.height), interpolation=cv2.INTER_AREA)
+        rgb = cv2.resize(rgb, (128, 128), interpolation=cv2.INTER_AREA)
 
         return rgb
 
@@ -206,9 +209,9 @@ class AirLearningClient(object):
 
 
         ## 深度图预处理
-        img = img.clip(max=20)
-        scale=255/20
-        img=img*scale#, dtype=np.uint8)
+        img = img.clip(max=10)
+        # 归一化到 0-255 范围
+        img = (img / 10.0) * 255.0
 
         img2d=[]
         for i in range(len(responses)):
@@ -220,17 +223,29 @@ class AirLearningClient(object):
 
         self.last_img = np.stack(img2d, axis=0)
 
-        # Resize to 112x112
+        # Resize to 128x128
         img2d_resized = []
         for im in img2d:
-             if im.shape != (112, 112):
-                 im = cv2.resize(im, (112, 112), interpolation=cv2.INTER_AREA)
+             if im.shape != (128, 128):
+                 im = cv2.resize(im, (128, 128), interpolation=cv2.INTER_AREA)
              img2d_resized.append(im)
         
         if len(img2d_resized)>1:
             return img2d_resized
         else:
             return img2d_resized[0]
+
+    def getScreenGray(self):
+        rgb = self.getScreenRGB()
+        if rgb is None:
+             return np.zeros((128, 128), dtype=np.float32)
+        
+        # Resize if needed
+        if rgb.shape[0] != 128 or rgb.shape[1] != 128:
+             rgb = cv2.resize(rgb, (128, 128), interpolation=cv2.INTER_AREA)
+
+        gray = cv2.cvtColor(rgb, cv2.COLOR_BGR2GRAY)
+        return gray.astype(np.float32)
 
     def get_ryp(self):
         """
@@ -347,9 +362,11 @@ class AirLearningClient(object):
         current_ip = self.client._client._ip if hasattr(self.client, '_client') and hasattr(self.client._client, '_ip') else settings.ip
         current_port = self.client._client._port if hasattr(self.client, '_client') and hasattr(self.client._client, '_port') else getattr(settings, 'port', 41451)
         
+        # Connection retry loop to handle timeout during environment reset
         self.client = airsim.MultirotorClient(ip=current_ip, port=current_port)
         self._apply_client_patches()
         self.client.confirmConnection()
+        
         
         # 增加 reset 确保仿真状态重置 (坐标系原点重置为 PlayerStart)
         self.client.reset()
@@ -373,7 +390,7 @@ class AirLearningClient(object):
         
         # 打印当前起飞高度
         pos = self.client.simGetVehiclePose().position
-        print(f"[AirSim_reset] Reset & Takeoff sequence finished. Current Altitude (Z): {pos.z_val:.4f} (Target: {self.z})")
+        # print(f"[AirSim_reset] Reset & Takeoff sequence finished. Current Altitude (Z): {pos.z_val:.4f} (Target: {self.z})")
 
     def unreal_reset(self):
         """
@@ -420,9 +437,38 @@ class AirLearningClient(object):
         yaw_mode = airsim.YawMode(is_rate=True, yaw_or_rate=math.degrees(yaw_rate)) 
         
         # 使用 moveByVelocityAsync 控制 3D 速度 (vx, vy, vz)
-        self.client.moveByVelocityAsync(vx, vy, v_z, duration, airsim.DrivetrainType.MaxDegreeOfFreedom, yaw_mode).join()
-        
-        return self.client.simGetCollisionInfo().has_collided
+        try:
+             self.client.moveByVelocityAsync(vx, vy, v_z, duration, airsim.DrivetrainType.MaxDegreeOfFreedom, yaw_mode).join()
+        except msgpackrpc.error.TimeoutError:
+             print("RPC TimeoutError during moveByVelocityAsync, ignoring and proceeding to collision check")
+
+        for attempt in range(3):
+            try:
+                return self.client.simGetCollisionInfo().has_collided
+            except msgpackrpc.error.TimeoutError:
+                print(f"RPC TimeoutError during simGetCollisionInfo (Attempt {attempt+1}/3)")
+                if attempt < 2:
+                    time.sleep(1)
+                else:
+                    print("Max retries reached. Triggering game restart...")
+                    # Lazy import to avoid circular dependencies if any
+                    from game_handling.game_handler_class import GameHandler
+                    gh = GameHandler()
+                    gh.restart_game()
+                    
+                    # Reconnect client after restart
+                    client_ip = settings.ip
+                    client_port = getattr(settings, 'port', 41451)
+                    
+                    print("Reconnecting AirLearningClient...")
+                    self.client = airsim.MultirotorClient(ip=client_ip, port=client_port, timeout_value=3600)
+                    self._apply_client_patches()
+                    self.client.confirmConnection()
+                    self.client.enableApiControl(True)
+                    self.client.armDisarm(True)
+                    
+                    # After restart, we are safe, returns False for collision
+                    return False
 
     def take_continious_action(self, action, duration=None):
         """
@@ -661,4 +707,3 @@ class AirLearningClient(object):
         collided = self.client.simGetCollisionInfo().has_collided
 
         return collided
-

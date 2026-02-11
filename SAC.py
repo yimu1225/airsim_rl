@@ -1,3 +1,8 @@
+import os
+
+# Set CUDA memory allocator configuration to reduce fragmentation
+os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'expandable_segments:True'
+
 from copy import deepcopy
 import itertools
 from torch.optim import Adam

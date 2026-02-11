@@ -1,0 +1,48 @@
+# Core dependencies for UAV Navigation RL project
+ray[rllib]==2.51.2
+airsim==1.8.1
+gymnasium==1.1.1
+numpy==2.0.2
+scipy==1.13.0
+opencv-contrib-python==4.10.0.84
+matplotlib==3.9.4
+pandas==2.3.3
+tensorboard==2.17.0
+tqdm==4.66.2
+psutil
+ncps
+
+# Additional dependencies that might be needed
+Pillow==10.3.0
+msgpack-rpc-python==0.4
+
+
+pip install numpy msgpack-rpc-python
+pip install airsim --no-build-isolation
+
+tornado==4.5.3
+msgpack==0.6.2
+
+%% Vmamba
+
+packaging
+triton
+timm==0.4.12
+pytest 
+chardet 
+yacs 
+termcolor
+submitit 
+tensorboardX
+fvcore
+seaborn
+gymnasium[classic_control]
+
+pip install torch==2.7.0 torchvision==0.22.0 torchaudio==2.7.0 --index-url https://download.pytorch.org/whl/cu128
+
+conda install -c "nvidia/label/cuda-12.8.0" cuda-toolkit -y
+conda install -c "nvidia/label/cuda-12.8.0" cuda-nvcc -y
+
+tensorboard --logdir=./results 
+
+python3 main_async.py

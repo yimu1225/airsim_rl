@@ -54,12 +54,8 @@ class RolloutWorker:
             raise e
         
         # Handle Reset
-        # AirSimEnv returns observation directly (Old Gym style)
-        # Observation is a list: [depth_stack (list), inform (numpy)]
+        # AirSimEnv returns observation (Dict) and info
         self.state, _ = self.env.reset()
-        if isinstance(self.state, tuple) and len(self.state) == 2 and isinstance(self.state[1], dict):
-             # Detected Gymnasium style (obs, info), though unlikely for this env
-             self.state = self.state[0]
         
         # Initialize Agent
         self.agent = self._create_agent(self.args, device)
@@ -68,21 +64,14 @@ class RolloutWorker:
         algo = getattr(args, 'algorithm_name', 'gru_td3')
         
         # Guess dimensions from state
-        # self.state is likely [depth_stack, inform]
-        if isinstance(self.state, (list, tuple)) and len(self.state) == 2:
-            d = self.state[0]
-            inform = self.state[1]
-            if isinstance(d, list) and len(d) > 0:
-                depth_shape = (len(d), *d[0].shape)
-            elif hasattr(d, 'shape'):
-                depth_shape = d.shape
-            else:
-                depth_shape = (4, 112, 112) # Fallback
-            
-            base_dim = inform.shape[0] if hasattr(inform, 'shape') else 8
+        if isinstance(self.state, dict) and 'depth' in self.state and 'base' in self.state:
+            d = self.state['depth']
+            inform = self.state['base']
+            depth_shape = d.shape
+            base_dim = inform.shape[0]
         else:
-            base_dim = 8
-            depth_shape = (4, 112, 112)
+            base_dim = 10
+            depth_shape = (4, 128, 128)
         
         if algo == 'td3':
             return TD3Agent(base_dim, depth_shape, self.env.action_space, args, device)
@@ -96,16 +85,15 @@ class RolloutWorker:
         data = []
         for _ in range(num_steps):
             # unpack state
-            if isinstance(self.state, (list, tuple)) and len(self.state) == 2:
-                depth_stack_list, base_state = self.state
+            if isinstance(self.state, dict):
+                depth_stack = self.state['depth']
+                base_state = self.state['base']
             else:
                 print(f"Error: Invalid state structure: {type(self.state)}")
                 break # break to avoid crash
             
-            depth_stack = np.array(depth_stack_list) 
-            
             # Prepare input for Agent (Sequence format)
-            base_seq = np.tile(base_state, (len(depth_stack), 1)) 
+            base_seq = np.tile(base_state, (depth_stack.shape[0], 1)) 
             depth_seq = depth_stack # (4, H, W)
             
             # Note:
@@ -183,12 +171,12 @@ def train_parallel():
     # (Stack_frames, H, W) -> e.g. (4, 112, 112)
     # config uses 112 or args.image_height? 
     # Let's trust args.image_height if exists, else 112
-    h = getattr(args, 'image_height', 112)
-    w = getattr(args, 'image_width', 112)
+    h = getattr(args, 'image_height', 128)
+    w = getattr(args, 'image_width', 128)
     stack = 4 # Default in AirSimEnv
     
     dummy_depth_shape = (stack, h, w)
-    base_dim = 8
+    base_dim = 10
 
     algo = getattr(args, 'algorithm_name', 'gru_td3')
     print(f"Initializing Master Agent: {algo}")
@@ -233,7 +221,7 @@ def train_parallel():
             global_step += len(worker_data)
         
         # 3. Train
-        if global_step > args.start_timesteps:
+        if global_step > args.learning_starts:
             learner_agent.train() # or learner_agent.update(args.batch_size) 
             
             # 4. Sync Weights

@@ -35,11 +35,11 @@ class CNN(nn.Module):
     Used by all algorithms for consistent feature extraction.
     Now uses Pooling layers instead of adaptive_avg_pool2d.
     """
-    def __init__(self, input_height, input_width, feature_dim):
+    def __init__(self, input_height, input_width, feature_dim, input_channels=1):
         super().__init__()
 
         # Feature expansion factors
-        f1 = 2
+        f1 = 4
         f2 = 8
         f3 = 16
         f4 = 32
@@ -47,7 +47,7 @@ class CNN(nn.Module):
 
         self.net = nn.Sequential(
             # 第一层: MaxPool(2x2) -> 输入高宽减半
-            nn.Conv2d(1, f1, kernel_size=5, stride=2, padding=2),
+            nn.Conv2d(input_channels, f1, kernel_size=5, stride=2, padding=2),
             nn.BatchNorm2d(f1),
             nn.ReLU(inplace=True),
             nn.MaxPool2d(kernel_size=2, stride=2),
@@ -77,7 +77,7 @@ class CNN(nn.Module):
 
         # Calculate flattened size
         with torch.no_grad():
-            dummy_input = torch.zeros(1, 1, input_height, input_width)
+            dummy_input = torch.zeros(1, input_channels, input_height, input_width)
             dummy_output = self.net(dummy_input)
             self.n_flatten = dummy_output.view(1, -1).size(1)
 
