@@ -7,6 +7,20 @@ os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'expandable_segments:True'
 
 
 
+def _parse_seed_value(seed_value):
+    if isinstance(seed_value, int):
+        return seed_value
+    if seed_value is None:
+        return seed_value
+    seed_str = str(seed_value).strip()
+    if seed_str == "":
+        return seed_value
+    if "," in seed_str:
+        seeds = [s.strip() for s in seed_str.split(",") if s.strip() != ""]
+        return [int(s) for s in seeds]
+    return int(seed_str)
+
+
 def get_config(argv=None):
     # get the parameters
     parser = argparse.ArgumentParser(description='AirSim_RL')
@@ -19,7 +33,7 @@ def get_config(argv=None):
     parser.add_argument("--smooth_window", type=int, default=1000, help="平滑窗口大小，用于平滑学习曲线")
 
     # 训练设置 (Training Setup)
-    parser.add_argument("--seed", type=int, default=88, help="随机种子")
+    parser.add_argument("--seed", type=str, default="88,1", help="随机种子 (支持逗号分隔多个种子)")
     parser.add_argument("--cuda", action='store_false', default=True, help="是否使用CUDA")
     parser.add_argument("--cuda_deterministic", action='store_false', default=True, help="CUDA是否确定性")
     parser.add_argument("--n_training_threads", type=int, default=1, help="训练线程数")
@@ -180,6 +194,7 @@ def get_config(argv=None):
 
     # Ray Tune workers inject additional CLI args; ignore unknowns for compatibility.
     args, _ = parser.parse_known_args(args=argv)
+    args.seed = _parse_seed_value(args.seed)
     
 
     return args
