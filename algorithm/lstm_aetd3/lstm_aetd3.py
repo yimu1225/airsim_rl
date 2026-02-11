@@ -4,7 +4,7 @@ import torch.nn.functional as F
 from torch import nn
 from torch.optim import Adam
 
-from .networks import Actor, Critic, VisualEncoder, LSTMEncoder, MetaNet, BaseStateExpander
+from .networks import Actor, Critic, VisualEncoder, LSTMEncoder, MetaNet
 from .buffer import SequenceReplayBuffer
 
 
@@ -37,16 +37,6 @@ class LSTMAETD3Agent:
         # Encoders
         C, h, w = depth_shape
         feature_dim = args.feature_dim
-
-        # Base State Expanders (separate for actor/critic, like visual encoders)
-        expanded_base_dim = 32
-        self.actor_base_expander = BaseStateExpander(self.base_dim, expanded_dim=expanded_base_dim).to(self.device)
-        self.actor_base_expander_target = BaseStateExpander(self.base_dim, expanded_dim=expanded_base_dim).to(self.device)
-        self.actor_base_expander_target.load_state_dict(self.actor_base_expander.state_dict())
-
-        self.critic_base_expander = BaseStateExpander(self.base_dim, expanded_dim=expanded_base_dim).to(self.device)
-        self.critic_base_expander_target = BaseStateExpander(self.base_dim, expanded_dim=expanded_base_dim).to(self.device)
-        self.critic_base_expander_target.load_state_dict(self.critic_base_expander.state_dict())
 
         # CRITIC Encoders
         self.critic_visual_encoder = VisualEncoder(input_height=h, input_width=w, feature_dim=feature_dim, input_channels=C).to(self.device)
@@ -99,10 +89,10 @@ class LSTMAETD3Agent:
         self.meta_net = MetaNet(meta_input_dim, self.adaptive_k).to(self.device)
 
         # Optimizers
-        self.actor_params = list(self.actor.parameters()) + list(self.actor_visual_encoder.parameters()) + list(self.actor_base_expander.parameters()) + list(self.actor_lstm.parameters())
+        self.actor_params = list(self.actor.parameters()) + list(self.actor_visual_encoder.parameters()) + list(self.actor_lstm.parameters())
         self.actor_optimizer = Adam(self.actor_params, lr=args.actor_lr)
         
-        self.critic_params = list(self.critic.parameters()) + list(self.critic_visual_encoder.parameters()) + list(self.critic_base_expander.parameters()) + list(self.critic_lstm.parameters())
+        self.critic_params = list(self.critic.parameters()) + list(self.critic_visual_encoder.parameters()) + list(self.critic_lstm.parameters())
         self.critic_optimizer = Adam(self.critic_params, lr=args.critic_lr)
         
         self.meta_optimizer = Adam(self.meta_net.parameters(), lr=args.adaptive_meta_lr)
@@ -122,7 +112,7 @@ class LSTMAETD3Agent:
 
         self.total_it = 0
 
-    def _process_sequence(self, base, depth, visual_encoder, lstm_encoder, base_expander, detach_encoder=False):
+    def _process_sequence(self, base, depth, visual_encoder, lstm_encoder, detach_encoder=False):
         """
         Process sequence with frame-by-frame LSTM.
         LSTM only processes visual features, base state is concatenated at the end.
@@ -163,7 +153,7 @@ class LSTMAETD3Agent:
         depth = torch.as_tensor(depth_seq, dtype=torch.float32, device=self.device).unsqueeze(0)
         
         with torch.no_grad():
-            state = self._process_sequence(base, depth, self.actor_visual_encoder, self.actor_lstm, self.actor_base_expander)
+            state = self._process_sequence(base, depth, self.actor_visual_encoder, self.actor_lstm)
             action = self.actor(state).cpu().numpy().flatten()
 
         if noise:
@@ -197,14 +187,14 @@ class LSTMAETD3Agent:
         action = (action - self.action_bias_tensor) / self.action_scale_tensor
 
         # Forward pass for current state (with gradients, using Critic encoders)
-        state = self._process_sequence(base, depth, self.critic_visual_encoder, self.critic_lstm, self.critic_base_expander, detach_encoder=False)
+        state = self._process_sequence(base, depth, self.critic_visual_encoder, self.critic_lstm, detach_encoder=False)
 
         with torch.no_grad():
             # Forward pass for next state (no gradients, using Critic Target encoders)
-            next_state = self._process_sequence(next_base, next_depth, self.critic_visual_encoder_target, self.critic_lstm_target, self.critic_base_expander_target, detach_encoder=True)
+            next_state = self._process_sequence(next_base, next_depth, self.critic_visual_encoder_target, self.critic_lstm_target, detach_encoder=True)
 
             # Actor Target logic needs next state from Actor Target encoders
-            next_state_actor = self._process_sequence(next_base, next_depth, self.actor_visual_encoder_target, self.actor_lstm_target, self.actor_base_expander_target, detach_encoder=True)
+            next_state_actor = self._process_sequence(next_base, next_depth, self.actor_visual_encoder_target, self.actor_lstm_target, detach_encoder=True)
 
             # AE-TD3 Target
             base_next_action = self.actor_target(next_state_actor)
@@ -238,7 +228,6 @@ class LSTMAETD3Agent:
         # Clip gradients
         torch.nn.utils.clip_grad_norm_(self.critic.parameters(), self.grad_clip)
         torch.nn.utils.clip_grad_norm_(self.critic_visual_encoder.parameters(), self.grad_clip)
-        torch.nn.utils.clip_grad_norm_(self.critic_base_expander.parameters(), self.grad_clip)
         torch.nn.utils.clip_grad_norm_(self.critic_lstm.parameters(), self.grad_clip)
         torch.nn.utils.clip_grad_norm_(self.meta_net.parameters(), self.grad_clip)
                 
@@ -249,11 +238,11 @@ class LSTMAETD3Agent:
         actor_loss = 0.0
         if self.total_it % self.policy_freq == 0:
             # 1. State from Actor (gradients flow to actor encoders)
-            state_actor = self._process_sequence(base, depth, self.actor_visual_encoder, self.actor_lstm, self.actor_base_expander, detach_encoder=False)
+            state_actor = self._process_sequence(base, depth, self.actor_visual_encoder, self.actor_lstm, detach_encoder=False)
             
             # 2. State for Critic (detached/no_grad, consistent with critic update input)
             with torch.no_grad():
-                state_critic = self._process_sequence(base, depth, self.critic_visual_encoder, self.critic_lstm, self.critic_base_expander, detach_encoder=False)
+                state_critic = self._process_sequence(base, depth, self.critic_visual_encoder, self.critic_lstm, detach_encoder=False)
 
             q1, _ = self.critic(state_critic, self.actor(state_actor))
             actor_loss = -q1.mean()
@@ -262,7 +251,6 @@ class LSTMAETD3Agent:
             actor_loss.backward()
             torch.nn.utils.clip_grad_norm_(self.actor.parameters(), self.grad_clip)
             torch.nn.utils.clip_grad_norm_(self.actor_visual_encoder.parameters(), self.grad_clip)
-            torch.nn.utils.clip_grad_norm_(self.actor_base_expander.parameters(), self.grad_clip)
             torch.nn.utils.clip_grad_norm_(self.actor_lstm.parameters(), self.grad_clip)
             self.actor_optimizer.step()
 
@@ -271,16 +259,12 @@ class LSTMAETD3Agent:
                 target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
             for param, target_param in zip(self.critic_visual_encoder.parameters(), self.critic_visual_encoder_target.parameters()):
                 target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
-            for param, target_param in zip(self.critic_base_expander.parameters(), self.critic_base_expander_target.parameters()):
-                target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
             for param, target_param in zip(self.critic_lstm.parameters(), self.critic_lstm_target.parameters()):
                 target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
 
             for param, target_param in zip(self.actor.parameters(), self.actor_target.parameters()):
                 target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
             for param, target_param in zip(self.actor_visual_encoder.parameters(), self.actor_visual_encoder_target.parameters()):
-                target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
-            for param, target_param in zip(self.actor_base_expander.parameters(), self.actor_base_expander_target.parameters()):
                 target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
             for param, target_param in zip(self.actor_lstm.parameters(), self.actor_lstm_target.parameters()):
                 target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
@@ -301,16 +285,10 @@ class LSTMAETD3Agent:
             'actor_visual_encoder_target': self.actor_visual_encoder_target.state_dict(),
             'actor_lstm': self.actor_lstm.state_dict(),
             'actor_lstm_target': self.actor_lstm_target.state_dict(),
-            'actor_base_expander': self.actor_base_expander.state_dict(),
-            'actor_base_expander_target': self.actor_base_expander_target.state_dict(),
-            
             'critic_visual_encoder': self.critic_visual_encoder.state_dict(),
             'critic_visual_encoder_target': self.critic_visual_encoder_target.state_dict(),
             'critic_lstm': self.critic_lstm.state_dict(),
             'critic_lstm_target': self.critic_lstm_target.state_dict(),
-            'critic_base_expander': self.critic_base_expander.state_dict(),
-            'critic_base_expander_target': self.critic_base_expander_target.state_dict(),
-            
             'meta_net': self.meta_net.state_dict(),
             'actor_optimizer': self.actor_optimizer.state_dict(),
             'critic_optimizer': self.critic_optimizer.state_dict(),
@@ -333,18 +311,10 @@ class LSTMAETD3Agent:
             self.actor_visual_encoder_target.load_state_dict(checkpoint['actor_visual_encoder_target'])
             self.actor_lstm.load_state_dict(checkpoint['actor_lstm'])
             self.actor_lstm_target.load_state_dict(checkpoint['actor_lstm_target'])
-            if 'actor_base_expander' in checkpoint:
-                self.actor_base_expander.load_state_dict(checkpoint['actor_base_expander'])
-                self.actor_base_expander_target.load_state_dict(checkpoint['actor_base_expander_target'])
-            
             self.critic_visual_encoder.load_state_dict(checkpoint['critic_visual_encoder'])
             self.critic_visual_encoder_target.load_state_dict(checkpoint['critic_visual_encoder_target'])
             self.critic_lstm.load_state_dict(checkpoint['critic_lstm'])
             self.critic_lstm_target.load_state_dict(checkpoint['critic_lstm_target'])
-            if 'critic_base_expander' in checkpoint:
-                self.critic_base_expander.load_state_dict(checkpoint['critic_base_expander'])
-                self.critic_base_expander_target.load_state_dict(checkpoint['critic_base_expander_target'])
-            
             self.actor_optimizer.load_state_dict(checkpoint['actor_optimizer'])
             self.critic_optimizer.load_state_dict(checkpoint['critic_optimizer'])
         else:

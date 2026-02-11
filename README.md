@@ -12,7 +12,6 @@
 
 所有算法处理以下观测空间：
 - **深度图像**: (stack_frames, 128, 128) - 深度相机输入
-- **灰度图像**: (stack_frames, 128, 128) - 灰度相机输入
 - **基础状态**: (10,) - 物理状态向量 [dx, dy, altitude, v_xy, v_z, yaw_rate, pitch, roll, yaw, relative_angle]
 
 #### 非循环算法 (stack_frames=4)
@@ -30,7 +29,7 @@
 
 #### 循环算法 (stack_frames=1, sequence_length=8)
 - **GRU TD3**: 门控循环单元 TD3
-  - 输入: 8 步序列: depth(1,128,128), gray(1,128,128), base(9)
+  - 输入: 8 步序列: depth(1,128,128), base(9)
   - 状态处理: 每个时间步的 CNN，然后在序列上使用 GRU
 
 - **LSTM TD3**: 长短期记忆 TD3
@@ -41,11 +40,6 @@
   - 输入: 与 GRU TD3 相同
   - 状态处理: 每个时间步的 CNN，然后在序列上使用 CFC
 
-#### LGMD 变体（运动检测）
-LGMD（Lobula Giant Movement Detector）添加运动敏感处理：
-- **LGMD GRU/LSTM/CFC TD3**: 将 LGMD 与循环网络结合
-  - 输入: LGMD 处理的额外灰度运动历史
-  - 状态处理: LGMD 模块 + 循环网络
 
 ### Actor 网络输出
 
@@ -83,7 +77,7 @@ python main_async.py --algorithm_name lstm_td3 --max_timesteps 1000000
 ### 支持的算法
 - td3, aetd3, per_td3, per_aetd3
 - gru_td3, lstm_td3, gru_aetd3, lstm_aetd3, cfc_td3
-- lgmd_gru_td3, lgmd_lstm_td3, lgmd_gru_aetd3, lgmd_lstm_aetd3, lgmd_cfc_td3
+- vmamba_td3, vmamba_td3_no_cross, st_vmamba_td3, st_mamba_td3, ST-VimTD3, st_cnn_td3
 
 ### 配置
 修改 `config.py` 来调整：
@@ -93,7 +87,7 @@ python main_async.py --algorithm_name lstm_td3 --max_timesteps 1000000
 
 ## 环境详情
 
-- **观测空间**: 包含 'depth', 'gray', 'base' 键的字典
+- **观测空间**: 包含 'depth', 'base' 键的字典
 - **动作空间**: Box(3,) 连续动作
 - **情节长度**: 最大 512 步
 - **目标采样**: 在定义范围内随机
@@ -104,6 +98,5 @@ python main_async.py --algorithm_name lstm_td3 --max_timesteps 1000000
 - 异步训练与批量更新
 - 帧堆叠以获取时间信息
 - 循环网络用于序列建模
-- 使用 LGMD 的运动检测
 - 全面的奖励塑造
 - 可配置的超参数

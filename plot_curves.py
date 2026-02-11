@@ -153,9 +153,9 @@ def main():
     
     # Define groups same as config.py hint implies
     supported_algos = [
-        'td3', 'aetd3', 'per_td3', 'per_aetd3', 
-        'gru_td3', 'lstm_td3', 'gru_aetd3', 'lstm_aetd3', 'cfc_td3', 
-        'lgmd_gru_td3', 'lgmd_lstm_td3', 'lgmd_gru_aetd3', 'lgmd_lstm_aetd3', 'lgmd_cfc_td3'
+        'td3', 'aetd3', 'per_td3', 'per_aetd3',
+        'gru_td3', 'lstm_td3', 'gru_aetd3', 'lstm_aetd3', 'cfc_td3',
+        'vmamba_td3', 'vmamba_td3_no_cross', 'st_vmamba_td3', 'st_mamba_td3', 'ST-VimTD3', 'st_cnn_td3'
     ]
     
     if algo_list_input == 'all':

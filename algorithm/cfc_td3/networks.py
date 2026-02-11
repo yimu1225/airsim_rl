@@ -2,7 +2,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 from ncps.torch import CfC
-from ..cnn_modules import CNN, BaseStateExpander
+from ..cnn_modules import CNN
 
 
 class VisualEncoder(CNN):
@@ -18,25 +18,25 @@ class VisualEncoder(CNN):
 class CFCEncoder(nn.Module):
     """
     Processes sequences using CfC (Closed-form Continuous-time Neural Network).
-    Expects base state to be already expanded via BaseStateExpander.
+    Base state is used directly without expansion.
     """
-    def __init__(self, expanded_base_dim, visual_feature_dim, wiring):
+    def __init__(self, base_dim, visual_feature_dim, wiring):
         super().__init__()
-        # CfC input: visual_feature + expanded_base
-        cfc_input_dim = expanded_base_dim + visual_feature_dim
+        # CfC input: visual_feature + base state
+        cfc_input_dim = base_dim + visual_feature_dim
         self.cfc = CfC(cfc_input_dim, wiring, batch_first=True)
 
-    def forward(self, base_expanded_seq, visual_seq):
+    def forward(self, base_seq, visual_seq):
         """
         Process sequence frame by frame through CfC.
         Args:
-            base_expanded_seq: (B, K, expanded_base_dim) - already expanded
+            base_seq: (B, K, base_dim)
             visual_seq: (B, K, visual_feature_dim)
         Returns:
             h: (B, motor_neurons) - last timestep output
         """
-        B, K, _ = base_expanded_seq.shape
-        device = base_expanded_seq.device
+        B, K, _ = base_seq.shape
+        device = base_seq.device
         
         # CfC maintains internal state across timesteps
         # We process frame by frame to ensure temporal consistency
@@ -44,11 +44,11 @@ class CFCEncoder(nn.Module):
         
         for t in range(K):
             # Get current frame's expanded base state and visual feature
-            base_expanded_t = base_expanded_seq[:, t, :]  # (B, expanded_base_dim)
+            base_t = base_seq[:, t, :]  # (B, base_dim)
             visual_t = visual_seq[:, t, :]  # (B, visual_feature_dim)
             
-            # Concatenate expanded base state and visual feature
-            cfc_input_t = torch.cat([base_expanded_t, visual_t], dim=-1)  # (B, cfc_input_dim)
+            # Concatenate base state and visual feature
+            cfc_input_t = torch.cat([base_t, visual_t], dim=-1)  # (B, cfc_input_dim)
             cfc_input_t = cfc_input_t.unsqueeze(1)  # (B, 1, cfc_input_dim)
             
             # CfC forward for this timestep

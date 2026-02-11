@@ -25,13 +25,6 @@ class STMambaEncoder(nn.Module):
         self.tokens_per_frame = self.grid_h * self.grid_w
         self.num_tokens = self.tokens_per_frame * self.seq_len
 
-        cmd_in_dim = state_dim + (action_dim if action_dim is not None else 0)
-        self.cmd_mlp = nn.Sequential(
-            nn.Linear(cmd_in_dim, self.embed_dim),
-            nn.ReLU(inplace=True),
-            nn.Linear(self.embed_dim, self.embed_dim)
-        )
-
         img_size = (height * self.seq_len, width)
         self.vim = VisionMamba(
             img_size=img_size,
@@ -60,10 +53,6 @@ class STMambaEncoder(nn.Module):
     def forward(self, depth_seq, state_vec, action=None):
         if depth_seq.dim() == 4:
             depth_seq = depth_seq.unsqueeze(0)
-        if state_vec.dim() == 1:
-            state_vec = state_vec.unsqueeze(0)
-        if action is not None and action.dim() == 1:
-            action = action.unsqueeze(0)
 
         B, T, C, H, W = depth_seq.shape
         if T != self.seq_len:
@@ -72,22 +61,19 @@ class STMambaEncoder(nn.Module):
         merged = depth_seq.reshape(B, C, T * H, W)
         vis_token = self.vim(merged, return_features=True)
 
-        if action is not None:
-            cmd_input = torch.cat([state_vec, action], dim=-1)
-        else:
-            cmd_input = state_vec
-        cmd_token = self.cmd_mlp(cmd_input)
-
-        return vis_token + cmd_token
+        return vis_token
 
 
 class Actor(nn.Module):
     def __init__(self, feature_dim, action_dim, hidden_dim=256):
         super().__init__()
         self.net = nn.Sequential(
+            nn.LayerNorm(feature_dim),
             nn.Linear(feature_dim, hidden_dim),
+            nn.LayerNorm(hidden_dim),
             nn.ReLU(inplace=True),
             nn.Linear(hidden_dim, hidden_dim),
+            nn.LayerNorm(hidden_dim),
             nn.ReLU(inplace=True),
             nn.Linear(hidden_dim, action_dim),
             nn.Tanh()
@@ -106,19 +92,24 @@ class Actor(nn.Module):
 
 
 class Critic(nn.Module):
-    def __init__(self, feature_dim, hidden_dim=256):
+    def __init__(self, feature_dim, action_dim, hidden_dim=256):
         super().__init__()
+        self.input_norm = nn.LayerNorm(feature_dim + action_dim)
         self.q1_net = nn.Sequential(
-            nn.Linear(feature_dim, hidden_dim),
+            nn.Linear(feature_dim + action_dim, hidden_dim),
+            nn.LayerNorm(hidden_dim),
             nn.ReLU(inplace=True),
             nn.Linear(hidden_dim, hidden_dim),
+            nn.LayerNorm(hidden_dim),
             nn.ReLU(inplace=True),
             nn.Linear(hidden_dim, 1)
         )
         self.q2_net = nn.Sequential(
-            nn.Linear(feature_dim, hidden_dim),
+            nn.Linear(feature_dim + action_dim, hidden_dim),
+            nn.LayerNorm(hidden_dim),
             nn.ReLU(inplace=True),
             nn.Linear(hidden_dim, hidden_dim),
+            nn.LayerNorm(hidden_dim),
             nn.ReLU(inplace=True),
             nn.Linear(hidden_dim, 1)
         )
@@ -131,8 +122,12 @@ class Critic(nn.Module):
             if m.bias is not None:
                 nn.init.constant_(m.bias, 0)
 
-    def forward(self, x):
-        return self.q1_net(x), self.q2_net(x)
+    def forward(self, x, action):
+        xu = torch.cat([x, action], dim=-1)
+        xu = self.input_norm(xu)
+        return self.q1_net(xu), self.q2_net(xu)
 
-    def q1(self, x):
-        return self.q1_net(x)
+    def q1(self, x, action):
+        xu = torch.cat([x, action], dim=-1)
+        xu = self.input_norm(xu)
+        return self.q1_net(xu)

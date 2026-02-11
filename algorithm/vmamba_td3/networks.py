@@ -2,7 +2,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from ..cnn_modules import CNN, BaseStateExpander
+from ..cnn_modules import CNN
 
 # Import VMamba from virtual environment
 from vmamba.vmamba import VSSBlock, VSSM as VMambaModel, SS2D

@@ -284,9 +284,12 @@ class Actor(nn.Module):
     def __init__(self, feature_dim, action_dim, hidden_dim=256):
         super().__init__()
         self.net = nn.Sequential(
+            nn.LayerNorm(feature_dim),
             nn.Linear(feature_dim, hidden_dim),
+            nn.LayerNorm(hidden_dim),
             nn.ReLU(inplace=True),
             nn.Linear(hidden_dim, hidden_dim),
+            nn.LayerNorm(hidden_dim),
             nn.ReLU(inplace=True),
             nn.Linear(hidden_dim, action_dim),
             nn.Tanh()
@@ -312,11 +315,15 @@ class Critic(nn.Module):
     def __init__(self, feature_dim, action_dim, hidden_dim=256):
         super().__init__()
         
+        self.input_norm = nn.LayerNorm(feature_dim + action_dim)
+        
         # Q1
         self.q1_net = nn.Sequential(
             nn.Linear(feature_dim + action_dim, hidden_dim),
+            nn.LayerNorm(hidden_dim),
             nn.ReLU(inplace=True),
             nn.Linear(hidden_dim, hidden_dim),
+            nn.LayerNorm(hidden_dim),
             nn.ReLU(inplace=True),
             nn.Linear(hidden_dim, 1)
         )
@@ -324,8 +331,10 @@ class Critic(nn.Module):
         # Q2
         self.q2_net = nn.Sequential(
             nn.Linear(feature_dim + action_dim, hidden_dim),
+            nn.LayerNorm(hidden_dim),
             nn.ReLU(inplace=True),
             nn.Linear(hidden_dim, hidden_dim),
+            nn.LayerNorm(hidden_dim),
             nn.ReLU(inplace=True),
             nn.Linear(hidden_dim, 1)
         )
@@ -340,4 +349,5 @@ class Critic(nn.Module):
 
     def forward(self, x, action):
         xu = torch.cat([x, action], dim=1)
+        xu = self.input_norm(xu)
         return self.q1_net(xu), self.q2_net(xu)
