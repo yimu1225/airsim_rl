@@ -111,8 +111,7 @@ class Actor(nn.Module):
 
     def _init_weights(self, m):
         if isinstance(m, nn.Linear):
-            std = (2.0 / m.in_features) ** 0.5
-            nn.init.trunc_normal_(m.weight, mean=0.0, std=std, a=-2.0 * std, b=2.0 * std)
+            nn.init.kaiming_uniform_(m.weight, mode='fan_in', nonlinearity='relu')
             if m.bias is not None:
                 nn.init.constant_(m.bias, 0)
 
@@ -124,16 +123,7 @@ class Critic(nn.Module):
     def __init__(self, feature_dim, action_dim, hidden_dim=256):
         super().__init__()
         self.input_norm = nn.LayerNorm(feature_dim + action_dim)
-        self.q1_net = nn.Sequential(
-            nn.Linear(feature_dim + action_dim, hidden_dim),
-            nn.LayerNorm(hidden_dim),
-            nn.ReLU(inplace=True),
-            nn.Linear(hidden_dim, hidden_dim),
-            nn.LayerNorm(hidden_dim),
-            nn.ReLU(inplace=True),
-            nn.Linear(hidden_dim, 1)
-        )
-        self.q2_net = nn.Sequential(
+        self.net = nn.Sequential(
             nn.Linear(feature_dim + action_dim, hidden_dim),
             nn.LayerNorm(hidden_dim),
             nn.ReLU(inplace=True),
@@ -146,17 +136,11 @@ class Critic(nn.Module):
 
     def _init_weights(self, m):
         if isinstance(m, nn.Linear):
-            std = (2.0 / m.in_features) ** 0.5
-            nn.init.trunc_normal_(m.weight, mean=0.0, std=std, a=-2.0 * std, b=2.0 * std)
+            nn.init.kaiming_uniform_(m.weight, mode='fan_in', nonlinearity='relu')
             if m.bias is not None:
                 nn.init.constant_(m.bias, 0)
 
     def forward(self, x, action):
         xu = torch.cat([x, action], dim=-1)
         xu = self.input_norm(xu)
-        return self.q1_net(xu), self.q2_net(xu)
-
-    def q1(self, x, action):
-        xu = torch.cat([x, action], dim=-1)
-        xu = self.input_norm(xu)
-        return self.q1_net(xu)
+        return self.net(xu)

@@ -33,7 +33,7 @@ def get_config(argv=None):
     parser.add_argument("--smooth_window", type=int, default=1000, help="平滑窗口大小，用于平滑学习曲线")
 
     # 训练设置 (Training Setup)
-    parser.add_argument("--seed", type=str, default="88,1", help="随机种子 (支持逗号分隔多个种子)")
+    parser.add_argument("--seed", type=str, default="88,89", help="随机种子 (支持逗号分隔多个种子)")
     parser.add_argument("--cuda", action='store_false', default=True, help="是否使用CUDA")
     parser.add_argument("--cuda_deterministic", action='store_false', default=True, help="CUDA是否确定性")
     parser.add_argument("--n_training_threads", type=int, default=1, help="训练线程数")
