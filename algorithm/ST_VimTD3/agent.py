@@ -46,7 +46,12 @@ class ST_Mamba_VimTokens_Agent:
             action_dim=None,
             args=args
         ).to(self.device)
-        self.critic = Critic(
+        self.critic_1 = Critic(
+            feature_dim=args.st_mamba_embed_dim + self.base_dim,
+            action_dim=self.action_dim,
+            hidden_dim=args.hidden_dim
+        ).to(self.device)
+        self.critic_2 = Critic(
             feature_dim=args.st_mamba_embed_dim + self.base_dim,
             action_dim=self.action_dim,
             hidden_dim=args.hidden_dim
@@ -55,14 +60,15 @@ class ST_Mamba_VimTokens_Agent:
         self.actor_encoder_target = copy.deepcopy(self.actor_encoder)
         self.actor_target = copy.deepcopy(self.actor)
         self.critic_encoder_target = copy.deepcopy(self.critic_encoder)
-        self.critic_target = copy.deepcopy(self.critic)
+        self.critic_1_target = copy.deepcopy(self.critic_1)
+        self.critic_2_target = copy.deepcopy(self.critic_2)
 
         self.actor_optimizer = Adam(
             list(self.actor_encoder.parameters()) + list(self.actor.parameters()),
             lr=args.actor_lr
         )
         self.critic_optimizer = Adam(
-            list(self.critic_encoder.parameters()) + list(self.critic.parameters()),
+            list(self.critic_encoder.parameters()) + list(self.critic_1.parameters()) + list(self.critic_2.parameters()),
             lr=args.critic_lr
         )
 
@@ -171,20 +177,22 @@ class ST_Mamba_VimTokens_Agent:
 
             target_visual = self.critic_encoder_target(next_depth, next_state_curr)
             target_input = torch.cat([target_visual, next_state_curr], dim=-1)
-            target_Q1, target_Q2 = self.critic_target(target_input, next_action)
+            target_Q1 = self.critic_1_target(target_input, next_action)
+            target_Q2 = self.critic_2_target(target_input, next_action)
             target_Q = torch.min(target_Q1, target_Q2)
             target_Q = reward + not_done * self.gamma * target_Q
 
         current_visual = self.critic_encoder(depth, current_state)
         critic_input = torch.cat([current_visual, current_state], dim=-1)
-        current_Q1, current_Q2 = self.critic(critic_input, action)
+        current_Q1 = self.critic_1(critic_input, action)
+        current_Q2 = self.critic_2(critic_input, action)
 
         critic_loss = F.mse_loss(current_Q1, target_Q) + F.mse_loss(current_Q2, target_Q)
 
         self.critic_optimizer.zero_grad()
         critic_loss.backward()
         nn.utils.clip_grad_norm_(
-            list(self.critic_encoder.parameters()) + list(self.critic.parameters()),
+            list(self.critic_encoder.parameters()) + list(self.critic_1.parameters()) + list(self.critic_2.parameters()),
             self.grad_clip
         )
         self.critic_optimizer.step()
@@ -198,7 +206,7 @@ class ST_Mamba_VimTokens_Agent:
 
             q_visual = self.critic_encoder(depth, current_state)
             q_input = torch.cat([q_visual, current_state], dim=-1)
-            actor_loss = -self.critic.q1(q_input, actor_action).mean()
+            actor_loss = -self.critic_1(q_input, actor_action).mean()
 
             self.actor_optimizer.zero_grad()
             actor_loss.backward()
@@ -211,7 +219,8 @@ class ST_Mamba_VimTokens_Agent:
             self.soft_update(self.actor_encoder, self.actor_encoder_target, self.tau)
             self.soft_update(self.actor, self.actor_target, self.tau)
             self.soft_update(self.critic_encoder, self.critic_encoder_target, self.tau)
-            self.soft_update(self.critic, self.critic_target, self.tau)
+            self.soft_update(self.critic_1, self.critic_1_target, self.tau)
+            self.soft_update(self.critic_2, self.critic_2_target, self.tau)
 
             actor_loss_value = actor_loss.item()
 
@@ -225,10 +234,12 @@ class ST_Mamba_VimTokens_Agent:
         torch.save(self.actor_encoder.state_dict(), filename + "_actor_encoder")
         torch.save(self.actor.state_dict(), filename + "_actor_head")
         torch.save(self.critic_encoder.state_dict(), filename + "_critic_encoder")
-        torch.save(self.critic.state_dict(), filename + "_critic_head")
+        torch.save(self.critic_1.state_dict(), filename + "_critic_1_head")
+        torch.save(self.critic_2.state_dict(), filename + "_critic_2_head")
 
     def load(self, filename):
         self.actor_encoder.load_state_dict(torch.load(filename + "_actor_encoder"))
         self.actor.load_state_dict(torch.load(filename + "_actor_head"))
         self.critic_encoder.load_state_dict(torch.load(filename + "_critic_encoder"))
-        self.critic.load_state_dict(torch.load(filename + "_critic_head"))
+        self.critic_1.load_state_dict(torch.load(filename + "_critic_1_head"))
+        self.critic_2.load_state_dict(torch.load(filename + "_critic_2_head"))

@@ -311,8 +311,7 @@ class Actor(nn.Module):
 
     def _init_weights(self, m):
         if isinstance(m, nn.Linear):
-            std = (2.0 / m.in_features) ** 0.5
-            nn.init.trunc_normal_(m.weight, mean=0.0, std=std, a=-2.0 * std, b=2.0 * std)
+            nn.init.kaiming_uniform_(m.weight, mode='fan_in', nonlinearity='relu')
             if m.bias is not None:
                 nn.init.constant_(m.bias, 0)
 
@@ -346,8 +345,7 @@ class Critic(nn.Module):
 
     def _init_weights(self, m):
         if isinstance(m, nn.Linear):
-            std = (2.0 / m.in_features) ** 0.5
-            nn.init.trunc_normal_(m.weight, mean=0.0, std=std, a=-2.0 * std, b=2.0 * std)
+            nn.init.kaiming_uniform_(m.weight, mode='fan_in', nonlinearity='relu')
             if m.bias is not None:
                 nn.init.constant_(m.bias, 0)
 
