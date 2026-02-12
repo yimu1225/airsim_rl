@@ -51,11 +51,12 @@ class CFCTD3Agent:
         self.critic_visual_encoder = VisualEncoder(input_height=h, input_width=w, feature_dim=feature_dim, input_channels=C).to(self.device)
         self.critic_visual_encoder_target = VisualEncoder(input_height=h, input_width=w, feature_dim=feature_dim, input_channels=C).to(self.device)
         self.critic_visual_encoder_target.load_state_dict(self.critic_visual_encoder.state_dict())
+        visual_feature_dim = self.critic_visual_encoder.repr_dim
 
         # CFC Encoder with NCP Wiring
         self.critic_wiring = AutoNCP(self.cfc_units, self.cfc_motor_units)
-        self.critic_cfc = CFCEncoder(base_dim=self.base_dim, visual_feature_dim=feature_dim, wiring=self.critic_wiring).to(self.device)
-        self.critic_cfc_target = CFCEncoder(base_dim=self.base_dim, visual_feature_dim=feature_dim, wiring=self.critic_wiring).to(self.device)
+        self.critic_cfc = CFCEncoder(base_dim=self.base_dim, visual_feature_dim=visual_feature_dim, wiring=self.critic_wiring).to(self.device)
+        self.critic_cfc_target = CFCEncoder(base_dim=self.base_dim, visual_feature_dim=visual_feature_dim, wiring=self.critic_wiring).to(self.device)
         self.critic_cfc_target.load_state_dict(self.critic_cfc.state_dict())
         
         # ACTOR Encoders
@@ -64,8 +65,8 @@ class CFCTD3Agent:
         self.actor_visual_encoder_target.load_state_dict(self.actor_visual_encoder.state_dict())
 
         self.actor_wiring = AutoNCP(self.cfc_units, self.cfc_motor_units)
-        self.actor_cfc = CFCEncoder(base_dim=self.base_dim, visual_feature_dim=feature_dim, wiring=self.actor_wiring).to(self.device)
-        self.actor_cfc_target = CFCEncoder(base_dim=self.base_dim, visual_feature_dim=feature_dim, wiring=self.actor_wiring).to(self.device)
+        self.actor_cfc = CFCEncoder(base_dim=self.base_dim, visual_feature_dim=visual_feature_dim, wiring=self.actor_wiring).to(self.device)
+        self.actor_cfc_target = CFCEncoder(base_dim=self.base_dim, visual_feature_dim=visual_feature_dim, wiring=self.actor_wiring).to(self.device)
         self.actor_cfc_target.load_state_dict(self.actor_cfc.state_dict())
 
         # Actor & Critic

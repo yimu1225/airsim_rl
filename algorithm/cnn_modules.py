@@ -35,7 +35,7 @@ class CNN(nn.Module):
     Used by all algorithms for consistent feature extraction.
     Now uses Pooling layers instead of adaptive_avg_pool2d.
     """
-    def __init__(self, input_height, input_width, feature_dim, input_channels=1):
+    def __init__(self, input_height, input_width, feature_dim=None, input_channels=1):
         super().__init__()
 
         # Feature expansion factors
@@ -43,7 +43,7 @@ class CNN(nn.Module):
         f2 = 8
         f3 = 16
         f4 = 32
-        f5 = 16
+        f5 = 48
 
         self.net = nn.Sequential(
             # 第一层: MaxPool(2x2) -> 输入高宽减半
@@ -81,19 +81,11 @@ class CNN(nn.Module):
             dummy_output = self.net(dummy_input)
             self.n_flatten = dummy_output.view(1, -1).size(1)
 
-        # Output projection layer to keep repr_dim = feature_dim
-        self.fc = nn.Sequential(
-            nn.Linear(self.n_flatten, feature_dim),
-            nn.LayerNorm(feature_dim),
-            nn.ReLU(inplace=True)
-        )
-
-        self.repr_dim = feature_dim
+        self.repr_dim = self.n_flatten
 
     def forward(self, x):
         if x.dim() == 3:
             x = x.unsqueeze(1)  # Add channel dimension if needed
         x = self.net(x)
         x = x.view(x.size(0), -1)  # Flatten directly
-        x = self.fc(x) # Project back to feature_dim
         return x

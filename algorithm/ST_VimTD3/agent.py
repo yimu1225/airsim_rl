@@ -36,7 +36,7 @@ class ST_Mamba_VimTokens_Agent:
             args=args
         ).to(self.device)
         self.actor = Actor(
-            feature_dim=args.st_mamba_embed_dim + self.base_dim,
+            feature_dim=args.st_mamba_embed_dim * self.seq_len + self.base_dim,
             action_dim=self.action_dim,
             hidden_dim=args.hidden_dim
         ).to(self.device)
@@ -47,12 +47,12 @@ class ST_Mamba_VimTokens_Agent:
             args=args
         ).to(self.device)
         self.critic_1 = Critic(
-            feature_dim=args.st_mamba_embed_dim + self.base_dim,
+            feature_dim=args.st_mamba_embed_dim * self.seq_len + self.base_dim,
             action_dim=self.action_dim,
             hidden_dim=args.hidden_dim
         ).to(self.device)
         self.critic_2 = Critic(
-            feature_dim=args.st_mamba_embed_dim + self.base_dim,
+            feature_dim=args.st_mamba_embed_dim * self.seq_len + self.base_dim,
             action_dim=self.action_dim,
             hidden_dim=args.hidden_dim
         ).to(self.device)
