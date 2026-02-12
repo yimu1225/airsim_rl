@@ -167,17 +167,7 @@ class GameHandler:
                 elif process2_exist:
                     os.system("killall " + "CrashReportClient")
 
-            if(os.name=="posix"):
-                os.system("kill " + str(settings.game_proc_pid))
-                time.sleep(2)
-                settings.game_proc_pid = ''
 
-        if (process2_exist):
-            if(os.name=="nt"):
-                os.system("taskkill /f /im  " + "CrashReportClient.exe")
-
-            if(os.name=="posix"):
-                os.system("killall " + "CrashReportClient")
 
     def restart_game(self):
         # if not (settings.ip == '127.0.0.1'):
