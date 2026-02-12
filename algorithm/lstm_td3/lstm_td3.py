@@ -42,15 +42,16 @@ class LSTMTD3Agent:
         self.critic_visual_encoder = VisualEncoder(input_height=h, input_width=w, feature_dim=feature_dim, input_channels=C).to(self.device)
         self.critic_visual_encoder_target = VisualEncoder(input_height=h, input_width=w, feature_dim=feature_dim, input_channels=C).to(self.device)
         self.critic_visual_encoder_target.load_state_dict(self.critic_visual_encoder.state_dict())
+        visual_feature_dim = self.critic_visual_encoder.repr_dim
         
         # LSTM Encoder
         self.lstm_hidden_dim = args.lstm_hidden_dim
         self.critic_lstm = LSTMEncoder(
-            visual_feature_dim=feature_dim,
+            visual_feature_dim=visual_feature_dim,
             hidden_dim=self.lstm_hidden_dim
         ).to(self.device)
         self.critic_lstm_target = LSTMEncoder(
-            visual_feature_dim=feature_dim,
+            visual_feature_dim=visual_feature_dim,
             hidden_dim=self.lstm_hidden_dim
         ).to(self.device)
         self.critic_lstm_target.load_state_dict(self.critic_lstm.state_dict())
@@ -60,11 +61,11 @@ class LSTMTD3Agent:
         self.actor_visual_encoder_target = VisualEncoder(input_height=h, input_width=w, feature_dim=feature_dim, input_channels=C).to(self.device)
 
         self.actor_lstm = LSTMEncoder(
-            visual_feature_dim=feature_dim,
+            visual_feature_dim=visual_feature_dim,
             hidden_dim=self.lstm_hidden_dim
         ).to(self.device)
         self.actor_lstm_target = LSTMEncoder(
-            visual_feature_dim=feature_dim,
+            visual_feature_dim=visual_feature_dim,
             hidden_dim=self.lstm_hidden_dim
         ).to(self.device)
         self.actor_lstm_target.load_state_dict(self.actor_lstm.state_dict())

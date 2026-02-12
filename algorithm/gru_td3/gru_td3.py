@@ -42,17 +42,18 @@ class GRUTD3Agent:
         self.critic_visual_encoder = VisualEncoder(input_height=h, input_width=w, feature_dim=feature_dim, input_channels=C).to(self.device)
         self.critic_visual_encoder_target = VisualEncoder(input_height=h, input_width=w, feature_dim=feature_dim, input_channels=C).to(self.device)
         self.critic_visual_encoder_target.load_state_dict(self.critic_visual_encoder.state_dict())
+        visual_feature_dim = self.critic_visual_encoder.repr_dim
         
         # GRU Encoder (Critic)
         self.gru_hidden_dim = args.gru_hidden_dim
         gru_layers = getattr(args, 'gru_num_layers', 1)
         self.critic_gru = GRUEncoder(
-            visual_feature_dim=feature_dim,
+            visual_feature_dim=visual_feature_dim,
             hidden_dim=self.gru_hidden_dim,
             num_layers=gru_layers
         ).to(self.device)
         self.critic_gru_target = GRUEncoder(
-            visual_feature_dim=feature_dim,
+            visual_feature_dim=visual_feature_dim,
             hidden_dim=self.gru_hidden_dim,
             num_layers=gru_layers
         ).to(self.device)
@@ -64,12 +65,12 @@ class GRUTD3Agent:
         self.actor_visual_encoder_target.load_state_dict(self.actor_visual_encoder.state_dict())
 
         self.actor_gru = GRUEncoder(
-            visual_feature_dim=feature_dim,
+            visual_feature_dim=visual_feature_dim,
             hidden_dim=self.gru_hidden_dim,
             num_layers=gru_layers
         ).to(self.device)
         self.actor_gru_target = GRUEncoder(
-            visual_feature_dim=feature_dim,
+            visual_feature_dim=visual_feature_dim,
             hidden_dim=self.gru_hidden_dim,
             num_layers=gru_layers
         ).to(self.device)

@@ -28,12 +28,12 @@ def get_config(argv=None):
     parser.add_argument("--env_name", type=str, default='AirSimEnv-v42', help="要训练的环境名称")  # AirSimEnv-v42  CartPole-v0
 
     # 算法选择 (Algorithm Selection)
-    parser.add_argument("--algorithm_name", type=str, default='ST-VimTD3,td3',
+    parser.add_argument("--algorithm_name", type=str, default='td3',
                         help="要训练的算法。支持: td3, aetd3, per_td3, per_aetd3, gru_td3, lstm_td3, gru_aetd3, lstm_aetd3, cfc_td3, vmamba_td3, vmamba_td3_no_cross, st_vmamba_td3, st_mamba_td3, ST-VimTD3, st_cnn_td3。可以是单个，多个（逗号分隔），或组名 ('all', 'base', 'seq')")
     parser.add_argument("--smooth_window", type=int, default=1000, help="平滑窗口大小，用于平滑学习曲线")
 
     # 训练设置 (Training Setup)
-    parser.add_argument("--seed", type=str, default="88,89", help="随机种子 (支持逗号分隔多个种子)")
+    parser.add_argument("--seed", type=str, default="25", help="随机种子 (支持逗号分隔多个种子)")
     parser.add_argument("--cuda", action='store_false', default=True, help="是否使用CUDA")
     parser.add_argument("--cuda_deterministic", action='store_false', default=True, help="CUDA是否确定性")
     parser.add_argument("--n_training_threads", type=int, default=1, help="训练线程数")
@@ -48,14 +48,14 @@ def get_config(argv=None):
     parser.add_argument("--hidden_dim", type=int, default=256, help="隐藏层维度")
     parser.add_argument("--exploration_noise", type=float, default=0.3, help="探索噪声")
     parser.add_argument("--batch_size", type=int, default=256, help="批次大小")
-    parser.add_argument("--gamma", type=float, default=0.98, help="折扣因子") 
+    parser.add_argument("--gamma", type=float, default=0.99, help="折扣因子") 
     parser.add_argument("--tau", type=float, default=0.005, help="软更新参数")
-    parser.add_argument("--actor_lr", type=float, default=3e-4, help="Actor学习率")
-    parser.add_argument("--critic_lr", type=float, default=3e-4, help="Critic学习率")
+    parser.add_argument("--actor_lr", type=float, default=4e-4, help="Actor学习率")
+    parser.add_argument("--critic_lr", type=float, default=4e-4, help="Critic学习率")
     parser.add_argument("--policy_noise", type=float, default=0.2, help="策略噪声")
     parser.add_argument("--noise_clip", type=float, default=0.2, help="噪声裁剪")
     parser.add_argument("--policy_freq", type=int, default=10, help="策略更新频率")
-    parser.add_argument("--grad_clip", type=float, default=1.0, help="梯度裁剪")
+    parser.add_argument("--grad_clip", type=float, default=2.0, help="梯度裁剪")
 
     # 可视化 (Visualization)
     parser.add_argument("--render_window", action='store_true', default=False, help="显示实时可视化窗口 (默认开启，可用 --no-render_window 关闭)")
@@ -99,7 +99,7 @@ def get_config(argv=None):
     parser.add_argument("--state_feature_dim", type=int, default=32, help="状态特征维度")
     
     # 时序Mamba参数 (Temporal Mamba Parameters)
-    parser.add_argument("--mamba_d_state", type=int, default=32, help="时序Mamba SSM状态维度")
+    parser.add_argument("--mamba_d_state", type=int, default=16, help="时序Mamba SSM状态维度")
     parser.add_argument("--mamba_d_conv", type=int, default=4, help="时序Mamba卷积核大小")
     parser.add_argument("--mamba_expand", type=int, default=2, help="时序Mamba扩展因子")
     parser.add_argument("--attention_dropout", type=float, default=0.0, help="自注意力dropout率")
@@ -113,7 +113,7 @@ def get_config(argv=None):
     parser.add_argument("--st_mamba_expand", type=int, default=2, help="ST-Mamba Block 扩展因子")
     parser.add_argument("--st_mamba_drop_rate", type=float, default=0.1, help="ST-Mamba Dropout 率 (pos_drop)")
     parser.add_argument("--st_mamba_drop_path_rate", type=float, default=0.1, help="ST-Mamba Drop Path 率 (stochastic depth)")
-    parser.add_argument("--st_mamba_temporal_depth", type=int, default=2, help="ST-Mamba-VimTokens 时序 Mamba Block 数量")
+    parser.add_argument("--st_mamba_temporal_depth", type=int, default=3, help="ST-Mamba-VimTokens 时序 Mamba Block 数量")
 
 
     # Adaptive Ensemble TD3

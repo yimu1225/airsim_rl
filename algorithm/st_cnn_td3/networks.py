@@ -97,7 +97,7 @@ class STE_CNN_Encoder(nn.Module):
             input_channels=in_chans
         )
         
-        self.hidden_dim = feature_dim # D
+        self.hidden_dim = self.spatial_encoder.repr_dim # D
         
         # 2. Temporal: 1D Mamba
         self.temporal_encoder = TemporalMambaBlock(
