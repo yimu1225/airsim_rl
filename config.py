@@ -28,7 +28,7 @@ def get_config(argv=None):
     parser.add_argument("--env_name", type=str, default='AirSimEnv-v42', help="要训练的环境名称")  # AirSimEnv-v42  CartPole-v0
 
     # 算法选择 (Algorithm Selection)
-    parser.add_argument("--algorithm_name", type=str, default='ST-VimTD3,td3',
+    parser.add_argument("--algorithm_name", type=str, default='ST-VimTD3-Safety,ST-VimTD3,td3',
                         help="要训练的算法。支持: td3, aetd3, per_td3, per_aetd3, gru_td3, lstm_td3, gru_aetd3, lstm_aetd3, cfc_td3, vmamba_td3, vmamba_td3_no_cross, st_vmamba_td3, st_mamba_td3, ST-VimTD3, ST-VimTD3-Safety, st_cnn_td3。可以是单个，多个（逗号分隔），或组名 ('all', 'base', 'seq')")
     parser.add_argument("--smooth_window", type=int, default=1000, help="平滑窗口大小，用于平滑学习曲线")
 
@@ -174,6 +174,9 @@ def get_config(argv=None):
     # AIRSIM 连接参数 (AIRSIM CONNECTION PARAMETERS) 
     parser.add_argument("--airsim_ip", type=str, default="172.20.176.1", help="AirSim 服务器 IP 地址")
     parser.add_argument("--airsim_port", type=int, default=41451, help="AirSim 服务器端口")
+    parser.add_argument("--ue4_rpc_fail_threshold", type=int, default=2, help="UE4健康检测中，连续RPC失败达到该次数后触发强制重启")
+    parser.add_argument("--ue4_health_check_interval", type=float, default=1.0, help="UE4健康检查最小间隔秒数，降低对训练速度的影响")
+    parser.add_argument("--ue4_window_check_interval", type=float, default=10.0, help="窗口状态检测间隔秒数（较慢但开销更大，建议大于健康检查间隔）")
     parser.add_argument("--settings_file", type=str, default="", help="AirSim settings.json 文件路径 (可选)")
     parser.add_argument("--load_model", type=str, default="", help="要加载的模型路径")
 

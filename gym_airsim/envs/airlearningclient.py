@@ -358,21 +358,34 @@ class AirLearningClient(object):
         # self.client.simPause(True)
        
             
-        # 保存当前的连接参数
-        current_ip = self.client._client._ip if hasattr(self.client, '_client') and hasattr(self.client._client, '_ip') else settings.ip
-        current_port = self.client._client._port if hasattr(self.client, '_client') and hasattr(self.client._client, '_port') else getattr(settings, 'port', 41451)
-        
-        # Connection retry loop to handle timeout during environment reset
-        self.client = airsim.MultirotorClient(ip=current_ip, port=current_port)
-        self._apply_client_patches()
-        self.client.confirmConnection()
-        
-        
-        # 增加 reset 确保仿真状态重置 (坐标系原点重置为 PlayerStart)
-        self.client.reset()
-        
-        self.client.enableApiControl(True)
-        self.client.armDisarm(True)
+        # Fast path: reuse existing client to avoid expensive reconnect each episode.
+        # Fallback to reconnect only when these commands fail.
+        try:
+            self.client.reset()
+            self.client.enableApiControl(True)
+            self.client.armDisarm(True)
+        except Exception:
+            current_ip = self.client._client._ip if hasattr(self.client, '_client') and hasattr(self.client._client, '_ip') else settings.ip
+            current_port = self.client._client._port if hasattr(self.client, '_client') and hasattr(self.client._client, '_port') else getattr(settings, 'port', 41451)
+
+            reconnect_ok = False
+            last_error = None
+            for _ in range(3):
+                try:
+                    self.client = airsim.MultirotorClient(ip=current_ip, port=current_port, timeout_value=5)
+                    self._apply_client_patches()
+                    self.client.confirmConnection()
+                    self.client.reset()
+                    self.client.enableApiControl(True)
+                    self.client.armDisarm(True)
+                    reconnect_ok = True
+                    break
+                except Exception as e:
+                    last_error = e
+                    time.sleep(0.5)
+
+            if not reconnect_ok:
+                raise RuntimeError(f"AirSim_reset confirmConnection failed: {last_error}")
         
         # 使用 takeoff（移除超时参数以避免兼容性问题）
         # self.client.takeoffAsync().join()
@@ -381,7 +394,7 @@ class AirLearningClient(object):
         # 例如 self.z = -0.9
         # self.client.moveToZAsync(float(self.z), 1.0).join()
         self.client.moveToZAsync(float(self.z), 1.0)
-        time.sleep(2.0)  # 等待足够时间到达目标高度
+        time.sleep(1.0)
 
         self.client.hoverAsync().join()
         
@@ -403,7 +416,7 @@ class AirLearningClient(object):
         """
         # 调用自定义RPC从JSON重载环境
         self.client.client.call('resetUnreal')
-        time.sleep(3.0)  # 给UE引擎时间重建环境 - 从0.5s增加到3.0s
+        time.sleep(2.0)  # 给UE引擎时间重建环境 - 1.0s太短会导致连接断开，回调至2.0s
         return True
 
 

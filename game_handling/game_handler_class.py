@@ -1,6 +1,8 @@
 import subprocess
 import os
 import time
+import io
+import csv
 from settings_folder import settings
 from common import utils
 import airsim
@@ -178,55 +180,164 @@ class GameHandler:
         time.sleep(2)
         self.start_game_in_editor()
 
-    def check_and_recover_game(self):
+    def _is_target_process_alive(self, target_name):
         """
-        Checks if the UE4 process is running. If not, restarts the game.
-        Returns True if the game was restarted, False otherwise.
+        Check whether a target UE process exists and is in a valid running state.
         """
-        # Determine likely process names (UE4 / UE5 compatibility)
-        target_names = ["UE4Editor.exe", "UnrealEditor.exe"] if (os.name == "nt" or self.ue4_exe_path.endswith(".exe")) else ["UE4Editor", "UnrealEditor"]
+        if not target_name:
+            return False
 
-        # Prefer tracking the known PID when available
-        if str(settings.game_proc_pid).strip():
-            try:
-                proc = psutil.Process(int(settings.game_proc_pid))
-                if proc.is_running() and proc.status() not in (psutil.STATUS_ZOMBIE, psutil.STATUS_DEAD):
-                    return False
-            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess, ValueError):
-                pass
-
-        # WSL2: psutil cannot see Windows processes, use tasklist.exe
+        # WSL2: psutil cannot see Windows processes reliably, use tasklist.exe.
         wsl_windows_mode = (os.name == "posix" and self.ue4_exe_path.endswith(".exe"))
         if wsl_windows_mode:
-            for target_name in target_names:
+            valid_editor_images = {"ue4editor.exe", "unrealeditor.exe"}
+
+            # Prefer known PID check when available.
+            pid_str = str(getattr(settings, "game_proc_pid", "")).strip()
+            if pid_str.isdigit():
                 try:
                     output = subprocess.check_output(
-                        ["tasklist.exe", "/fi", f"imagename eq {target_name}"],
+                        ["tasklist.exe", "/fi", f"PID eq {pid_str}", "/fo", "csv", "/nh"],
                         stderr=subprocess.DEVNULL,
                     ).decode(errors="ignore")
-                    if target_name.lower() in output.lower():
-                        return False
+                    if "No tasks are running" not in output:
+                        rows = list(csv.reader(io.StringIO(output)))
+                        for row in rows:
+                            if len(row) >= 2 and row[1].strip() == pid_str:
+                                image_name = row[0].strip().lower() if len(row) >= 1 else ""
+                                if image_name in valid_editor_images:
+                                    return True
+
+                    # PID no longer belongs to UE process, clear stale cached pid.
+                    settings.game_proc_pid = ''
                 except Exception:
+                    pass
+
+            # Fallback: check by exact image name.
+            try:
+                output = subprocess.check_output(
+                    ["tasklist.exe", "/fi", f"IMAGENAME eq {target_name}", "/fo", "csv", "/nh"],
+                    stderr=subprocess.DEVNULL,
+                ).decode(errors="ignore")
+                if "No tasks are running" in output:
+                    return False
+                rows = list(csv.reader(io.StringIO(output)))
+                for row in rows:
+                    if len(row) >= 1 and row[0].strip().lower() == target_name.lower():
+                        return True
+            except Exception:
+                pass
+            return False
+
+        raw_pids = utils.find_process_id_by_name(target_name)
+        if not raw_pids:
+            return False
+
+        for pid in raw_pids:
+            try:
+                proc = psutil.Process(pid)
+                if proc.is_running() and proc.status() not in (psutil.STATUS_ZOMBIE, psutil.STATUS_DEAD):
+                    return True
+            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                continue
+        return False
+
+    def is_game_process_alive(self):
+        """
+        Check whether UE editor process is alive (UE4/UE5 compatible names).
+        """
+        target_names = ["UE4Editor.exe", "UnrealEditor.exe"] if (os.name == "nt" or self.ue4_exe_path.endswith(".exe")) else ["UE4Editor", "UnrealEditor"]
+        for target_name in target_names:
+            if self._is_target_process_alive(target_name):
+                return True
+        return False
+
+    def is_game_window_alive(self):
+        """
+        Check whether UE editor has a visible main window.
+        Returns:
+            True  -> at least one UE process has a visible window
+            False -> UE process exists but no visible window
+            None  -> unsupported platform/mode (cannot determine)
+        """
+        # This check is mainly for Windows/WSL with .exe runtime.
+        if not (os.name == "nt" or self.ue4_exe_path.endswith(".exe")):
+            return None
+
+        process_names = ["UE4Editor.exe", "UnrealEditor.exe"]
+        for process_name in process_names:
+            try:
+                output = subprocess.check_output(
+                    ["tasklist.exe", "/v", "/fi", f"IMAGENAME eq {process_name}", "/fo", "csv", "/nh"],
+                    stderr=subprocess.DEVNULL,
+                ).decode(errors="ignore").strip()
+                if "No tasks are running" in output:
                     continue
-        else:
-            # Check running processes with more strict validation
-            # We need to verify that found PIDs are not zombies
-            valid_pids = []
-            for target_name in target_names:
-                raw_pids = utils.find_process_id_by_name(target_name)
-                if not raw_pids:
-                    continue
-                for pid in raw_pids:
-                    try:
-                        p = psutil.Process(pid)
-                        if p.status() != psutil.STATUS_ZOMBIE and p.status() != psutil.STATUS_DEAD:
-                            valid_pids.append(pid)
-                    except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+
+                rows = list(csv.reader(io.StringIO(output)))
+                for row in rows:
+                    # tasklist /v /fo csv columns:
+                    # Image Name, PID, Session Name, Session#, Mem Usage, Status, User Name, CPU Time, Window Title
+                    if len(row) < 9:
                         continue
+                    image_name = row[0].strip().lower()
+                    window_title = row[8].strip()
+                    if image_name == process_name.lower() and window_title and window_title.upper() != "N/A":
+                        return True
 
-            if valid_pids:
-                return False
+                # Matching process exists but no visible title -> treat as window gone.
+                if any(len(r) >= 1 and r[0].strip().lower() == process_name.lower() for r in rows):
+                    return False
+            except Exception:
+                continue
 
-        print("WARNING: UE4 process not found (or zombie) during monitoring! Initiating recovery...")
+        # If process is alive but no window detected, treat as unhealthy.
+        if self.is_game_process_alive():
+            return False
+        return None
+
+    def probe_game_health(self, check_window=True):
+        """
+        Probe UE runtime health from process/window perspective.
+        Returns a dict for monitoring/debug logs.
+        """
+        process_alive = self.is_game_process_alive()
+        window_alive = None
+        if process_alive and check_window:
+            window_alive = self.is_game_window_alive()
+        return {
+            "process_alive": process_alive,
+            "window_alive": window_alive,
+        }
+
+    def check_and_recover_game(self, force_restart=False, reason="", check_window=True):
+        """
+        Checks if the UE process is running (or forced unhealthy), then restarts.
+        Returns True if the game was restarted, False otherwise.
+        """
+        health = self.probe_game_health(check_window=check_window)
+        process_alive = health["process_alive"]
+        window_alive = health["window_alive"]
+
+        # Process state has highest priority.
+        # If process is gone, always treat as process-missing recovery,
+        # regardless of any prior window-related reason.
+        if not process_alive:
+            force_restart = True
+            reason = "process_missing"
+
+        if process_alive and not force_restart and check_window:
+            if window_alive is False:
+                force_restart = True
+                reason = reason or "ue_window_closed"
+
+        if process_alive and not force_restart:
+            return False
+
+        if force_restart:
+            print(f"WARNING: UE process marked unhealthy ({reason or 'unknown reason'}). Initiating forced recovery...")
+        else:
+            print("WARNING: UE process not found (or zombie) during monitoring! Initiating recovery...")
+
         self.restart_game()
         return True
