@@ -498,7 +498,12 @@ class AirSimEnv(gym.Env):
                 self.success_deque.append(0)
             self.on_episode_end()
 
-        return state, reward, done, False, {}
+        info = {
+            "has_collided": bool(collided),
+            "altitude_violation": bool(altitude_violation),
+            "is_success": bool(self.success)
+        }
+        return state, reward, done, False, info
 
 
     def on_episode_end(self):

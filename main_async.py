@@ -36,7 +36,20 @@ from algorithm.vmamba_td3_no_cross.vmamba_td3_no_cross import VMambaTD3NoCrossAg
 from algorithm.st_vmamba_td3.st_vmamba_td3 import ST_VMamba_Agent
 from algorithm.st_mamba_td3.agent import ST_Mamba_Agent
 from algorithm.ST_VimTD3.agent import ST_Mamba_VimTokens_Agent
+from algorithm.ST_VimTD3_Safety.agent import ST_Mamba_VimTokens_Safety_Agent
 from algorithm.st_cnn_td3.st_cnn_td3 import ST_CNN_Agent
+
+
+def _raise_if_non_finite(name, value, step_info=""):
+    arr = np.asarray(value)
+    finite_mask = np.isfinite(arr)
+    if not finite_mask.all():
+        total = arr.size
+        non_finite = total - int(finite_mask.sum())
+        message = f"[NaNMonitor][{name}] non-finite detected: {non_finite}/{total} elements"
+        if step_info:
+            message = f"{message} | {step_info}"
+        raise FloatingPointError(message)
 
 
 def expand_algorithms(algo_str):
@@ -46,9 +59,9 @@ def expand_algorithms(algo_str):
     """
     # Predefined algorithm groups
     groups = {
-        'all': ['td3', 'aetd3', 'per_td3', 'per_aetd3', 'gru_td3', 'lstm_td3', 'gru_aetd3', 'lstm_aetd3', 'cfc_td3', 'vmamba_td3', 'vmamba_td3_no_cross', 'st_vmamba_td3', 'st_mamba_td3', 'ST-VimTD3', 'st_cnn_td3'],
+        'all': ['td3', 'aetd3', 'per_td3', 'per_aetd3', 'gru_td3', 'lstm_td3', 'gru_aetd3', 'lstm_aetd3', 'cfc_td3', 'vmamba_td3', 'vmamba_td3_no_cross', 'st_vmamba_td3', 'st_mamba_td3', 'ST-VimTD3', 'ST-VimTD3-Safety', 'st_cnn_td3'],
         'base': ['td3', 'aetd3', 'per_td3', 'per_aetd3'],
-        'seq': ['gru_td3', 'lstm_td3', 'gru_aetd3', 'lstm_aetd3', 'cfc_td3', 'vmamba_td3', 'vmamba_td3_no_cross', 'st_vmamba_td3', 'st_mamba_td3', 'ST-VimTD3', 'st_cnn_td3']
+        'seq': ['gru_td3', 'lstm_td3', 'gru_aetd3', 'lstm_aetd3', 'cfc_td3', 'vmamba_td3', 'vmamba_td3_no_cross', 'st_vmamba_td3', 'st_mamba_td3', 'ST-VimTD3', 'ST-VimTD3-Safety', 'st_cnn_td3']
     }
     
     # Check if it's a predefined group
@@ -78,6 +91,7 @@ def get_agent_class(algo_name):
     if algo_name == 'st_vmamba_td3': return ST_VMamba_Agent
     if algo_name == 'st_mamba_td3': return ST_Mamba_Agent
     if algo_name == 'ST-VimTD3': return ST_Mamba_VimTokens_Agent
+    if algo_name == 'ST-VimTD3-Safety': return ST_Mamba_VimTokens_Safety_Agent
     if algo_name == 'st_cnn_td3': return ST_CNN_Agent
     raise ValueError(f"Unknown algorithm: {algo_name}")
 
@@ -103,7 +117,7 @@ def main():
             # Determine properties for this algorithm
             recurrent_algos = [
                 'gru_td3', 'lstm_td3', 'gru_aetd3', 'lstm_aetd3', 'cfc_td3',
-                'st_cnn_td3', 'vmamba_td3', 'st_vmamba_td3', 'st_mamba_td3', 'ST-VimTD3', 'vmamba_td3_no_cross'  # vmamba_td3 也是时序算法
+                'st_cnn_td3', 'vmamba_td3', 'st_vmamba_td3', 'st_mamba_td3', 'ST-VimTD3', 'ST-VimTD3-Safety', 'vmamba_td3_no_cross'  # vmamba_td3 也是时序算法
             ]
             
             is_recurrent = algo_name in recurrent_algos
@@ -244,12 +258,18 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, ba
                     # Non-recurrent: state is (4, H, W)
                     action = agent.select_action(base, state)
 
+                _raise_if_non_finite(
+                    "actor.action",
+                    action,
+                    f"algo={algo_name}, total_timesteps={total_timesteps}, episode={episode_num}, episode_step={episode_timesteps}"
+                )
+
                 # Track actions for distribution logging (per episode)
                 action_hist.append(action)
 
             # Step
             try:
-                next_obs, reward, terminated, truncated, _ = env.step(action)
+                next_obs, reward, terminated, truncated, step_info = env.step(action)
             except Exception as e:
                 print(f"CRITICAL ERROR in env.step: {e}")
                 print("Checking game status and attempting recovery...")
@@ -262,16 +282,35 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, ba
                     reward = 0.0
                     terminated = True  # End episode
                     truncated = False
+                    step_info = {}
                 else:
                     # If no restart was needed, still terminate the episode safely
                     reward = 0.0
                     terminated = True
                     truncated = False
+                    step_info = {}
                 
             done = terminated or truncated
+
+            _raise_if_non_finite(
+                "env.reward",
+                reward,
+                f"algo={algo_name}, total_timesteps={total_timesteps}, episode={episode_num}, episode_step={episode_timesteps}"
+            )
             
             next_state = next_obs['depth']
             next_base = next_obs['base']
+
+            _raise_if_non_finite(
+                "env.next_depth",
+                next_state,
+                f"algo={algo_name}, total_timesteps={total_timesteps}, episode={episode_num}, episode_step={episode_timesteps}"
+            )
+            _raise_if_non_finite(
+                "env.next_base",
+                next_base,
+                f"algo={algo_name}, total_timesteps={total_timesteps}, episode={episode_num}, episode_step={episode_timesteps}"
+            )
 
             if args.render_window:
                 vis_imgs = []
@@ -315,7 +354,11 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, ba
             if is_recurrent:
                 # Recurrent buffer usually expects single step data, sample() builds sequences.
                 # Generic recurrent buffer: store current step only, next state is derived by shifting on sample.
-                agent.replay_buffer.add(base, state, action, reward, done_bool)
+                if algo_name == 'ST-VimTD3-Safety':
+                    has_collided = float(step_info.get("has_collided", False)) if isinstance(step_info, dict) else 0.0
+                    agent.replay_buffer.add(base, state, action, reward, done_bool, has_collided)
+                else:
+                    agent.replay_buffer.add(base, state, action, reward, done_bool)
                 
                 # Update history queues
                 base_hist.append(next_base)
@@ -416,6 +459,13 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, ba
                 # Pass progress for schedulers if needed (conceptually)
                 train_info = agent.train()
                 if train_info:
+                    for metric_name in ("actor_loss", "critic_loss"):
+                        if metric_name in train_info:
+                            _raise_if_non_finite(
+                                f"train.{metric_name}",
+                                train_info[metric_name],
+                                f"algo={algo_name}, total_timesteps={total_timesteps}"
+                            )
                     loss_info_list.append(train_info)
             
             # Log average loss every 100 training steps
@@ -432,7 +482,7 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, ba
             gc.collect()
 
         # Checkpointing
-        if total_timesteps % 10000 == 0:
+        if total_timesteps % 100000 == 0:
             agent.save(f"./models/{algo_name}_async_{total_timesteps}.pth")
             print(f"Model saved at timestep {total_timesteps}")
             
