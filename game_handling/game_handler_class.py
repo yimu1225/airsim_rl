@@ -183,8 +183,8 @@ class GameHandler:
         Checks if the UE4 process is running. If not, restarts the game.
         Returns True if the game was restarted, False otherwise.
         """
-        # Determine likely process name
-        target_name = "UE4Editor.exe" if (os.name == "nt" or self.ue4_exe_path.endswith(".exe")) else "UE4Editor"
+        # Determine likely process names (UE4 / UE5 compatibility)
+        target_names = ["UE4Editor.exe", "UnrealEditor.exe"] if (os.name == "nt" or self.ue4_exe_path.endswith(".exe")) else ["UE4Editor", "UnrealEditor"]
 
         # Prefer tracking the known PID when available
         if str(settings.game_proc_pid).strip():
@@ -198,22 +198,24 @@ class GameHandler:
         # WSL2: psutil cannot see Windows processes, use tasklist.exe
         wsl_windows_mode = (os.name == "posix" and self.ue4_exe_path.endswith(".exe"))
         if wsl_windows_mode:
-            try:
-                output = subprocess.check_output(
-                    ["tasklist.exe", "/fi", f"imagename eq {target_name}"],
-                    stderr=subprocess.DEVNULL,
-                ).decode(errors="ignore")
-                if target_name.lower() in output.lower():
-                    return False
-            except Exception:
-                pass
+            for target_name in target_names:
+                try:
+                    output = subprocess.check_output(
+                        ["tasklist.exe", "/fi", f"imagename eq {target_name}"],
+                        stderr=subprocess.DEVNULL,
+                    ).decode(errors="ignore")
+                    if target_name.lower() in output.lower():
+                        return False
+                except Exception:
+                    continue
         else:
             # Check running processes with more strict validation
             # We need to verify that found PIDs are not zombies
-            raw_pids = utils.find_process_id_by_name(target_name)
             valid_pids = []
-
-            if raw_pids:
+            for target_name in target_names:
+                raw_pids = utils.find_process_id_by_name(target_name)
+                if not raw_pids:
+                    continue
                 for pid in raw_pids:
                     try:
                         p = psutil.Process(pid)

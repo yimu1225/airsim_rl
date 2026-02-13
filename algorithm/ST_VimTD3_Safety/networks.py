@@ -5,8 +5,6 @@ from Vim.vim.models_mamba import VisionMamba
 from mamba_ssm import Mamba
 
 
-
-
 class MambaBlock(nn.Module):
     """
     Mamba Block with LayerNorm and Residual connection.
@@ -28,12 +26,12 @@ class TemporalMambaStack(nn.Module):
     """
     def __init__(self, dim, n_layers=2, d_state=16, d_conv=4, expand=2):
         super().__init__()
-      
+
         self.mamba_layers = nn.ModuleList([
             MambaBlock(dim, d_state=d_state, d_conv=d_conv, expand=expand)
             for _ in range(n_layers)
         ])
-        
+
     def forward(self, x):
         for layer in self.mamba_layers:
             x = layer(x)
@@ -103,7 +101,6 @@ class STVimTokenMambaEncoder(nn.Module):
         frame_tokens = frame_tokens.view(B, T, self.embed_dim)
 
         temporal_tokens = self.temporal_mamba(frame_tokens)
-        # Return all temporal tokens flattened
         vis_tokens = temporal_tokens.view(B, -1)
 
         return vis_tokens
@@ -159,3 +156,22 @@ class Critic(nn.Module):
         xu = torch.cat([x, action], dim=-1)
         xu = self.input_norm(xu)
         return self.net(xu)
+
+
+class SafetyConstraintHead(nn.Module):
+    def __init__(self, latent_dim, action_dim):
+        super().__init__()
+        self.fc_g = nn.Linear(latent_dim, action_dim)
+        self.fc_h = nn.Linear(latent_dim, 1)
+
+    def forward(self, latent_state):
+        g = self.fc_g(latent_state)
+        h = self.fc_h(latent_state)
+        return g, h
+
+
+def safety_project_actions(a_raw, g, h, eps=1e-6):
+    constraint_val = (g * a_raw).sum(dim=-1, keepdim=True) + h
+    correction = torch.clamp(constraint_val, min=0.0) / (torch.norm(g, dim=-1, keepdim=True).pow(2) + eps)
+    a_safe = a_raw - correction * g
+    return a_safe, constraint_val

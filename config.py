@@ -28,12 +28,13 @@ def get_config(argv=None):
     parser.add_argument("--env_name", type=str, default='AirSimEnv-v42', help="要训练的环境名称")  # AirSimEnv-v42  CartPole-v0
 
     # 算法选择 (Algorithm Selection)
-    parser.add_argument("--algorithm_name", type=str, default='td3',
-                        help="要训练的算法。支持: td3, aetd3, per_td3, per_aetd3, gru_td3, lstm_td3, gru_aetd3, lstm_aetd3, cfc_td3, vmamba_td3, vmamba_td3_no_cross, st_vmamba_td3, st_mamba_td3, ST-VimTD3, st_cnn_td3。可以是单个，多个（逗号分隔），或组名 ('all', 'base', 'seq')")
+    parser.add_argument("--algorithm_name", type=str, default='ST-VimTD3,td3',
+                        help="要训练的算法。支持: td3, aetd3, per_td3, per_aetd3, gru_td3, lstm_td3, gru_aetd3, lstm_aetd3, cfc_td3, vmamba_td3, vmamba_td3_no_cross, st_vmamba_td3, st_mamba_td3, ST-VimTD3, ST-VimTD3-Safety, st_cnn_td3。可以是单个，多个（逗号分隔），或组名 ('all', 'base', 'seq')")
     parser.add_argument("--smooth_window", type=int, default=1000, help="平滑窗口大小，用于平滑学习曲线")
 
     # 训练设置 (Training Setup)
     parser.add_argument("--seed", type=str, default="25", help="随机种子 (支持逗号分隔多个种子)")
+    parser.add_argument("--steps_per_update", type=int, default=100, help='每次更新前收集的步数')
     parser.add_argument("--cuda", action='store_false', default=True, help="是否使用CUDA")
     parser.add_argument("--cuda_deterministic", action='store_false', default=True, help="CUDA是否确定性")
     parser.add_argument("--n_training_threads", type=int, default=1, help="训练线程数")
@@ -50,12 +51,12 @@ def get_config(argv=None):
     parser.add_argument("--batch_size", type=int, default=256, help="批次大小")
     parser.add_argument("--gamma", type=float, default=0.99, help="折扣因子") 
     parser.add_argument("--tau", type=float, default=0.005, help="软更新参数")
-    parser.add_argument("--actor_lr", type=float, default=4e-4, help="Actor学习率")
-    parser.add_argument("--critic_lr", type=float, default=4e-4, help="Critic学习率")
+    parser.add_argument("--actor_lr", type=float, default=5e-4, help="Actor学习率")
+    parser.add_argument("--critic_lr", type=float, default=5e-3, help="Critic学习率")
     parser.add_argument("--policy_noise", type=float, default=0.2, help="策略噪声")
     parser.add_argument("--noise_clip", type=float, default=0.2, help="噪声裁剪")
     parser.add_argument("--policy_freq", type=int, default=10, help="策略更新频率")
-    parser.add_argument("--grad_clip", type=float, default=2.0, help="梯度裁剪")
+    parser.add_argument("--grad_clip", type=float, default=1.0, help="梯度裁剪")
 
     # 可视化 (Visualization)
     parser.add_argument("--render_window", action='store_true', default=False, help="显示实时可视化窗口 (默认开启，可用 --no-render_window 关闭)")
@@ -115,6 +116,18 @@ def get_config(argv=None):
     parser.add_argument("--st_mamba_drop_path_rate", type=float, default=0.1, help="ST-Mamba Drop Path 率 (stochastic depth)")
     parser.add_argument("--st_mamba_temporal_depth", type=int, default=3, help="ST-Mamba-VimTokens 时序 Mamba Block 数量")
 
+    # ST-VimTD3 Safety Layer 参数
+    parser.add_argument("--use_vim_safety_layer", dest="use_vim_safety_layer", action='store_true', help="启用基于Vim隐空间的Safety Layer")
+    parser.add_argument("--no_vim_safety_layer", dest="use_vim_safety_layer", action='store_false', help="禁用基于Vim隐空间的Safety Layer")
+    parser.set_defaults(use_vim_safety_layer=True)
+    parser.add_argument("--safety_lr", type=float, default=5e-4, help="Safety Constraint Head 学习率")
+    parser.add_argument("--safety_loss_coef", type=float, default=1.0, help="安全监督损失系数")
+    parser.add_argument("--safety_actor_penalty_coef", type=float, default=0.05, help="Actor 的约束违反惩罚系数")
+    parser.add_argument("--safety_collision_reward_threshold", type=float, default=-10.0, help="将终止步标记为碰撞风险样本的奖励阈值")
+    parser.add_argument("--safety_warmup_steps", type=int, default=0, help="开始训练Safety Head前的迭代步数")
+    parser.add_argument("--safety_end_to_end", action='store_true', default=False, help="是否让Safety损失回传并更新Vim Encoder")
+    parser.add_argument("--safety_label_mode", type=str, default="collision_then_reward", choices=["collision", "reward_proxy", "collision_then_reward"], help="Safety标签来源：真实碰撞、奖励代理、或二者融合(fallback)")
+
 
     # Adaptive Ensemble TD3
     parser.add_argument("--adaptive_k", type=int, default=5, help="Ensemble critics 的数量")
@@ -124,7 +137,7 @@ def get_config(argv=None):
     parser.add_argument("--min_forward_speed", type=float, default=0.0, help="最小前进速度 (m/s)")
     parser.add_argument("--max_forward_speed", type=float, default=2.0, help="最大前进速度 (m/s)")
     parser.add_argument("--max_vertical_speed", type=float, default=0.5, help="最大垂直速度 (m/s)")
-    parser.add_argument("--max_yaw_rate", type=float, default=np.pi/12, help="最大偏航角速度 (rad/s)")
+    parser.add_argument("--max_yaw_rate", type=float, default=np.pi/6, help="最大偏航角速度 (rad/s)")
     parser.add_argument("--takeoff_height", type=float, default=-2.0, help="起飞目标高度 (NED坐标系中负值为向上)")
     parser.add_argument("--action_duration", type=float, default=0.5, help="在时钟缩放之前的每个速度指令的基础持续时间 (秒)")
     parser.add_argument("--clock_speed_factor", type=float, default=1.0, help="AirSim 设置中配置的 ClockSpeed 因子；持续时间将除以此值")
@@ -141,7 +154,7 @@ def get_config(argv=None):
     parser.add_argument("--continue_last", default=False, help="是否继续上次的训练")
     
     # 训练循环参数 (Training Loop Parameters)
-    parser.add_argument("--steps_per_update", type=int, default=100, help='每次更新前收集的步数')
+    
     parser.add_argument("--step_penalty", type=float, default=0.05, help="每步惩罚，以鼓励更快完成")
 
     # 日志 (Logging)
