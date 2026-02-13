@@ -131,6 +131,17 @@ class AirSimEnv(gym.Env):
         self.need_render = need_render
         self.screen = None
         self.clock = None
+
+        self.ue4_rpc_fail_count = 0
+        self.ue4_rpc_fail_threshold = getattr(config, "ue4_rpc_fail_threshold", 2) 
+        self.ue4_health_check_interval = getattr(config, "ue4_health_check_interval", 1.0) 
+        self.ue4_window_check_interval = getattr(config, "ue4_window_check_interval", 5.0) 
+        self.ue4_process_check_interval = max(3.0, self.ue4_health_check_interval * 3.0)
+        self._last_ue4_health_check_ts = 0.0
+        self._last_process_check_ts = 0.0
+        self._last_window_check_ts = 0.0
+        self._cached_process_alive = True
+        self._cached_window_alive = None
         
         if self.need_render:
             try:
@@ -158,40 +169,127 @@ class AirSimEnv(gym.Env):
             self.prev_action = 0  # For discrete actions
         self.prev_velocity = np.zeros(3, dtype=np.float32)
 
+    def _reconnect_airsim_client(self, reason=""):
+        """
+        Reconnect AirSim client with retries after UE recovery.
+        Returns True on success, False on failure.
+        """
+        z = -0.9
+        ip = None
+        port = None
+        if hasattr(self, 'airgym'):
+            z = self.airgym.z
+        if hasattr(self, 'config') and self.config:
+            ip = self.config.airsim_ip
+            port = self.config.airsim_port
+
+        max_retry = 5
+        for attempt in range(max_retry):
+            try:
+                self.airgym = AirLearningClient(z=z, ip=ip, port=port)
+                self.ue4_rpc_fail_count = 0
+                return True
+            except Exception as e:
+                if attempt == max_retry - 1:
+                    print(f"WARNING: AirSim reconnect failed after UE recovery ({reason or 'unknown reason'}): {e}")
+                time.sleep(1.5)
+        return False
+
+    def _is_airsim_rpc_alive(self):
+        """
+        Lightweight RPC health check for AirSim.
+        Returns True when simulator RPC responds; False otherwise.
+        """
+        if not hasattr(self, 'airgym') or self.airgym is None or not hasattr(self.airgym, 'client'):
+            return False
+
+        try:
+            self.airgym.client.simGetVehiclePose()
+            return True
+        except Exception:
+            return False
+
     def getGoal(self):
         return self.goal
 
     def get_space(self):
         return self.observation_space,self.action_space
 
-    def check_ue4_status(self):
+    def check_ue4_status(self, force_restart=False, reason=""):
         """
-        Check if UE4 process exists. If not, restart it and reconnect client.
-        Returns True if restarted.
+        Check if UE process/RPC is healthy. If not, force restart and reconnect client.
+        Returns True if restart/recovery happened.
         """
+        now_ts = time.monotonic()
+        elapsed = now_ts - self._last_ue4_health_check_ts
+        if (not force_restart) and (elapsed < self.ue4_health_check_interval):
+            return False
+        self._last_ue4_health_check_ts = now_ts
+
+        # Fast path: process check first (cheap)
         if self.game_handler:
-            if self.game_handler.check_and_recover_game():
-                print("UE4 process missing, triggered restart. Reinitializing AirSim client...")
-                time.sleep(15) # Wait for game to initialize
-                try:
-                    # Reconnect
-                    # Use existing params if self.airgym exists, else defaults
-                    z = -0.9
-                    ip = None
-                    port = None
-                    if hasattr(self, 'airgym'):
-                        z = self.airgym.z
-                    
-                    if hasattr(self, 'config') and self.config:
-                        ip = self.config.airsim_ip
-                        port = self.config.airsim_port
-                        
-                    self.airgym = AirLearningClient(z=z, ip=ip, port=port)
-                    return True
-                except Exception as e:
-                    print(f"Error reconnecting after forced restart: {e}")
-                    # Even if connection fails here, we return True so loop knows we reset
-                    return True
+            if (now_ts - self._last_process_check_ts) >= self.ue4_process_check_interval:
+                self._last_process_check_ts = now_ts
+                self._cached_process_alive = self.game_handler.is_game_process_alive()
+
+            process_alive = self._cached_process_alive
+            if not process_alive:
+                restarted = self.game_handler.check_and_recover_game(
+                    force_restart=True,
+                    reason="process_missing",
+                    check_window=False,
+                )
+                if restarted:
+                    self._cached_process_alive = True
+                    self._last_process_check_ts = now_ts
+                    return self._reconnect_airsim_client(reason="process_missing")
+                return False
+
+            # Window check is expensive, run at a lower frequency.
+            if (now_ts - self._last_window_check_ts) >= self.ue4_window_check_interval:
+                self._last_window_check_ts = now_ts
+                self._cached_window_alive = self.game_handler.is_game_window_alive()
+
+            if self._cached_window_alive is False:
+                restarted = self.game_handler.check_and_recover_game(
+                    force_restart=True,
+                    reason="ue_window_closed",
+                    check_window=False,
+                )
+                self._cached_window_alive = None
+                if restarted:
+                    self._cached_process_alive = True
+                    self._last_process_check_ts = now_ts
+                    return self._reconnect_airsim_client(reason="ue_window_closed")
+                return False
+
+        rpc_alive = self._is_airsim_rpc_alive()
+        if rpc_alive:
+            self.ue4_rpc_fail_count = 0
+        else:
+            self.ue4_rpc_fail_count += 1
+
+        rpc_force_restart = self.ue4_rpc_fail_count >= self.ue4_rpc_fail_threshold
+        if rpc_force_restart and not force_restart:
+            force_restart = True
+            reason = f"rpc_unhealthy_{self.ue4_rpc_fail_count}_times"
+
+        if self.game_handler and force_restart:
+            restarted = self.game_handler.check_and_recover_game(
+                force_restart=force_restart,
+                reason=reason,
+                check_window=False,
+            )
+            if restarted:
+                self._cached_process_alive = True
+                self._last_process_check_ts = now_ts
+                self._cached_window_alive = None
+                return self._reconnect_airsim_client(reason=reason or "forced_restart")
+        elif force_restart:
+            # Fallback when restart is disabled: reconnect client only.
+            if self._reconnect_airsim_client(reason=reason or "rpc_unhealthy_no_game_handler"):
+                return True
+            return False
         return False
 
     def seed(self, seed=None):
@@ -379,6 +477,17 @@ class AirSimEnv(gym.Env):
         """
 
         self.stepN += 1
+
+        if self.check_ue4_status():
+            state = self.get_obs()
+            self.success = False
+            info = {
+                "has_collided": False,
+                "altitude_violation": False,
+                "is_success": False,
+                "ue4_restarted": True
+            }
+            return state, 0.0, True, False, info
         
         self.airgym.client.simPause(False)
         if (settings.control_mode == "moveByVelocity"):
@@ -399,7 +508,7 @@ class AirSimEnv(gym.Env):
         # Update stacks
         depth_img = None
         gray_img = None
-        for attempt in range(3):  # 初始尝试 + 3次重试
+        for attempt in range(4):  # 初始尝试 + 3次重试
             try:
                 depth_img = self.airgym.getScreenDepth()
                 gray_img = self.airgym.getScreenGray()
@@ -547,6 +656,8 @@ class AirSimEnv(gym.Env):
         # 设置种子
         if seed is not None:
             self.seed(seed)
+
+        self.check_ue4_status()
         
         # 取消暂停，确保重置和起飞命令可以执行
         self.airgym.client.simPause(False)
@@ -572,31 +683,33 @@ class AirSimEnv(gym.Env):
         
         # 2. 如果环境变化了，重置 Unreal (障碍物等)
         if env_changed:
-            self.airgym.unreal_reset()
-            print("Unreal environment reset done.")
+            try:
+                start_time = time.time()
+                self.airgym.unreal_reset()
+                print(f"Unreal environment reset done. Time: {time.time() - start_time:.2f}s")
+            except Exception as e:
+                print(f"Unreal reset failed: {e}")
+                self.check_ue4_status(force_restart=True, reason="unreal_reset_failed")
         
         # 3. 重置无人机状态 (不管环境变没变，无人机都得重置)
         max_retries = 3
         for attempt in range(max_retries):
             try:
+                start_time = time.time()
                 self.airgym.AirSim_reset()
-                print("AirSim drone reset done.")
+                print(f"AirSim drone reset done. Time: {time.time() - start_time:.2f}s")
                 break
             except Exception as e:
                 print(f"AirSim reset failed (attempt {attempt+1}/{max_retries}): {e}")
+                self.check_ue4_status(force_restart=True, reason="airsim_reset_exception")
                 time.sleep(2)
                 if attempt == max_retries - 1:
                     print("Critical error: Unable to reset AirSim after multiple attempts. Restarting game...")
-                    if self.game_handler:
-                        self.game_handler.restart_game()
-                        time.sleep(10) # Wait for game to reload
-                        # Re-initialize client after game restart
-                        # Note: airgym should ideally handle client reconnection, 
-                        # but we can force a reconnect here if needed, or rely on AirSim_reset to retry.
-                        self.airgym = AirLearningClient(z=self.airgym.z, ip=self.config.airsim_ip, port=self.config.airsim_port)
+                    self.check_ue4_status(force_restart=True, reason="airsim_reset_failed_max_retry")
 
         # 4. 检查起飞结果并自旋重试 (如果失败)
         # Check takeoff status and retry if failed
+        start_time = time.time()
         now = None
         collision_info = None
 
@@ -629,6 +742,8 @@ class AirSimEnv(gym.Env):
              collision_info = self.airgym.client.simGetCollisionInfo()
              retry_count += 1
 
+        print(f"Takeoff check completed. Total time: {time.time() - start_time:.2f}s, Retries: {retry_count}")
+
         # 确保处于目标高度
         if abs(now[2] - self.airgym.z) > 0.1:
             self.airgym.client.moveToZAsync(self.airgym.z, 3).join()
@@ -636,8 +751,10 @@ class AirSimEnv(gym.Env):
         # 5. 暂停仿真以同步获取初始状态
         self.airgym.client.simPause(True)
         
+        start_time = time.time()
         self.on_episode_start()
         state = self.init_state_f()
+        print(f"Initial state acquisition time: {time.time() - start_time:.2f}s")
         self.prev_state = state
         self.prev_action = np.zeros(self.action_space.shape, dtype=np.float32) if hasattr(self.action_space, 'shape') and self.action_space.shape else 0
         self.prev_velocity = self.airgym.drone_velocity()

@@ -225,21 +225,6 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, ba
         cv2.resizeWindow("Depth View", 256, 256)
 
     while total_timesteps < max_timesteps:
-        
-        # Check UE4 Status periodically (every update cycle)
-        if env.check_ue4_status():
-            print("Detected UE4 restart. Resetting environment and history...")
-            obs, _ = env.reset(seed=args.seed)
-            state = obs['depth']
-            base = obs['base']
-            
-            if is_recurrent:
-                base_hist.clear()
-                depth_hist.clear()
-                for _ in range(seq_len):
-                    base_hist.append(base)
-                    depth_hist.append(state)
-
         # Collect steps_per_update
         for step in range(steps_per_update):
             episode_timesteps += 1
@@ -274,8 +259,8 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, ba
                 print(f"CRITICAL ERROR in env.step: {e}")
                 print("Checking game status and attempting recovery...")
                 
-                # Check and restart if needed
-                if env.check_ue4_status():
+                # Force restart for robust recovery when UE process exists but window/sim is unhealthy
+                if env.check_ue4_status(force_restart=True, reason="env_step_exception"):
                     # Force episode end and reset only after a restart
                     obs, _ = env.reset(seed=args.seed)
                     next_obs = obs  # Use fresh observation as 'next_obs' effectively
