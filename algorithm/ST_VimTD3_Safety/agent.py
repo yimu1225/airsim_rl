@@ -222,6 +222,7 @@ class ST_Mamba_VimTokens_Safety_Agent:
         action = torch.as_tensor(action, dtype=torch.float32, device=self.device)
         if action.dim() == 3 and action.shape[1] == self.seq_len:
             action = action[:, -1, :]
+        action = self._unscale_action(action).clamp(-1.0, 1.0)
 
         reward = torch.as_tensor(reward, dtype=torch.float32, device=self.device)
         done_flag = torch.as_tensor(done_flag, dtype=torch.float32, device=self.device)
@@ -255,14 +256,8 @@ class ST_Mamba_VimTokens_Safety_Agent:
                 next_action_raw = next_action_raw.clamp(-1.0, 1.0)
 
             self._assert_finite_tensor("train.next_action_raw", next_action_raw)
-            next_action = self._scale_action(next_action_raw)
-            self._assert_finite_tensor("train.next_action_scaled", next_action)
-
-            noise = (torch.randn_like(next_action) * self.policy_noise).clamp(-self.noise_clip, self.noise_clip)
-            next_action = (next_action + noise).clamp(
-                self.min_action_tensor,
-                self.max_action_tensor
-            )
+            noise = (torch.randn_like(next_action_raw) * self.policy_noise).clamp(-self.noise_clip, self.noise_clip)
+            next_action = (next_action_raw + noise).clamp(-1.0, 1.0)
             self._assert_finite_tensor("train.next_action_noisy", next_action)
 
             target_visual = self.critic_encoder_target(next_depth, next_state_curr)
@@ -302,8 +297,7 @@ class ST_Mamba_VimTokens_Safety_Agent:
             safety_input = safety_visual if self.safety_end_to_end else safety_visual.detach()
             g, h = self.safety_model(safety_input)
 
-            action_normalized = self._unscale_action(action).clamp(-1.0, 1.0)
-            logits = (g * action_normalized).sum(dim=-1, keepdim=True) + h
+            logits = (g * action).sum(dim=-1, keepdim=True) + h
 
             reward_proxy_target = ((done_flag > 0.5) & (reward <= self.safety_collision_reward_threshold)).float()
 
@@ -345,7 +339,7 @@ class ST_Mamba_VimTokens_Safety_Agent:
             else:
                 actor_action_safe = actor_action_raw
 
-            actor_action = self._scale_action(actor_action_safe)
+            actor_action = actor_action_safe
             self._assert_finite_tensor("train.actor_action_scaled", actor_action)
 
             q_visual = self.critic_encoder(depth, current_state)

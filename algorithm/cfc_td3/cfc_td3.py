@@ -151,16 +151,19 @@ class CFCTD3Agent:
         if batch is None:
             return {}
 
-        base, depth, action, reward, next_base, next_depth, not_done = batch
+        base, depth, action, reward, next_base, next_depth, done_flag = batch
         
         # Convert to tensors
         base = torch.as_tensor(base, dtype=torch.float32, device=self.device)
         depth = torch.as_tensor(depth, dtype=torch.float32, device=self.device)
         action = torch.as_tensor(action, dtype=torch.float32, device=self.device)
+        action = (action - self.action_bias_tensor) / self.action_scale_tensor
+        action = action.clamp(-1.0, 1.0)
         reward = torch.as_tensor(reward, dtype=torch.float32, device=self.device)
         next_base = torch.as_tensor(next_base, dtype=torch.float32, device=self.device)
         next_depth = torch.as_tensor(next_depth, dtype=torch.float32, device=self.device)
-        not_done = torch.as_tensor(not_done, dtype=torch.float32, device=self.device)
+        done_flag = torch.as_tensor(done_flag, dtype=torch.float32, device=self.device)
+        not_done = 1.0 - done_flag
         
         # Shapes:
         # base: (B, Seq_Len, Base_Dim)
@@ -180,7 +183,7 @@ class CFCTD3Agent:
             next_state_repr = self.actor_cfc_target(next_base, next_depth_features)
             
             # Target Actor
-            next_action = (self.actor_target(next_state_repr) + noise).clamp(self.min_action_tensor, self.max_action_tensor)
+            next_action = (self.actor_target(next_state_repr) + noise).clamp(-1.0, 1.0)
 
             # Target Critic (Next State, Next Action)
             # Use Critic Target Encoders? Generally we share or sync visual/cfc encoders for actor/critic
@@ -227,7 +230,8 @@ class CFCTD3Agent:
             depth_features_a = depth_features_a.view(B, S, -1)
             state_repr_a = self.actor_cfc(base, depth_features_a)
             
-            actor_loss = -self.critic.Q1(torch.cat([state_repr_a, self.actor(state_repr_a)], dim=-1)).mean()
+            q1_pi, _ = self.critic(state_repr_a, self.actor(state_repr_a))
+            actor_loss = -q1_pi.mean()
             actor_loss_val = actor_loss.item()
             
             self.actor_optimizer.zero_grad()
