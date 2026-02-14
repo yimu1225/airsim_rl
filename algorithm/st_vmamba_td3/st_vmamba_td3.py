@@ -93,6 +93,7 @@ class ST_VMamba_Agent:
 
         self.exploration_noise = getattr(args, 'exploration_noise', 0.1)
 
+        self.batch_size = args.batch_size
         self.total_it = 0
         
         # Replay Buffer
@@ -130,8 +131,11 @@ class ST_VMamba_Agent:
         scaled_action = action * self.action_scale.cpu().numpy() + self.action_bias.cpu().numpy()
         return scaled_action
 
-    def train(self, replay_buffer=None, batch_size=64):
+    def train(self, replay_buffer=None, batch_size=None):
         self.total_it += 1
+
+        if batch_size is None:
+            batch_size = self.batch_size
 
         # Use internal buffer if not provided
         if replay_buffer is None:
