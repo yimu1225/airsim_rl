@@ -78,9 +78,9 @@ class ST_Mamba_VimTokens_Agent:
         self.policy_noise = args.policy_noise
         self.noise_clip = args.noise_clip
         self.policy_freq = args.policy_freq
-        self.grad_clip = getattr(args, "grad_clip", 1.0)
-
+        self.grad_clip = args.grad_clip
         self.exploration_noise = args.exploration_noise
+        self.batch_size = args.batch_size
 
         self.replay_buffer = SequenceReplayBuffer(args.buffer_size, self.seq_len)
         self.total_it = 0
@@ -148,14 +148,21 @@ class ST_Mamba_VimTokens_Agent:
         self._assert_finite_array("select_action.scaled_action", scaled_action)
         return scaled_action
 
-    def train(self, replay_buffer=None, batch_size=64):
+    def train(self, replay_buffer=None, batch_size=None):
         self.total_it += 1
+
+        if batch_size is None:
+            batch_size = self.batch_size
 
         if replay_buffer is None:
             replay_buffer = self.replay_buffer
 
+        sampled = replay_buffer.sample(batch_size)
+        if sampled is None:
+            return {"critic_loss": 0.0, "actor_loss": 0.0}
+
         (state, depth, action, reward,
-         next_state, next_depth, not_done) = replay_buffer.sample(batch_size)
+         next_state, next_depth, done_flag) = sampled
 
         depth = torch.as_tensor(depth, dtype=torch.float32, device=self.device)
         next_depth = torch.as_tensor(next_depth, dtype=torch.float32, device=self.device)
@@ -179,15 +186,15 @@ class ST_Mamba_VimTokens_Agent:
             action = action[:, -1, :]
 
         reward = torch.as_tensor(reward, dtype=torch.float32, device=self.device)
-        not_done = torch.as_tensor(not_done, dtype=torch.float32, device=self.device)
+        done_flag = torch.as_tensor(done_flag, dtype=torch.float32, device=self.device)
 
         if reward.dim() > 1 and reward.shape[1] == self.seq_len:
             reward = reward[:, -1]
         reward = reward.view(-1, 1)
 
-        if not_done.dim() > 1 and not_done.shape[1] == self.seq_len:
-            not_done = not_done[:, -1]
-        not_done = not_done.view(-1, 1)
+        if done_flag.dim() > 1 and done_flag.shape[1] == self.seq_len:
+            done_flag = done_flag[:, -1]
+        done_flag = done_flag.view(-1, 1)
 
         with torch.no_grad():
             next_visual = self.actor_encoder_target(next_depth, next_state_curr)
@@ -213,7 +220,7 @@ class ST_Mamba_VimTokens_Agent:
             self._assert_finite_tensor("train.target_Q1", target_Q1)
             self._assert_finite_tensor("train.target_Q2", target_Q2)
             target_Q = torch.min(target_Q1, target_Q2)
-            target_Q = reward + not_done * self.gamma * target_Q
+            target_Q = reward + (1.0 - done_flag) * self.gamma * target_Q
             self._assert_finite_tensor("train.target_Q", target_Q)
 
         current_visual = self.critic_encoder(depth, current_state)

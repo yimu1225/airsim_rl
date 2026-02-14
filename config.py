@@ -106,7 +106,7 @@ def get_config(argv=None):
     parser.add_argument("--attention_dropout", type=float, default=0.0, help="自注意力dropout率")
 
     # ST-Mamba 参数
-    parser.add_argument("--st_mamba_embed_dim", type=int, default=192, help="ST-Mamba 嵌入维度")
+    parser.add_argument("--st_mamba_embed_dim", type=int, default=64, help="ST-Mamba 嵌入维度")
     parser.add_argument("--st_mamba_depth", type=int, default=6, help="ST-Mamba Block 数量")
     parser.add_argument("--st_mamba_patch_size", type=int, default=16, help="ST-Mamba Patch 大小")
     parser.add_argument("--st_mamba_d_state", type=int, default=16, help="ST-Mamba SSM 状态维度")

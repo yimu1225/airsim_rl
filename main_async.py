@@ -162,7 +162,7 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, ba
     print(f"Start Asynchronous Training {algo_name}...")
 
     # Restart interval for refreshing UE4 memory
-    restart_interval = 10000
+    restart_interval = 200000
     next_restart = restart_interval
 
     # Logging

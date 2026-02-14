@@ -100,6 +100,7 @@ class ST_Mamba_VimTokens_Safety_Agent:
         self.safety_warmup_steps = getattr(args, "safety_warmup_steps", 0)
         self.safety_label_mode = getattr(args, "safety_label_mode", "collision_then_reward")
 
+        self.batch_size = args.batch_size
         self.replay_buffer = SequenceReplayBuffer(args.buffer_size, self.seq_len)
         self.total_it = 0
 
@@ -180,8 +181,11 @@ class ST_Mamba_VimTokens_Safety_Agent:
         self._assert_finite_array("select_action.scaled_action", scaled_action)
         return scaled_action
 
-    def train(self, replay_buffer=None, batch_size=64):
+    def train(self, replay_buffer=None, batch_size=None):
         self.total_it += 1
+
+        if batch_size is None:
+            batch_size = self.batch_size
 
         if replay_buffer is None:
             replay_buffer = self.replay_buffer
