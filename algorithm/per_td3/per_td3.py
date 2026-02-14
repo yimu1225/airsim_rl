@@ -108,7 +108,9 @@ class PERTD3Agent:
 
         base_states = torch.as_tensor(np.array(base_states), dtype=torch.float32, device=self.device)
         depths = torch.as_tensor(np.array(depths), dtype=torch.float32, device=self.device)
-        actions = torch.as_tensor(np.array(actions), dtype=torch.float32, device=self.device)
+        real_actions = torch.as_tensor(np.array(actions), dtype=torch.float32, device=self.device)
+        actions = (real_actions - self.action_bias) / self.action_scale
+        actions = actions.clamp(-1.0, 1.0)
         rewards = torch.as_tensor(np.array(rewards), dtype=torch.float32, device=self.device).unsqueeze(1)
         next_base_states = torch.as_tensor(np.array(next_base_states), dtype=torch.float32, device=self.device)
         next_depths = torch.as_tensor(np.array(next_depths), dtype=torch.float32, device=self.device)

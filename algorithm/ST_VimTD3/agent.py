@@ -184,6 +184,8 @@ class ST_Mamba_VimTokens_Agent:
         action = torch.as_tensor(action, dtype=torch.float32, device=self.device)
         if action.dim() == 3 and action.shape[1] == self.seq_len:
             action = action[:, -1, :]
+        action = (action - self.action_bias) / self.action_scale
+        action = action.clamp(-1.0, 1.0)
 
         reward = torch.as_tensor(reward, dtype=torch.float32, device=self.device)
         done_flag = torch.as_tensor(done_flag, dtype=torch.float32, device=self.device)
@@ -202,14 +204,8 @@ class ST_Mamba_VimTokens_Agent:
             next_actor_input = torch.cat([next_visual, next_state_curr], dim=-1)
             next_action = self.actor_target(next_actor_input)
             self._assert_finite_tensor("train.next_action_raw", next_action)
-            next_action = self._scale_action(next_action)
-            self._assert_finite_tensor("train.next_action_scaled", next_action)
-
             noise = (torch.randn_like(next_action) * self.policy_noise).clamp(-self.noise_clip, self.noise_clip)
-            next_action = (next_action + noise).clamp(
-                self.min_action_tensor,
-                self.max_action_tensor
-            )
+            next_action = (next_action + noise).clamp(-1.0, 1.0)
             self._assert_finite_tensor("train.next_action_noisy", next_action)
 
             target_visual = self.critic_encoder_target(next_depth, next_state_curr)
@@ -249,8 +245,6 @@ class ST_Mamba_VimTokens_Agent:
             actor_input = torch.cat([actor_visual, current_state], dim=-1)
             actor_action = self.actor(actor_input)
             self._assert_finite_tensor("train.actor_action_raw", actor_action)
-            actor_action = self._scale_action(actor_action)
-            self._assert_finite_tensor("train.actor_action_scaled", actor_action)
 
             q_visual = self.critic_encoder(depth, current_state)
             self._assert_finite_tensor("train.q_visual", q_visual)

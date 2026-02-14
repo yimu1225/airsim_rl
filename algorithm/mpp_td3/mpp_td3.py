@@ -17,6 +17,8 @@ class MPPTD3Agent:
         self.action_dim = action_space.shape[0]
         self.max_action = np.array(action_space.high, dtype=np.float32)
         self.min_action = np.array(action_space.low, dtype=np.float32)
+        self.action_scale = torch.FloatTensor((self.max_action - self.min_action) / 2.0).to(self.device)
+        self.action_bias = torch.FloatTensor((self.max_action + self.min_action) / 2.0).to(self.device)
         
         # Encoders
         _, depth_h, depth_w = depth_shape
@@ -148,6 +150,8 @@ class MPPTD3Agent:
         state_base = torch.FloatTensor(np.array([s[0] for s in states])).to(self.device)
         state_depth = torch.FloatTensor(np.array([s[1] for s in states])).to(self.device)
         action = torch.FloatTensor(np.array(actions)).to(self.device)
+        action = (action - self.action_bias) / self.action_scale
+        action = action.clamp(-1.0, 1.0)
         reward = torch.FloatTensor(np.array(rewards)).unsqueeze(1).to(self.device)
         next_state_base = torch.FloatTensor(np.array([s[0] for s in next_states])).to(self.device)
         next_state_depth = torch.FloatTensor(np.array([s[1] for s in next_states])).to(self.device)
@@ -161,10 +165,7 @@ class MPPTD3Agent:
             next_action = self.actor_target(next_full_state)
             
             noise = (torch.randn_like(next_action) * self.policy_noise).clamp(-self.noise_clip, self.noise_clip)
-            next_action = (next_action + noise)
-            
-            # Per-dimension clamping
-            next_action = torch.max(torch.min(next_action, self.max_action_tensor), self.min_action_tensor)
+            next_action = (next_action + noise).clamp(-1.0, 1.0)
             
             target_q1, target_q2 = self.critic_target(next_full_state, next_action)
             target_q = torch.min(target_q1, target_q2)
@@ -195,7 +196,8 @@ class MPPTD3Agent:
         if self.total_it % self.policy_freq == 0:
             feat_actor = self.actor_encoder(state_depth)
             full_state_actor = torch.cat([state_base, feat_actor], dim=1)
-            actor_loss = -self.critic.Q1(torch.cat([full_state_actor, self.actor(full_state_actor)], dim=1)).mean()
+            q1_pi, _ = self.critic(full_state_actor, self.actor(full_state_actor))
+            actor_loss = -q1_pi.mean()
             
             self.actor_optimizer.zero_grad()
             actor_loss.backward()

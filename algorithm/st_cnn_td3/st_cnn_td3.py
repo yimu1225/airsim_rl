@@ -99,8 +99,8 @@ class ST_CNN_Agent:
 
         self.gamma = getattr(args, 'gamma', 0.99)
         self.tau = getattr(args, 'tau', 0.005)
-        self.policy_noise = getattr(args, 'policy_noise', 0.2) * self.max_action
-        self.noise_clip = getattr(args, 'noise_clip', 0.5) * self.max_action
+        self.policy_noise = getattr(args, 'policy_noise', 0.2)
+        self.noise_clip = getattr(args, 'noise_clip', 0.5)
         self.policy_freq = getattr(args, 'policy_freq', 2)
 
         self.exploration_noise = getattr(args, 'exploration_noise', 0.1)
@@ -158,7 +158,7 @@ class ST_CNN_Agent:
             
        
 
-        state, depth, action, reward, next_state, next_depth, not_done = replay_buffer.sample(batch_size)
+        state, depth, action, reward, next_state, next_depth, done_flag = replay_buffer.sample(batch_size)
         
         depth = torch.FloatTensor(depth).to(self.device)
         state = torch.FloatTensor(state).to(self.device)
@@ -171,6 +171,8 @@ class ST_CNN_Agent:
         action = torch.FloatTensor(action).to(self.device)
         if action.dim() == 3 and action.shape[1] == self.seq_len:
              action = action[:, -1, :]
+        action = (action - self.action_bias) / self.action_scale
+        action = action.clamp(-1.0, 1.0)
             
         next_state = torch.FloatTensor(next_state).to(self.device)
         
@@ -181,7 +183,7 @@ class ST_CNN_Agent:
             
         next_depth = torch.FloatTensor(next_depth).to(self.device)
         reward = torch.FloatTensor(reward).to(self.device)
-        not_done = torch.FloatTensor(not_done).to(self.device)
+        done_flag = torch.FloatTensor(done_flag).to(self.device)
         
         # Adjust shapes for Sequence Replay Buffer (B, T, ...) -> Take last step for TD3 update
         if reward.dim() > 1 and reward.shape[1] == self.seq_len:
@@ -190,11 +192,12 @@ class ST_CNN_Agent:
             elif reward.dim() == 3: # (B, T, 1)
                 reward = reward[:, -1, :]
                 
-        if not_done.dim() > 1 and not_done.shape[1] == self.seq_len:
-            if not_done.dim() == 2:
-                not_done = not_done[:, -1].unsqueeze(1)
-            elif not_done.dim() == 3:
-                not_done = not_done[:, -1, :]
+        if done_flag.dim() > 1 and done_flag.shape[1] == self.seq_len:
+            if done_flag.dim() == 2:
+                done_flag = done_flag[:, -1].unsqueeze(1)
+            elif done_flag.dim() == 3:
+                done_flag = done_flag[:, -1, :]
+        not_done = 1.0 - done_flag
 
         with torch.no_grad():
             # Add noise to target action (in scaled space)
@@ -208,10 +211,8 @@ class ST_CNN_Agent:
             next_feat = torch.cat([next_vis_feat, next_s_feat], dim=1)
             
             raw_next_action = self.actor_head_target(next_feat)
-            scaled_next_action = raw_next_action * self.action_scale + self.action_bias
-            
-            noise = (torch.randn_like(scaled_next_action) * self.policy_noise).clamp(-self.noise_clip, self.noise_clip)
-            next_action = (scaled_next_action + noise).clamp(self.min_action, self.max_action)
+            noise = (torch.randn_like(raw_next_action) * self.policy_noise).clamp(-self.noise_clip, self.noise_clip)
+            next_action = (raw_next_action + noise).clamp(-1.0, 1.0)
 
             # Target Q
             t_vis_feat_q = self.critic_visual_target(next_depth)
@@ -242,9 +243,8 @@ class ST_CNN_Agent:
             feat_pi = torch.cat([vis_feat_pi, s_feat_pi], dim=1)
             
             raw_pi = self.actor_head(feat_pi)
-            scaled_pi = raw_pi * self.action_scale + self.action_bias
-            
-            actor_loss = -self.critic_head.q1_net(torch.cat([feat_q.detach(), scaled_pi], dim=1)).mean()
+            q1_pi, _ = self.critic_head(feat_q.detach(), raw_pi)
+            actor_loss = -q1_pi.mean()
 
             self.actor_optimizer.zero_grad()
             actor_loss.backward()
