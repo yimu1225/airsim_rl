@@ -127,7 +127,7 @@ class ST_Mamba_Agent:
             replay_buffer = self.replay_buffer
 
         (state, depth, action, reward,
-         next_state, next_depth, not_done) = replay_buffer.sample(batch_size)
+         next_state, next_depth, done_flag) = replay_buffer.sample(batch_size)
 
         depth = torch.as_tensor(depth, dtype=torch.float32, device=self.device)
         next_depth = torch.as_tensor(next_depth, dtype=torch.float32, device=self.device)
@@ -149,29 +149,28 @@ class ST_Mamba_Agent:
         action = torch.as_tensor(action, dtype=torch.float32, device=self.device)
         if action.dim() == 3 and action.shape[1] == self.seq_len:
             action = action[:, -1, :]
+        action = (action - self.action_bias) / self.action_scale
+        action = action.clamp(-1.0, 1.0)
 
         reward = torch.as_tensor(reward, dtype=torch.float32, device=self.device)
-        not_done = torch.as_tensor(not_done, dtype=torch.float32, device=self.device)
+        done_flag = torch.as_tensor(done_flag, dtype=torch.float32, device=self.device)
 
         if reward.dim() > 1 and reward.shape[1] == self.seq_len:
             reward = reward[:, -1]
         reward = reward.view(-1, 1)
 
-        if not_done.dim() > 1 and not_done.shape[1] == self.seq_len:
-            not_done = not_done[:, -1]
-        not_done = not_done.view(-1, 1)
+        if done_flag.dim() > 1 and done_flag.shape[1] == self.seq_len:
+            done_flag = done_flag[:, -1]
+        done_flag = done_flag.view(-1, 1)
+        not_done = 1.0 - done_flag
 
         with torch.no_grad():
             next_visual = self.actor_encoder_target(next_depth, next_state_curr)
             next_actor_input = torch.cat([next_visual, next_state_curr], dim=-1)
             next_action = self.actor_target(next_actor_input)
-            next_action = self._scale_action(next_action)
 
             noise = (torch.randn_like(next_action) * self.policy_noise).clamp(-self.noise_clip, self.noise_clip)
-            next_action = (next_action + noise).clamp(
-                self.min_action_tensor,
-                self.max_action_tensor
-            )
+            next_action = (next_action + noise).clamp(-1.0, 1.0)
 
             target_visual = self.critic_encoder_target(next_depth, next_state_curr)
             target_input = torch.cat([target_visual, next_state_curr], dim=-1)
@@ -198,11 +197,11 @@ class ST_Mamba_Agent:
             actor_visual = self.actor_encoder(depth, current_state)
             actor_input = torch.cat([actor_visual, current_state], dim=-1)
             actor_action = self.actor(actor_input)
-            actor_action = self._scale_action(actor_action)
 
             q_visual = self.critic_encoder(depth, current_state)
             q_input = torch.cat([q_visual, current_state], dim=-1)
-            actor_loss = -self.critic.q1(q_input, actor_action).mean()
+            q1_pi, _ = self.critic(q_input, actor_action)
+            actor_loss = -q1_pi.mean()
 
             self.actor_optimizer.zero_grad()
             actor_loss.backward()
