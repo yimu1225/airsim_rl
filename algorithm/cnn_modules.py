@@ -43,7 +43,8 @@ class CNN(nn.Module):
         f2 = 8
         f3 = 16
         f4 = 32
-        f5 = 48
+        # f5 = 48
+        f5 = 16
 
         self.net = nn.Sequential(
             # 第一层: MaxPool(2x2) -> 输入高宽减半
