@@ -181,7 +181,7 @@ def get_config(argv=None):
     parser.add_argument("--airsim_ip", type=str, default="172.20.176.1", help="AirSim 服务器 IP 地址")
     parser.add_argument("--airsim_port", type=int, default=41451, help="AirSim 服务器端口")
     parser.add_argument("--ue4_rpc_fail_threshold", type=int, default=2, help="UE4健康检测中，连续RPC失败达到该次数后触发强制重启")
-    parser.add_argument("--ue4_health_check_interval", type=float, default=1.0, help="UE4健康检查最小间隔秒数，降低对训练速度的影响")
+    parser.add_argument("--ue4_health_check_interval", type=float, default=10.0, help="UE4健康检查最小间隔秒数，降低对训练速度的影响")
     parser.add_argument("--ue4_window_check_interval", type=float, default=10.0, help="窗口状态检测间隔秒数（较慢但开销更大，建议大于健康检查间隔）")
     parser.add_argument("--settings_file", type=str, default="", help="AirSim settings.json 文件路径 (可选)")
     parser.add_argument("--load_model", type=str, default="", help="要加载的模型路径")

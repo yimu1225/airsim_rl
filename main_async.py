@@ -381,6 +381,27 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, ba
                         action_dim_names = ['forward_speed', 'vertical_speed', 'yaw_rate'] if action_arr.shape[1] == 3 else [f'action_dim_{i}' for i in range(action_arr.shape[1])]
                         for dim, name in enumerate(action_dim_names):
                             writer.add_histogram(f'train/{name}', action_arr[:, dim], episode_num)
+
+                            #############
+                            # Additional scalar statistics for each dimension
+                            writer.add_scalar(f'train/{name}_mean', np.mean(action_arr[:, dim]), episode_num)
+                            writer.add_scalar(f'train/{name}_std', np.std(action_arr[:, dim]), episode_num)
+                            writer.add_scalar(f'train/{name}_min', np.min(action_arr[:, dim]), episode_num)
+                            writer.add_scalar(f'train/{name}_max', np.max(action_arr[:, dim]), episode_num)
+                        
+                        # Overall action statistics
+                        action_norms = np.linalg.norm(action_arr, axis=1)
+                        writer.add_scalar('train/action_norm_mean', np.mean(action_norms), episode_num)
+                        writer.add_scalar('train/action_norm_std', np.std(action_norms), episode_num)
+                        
+                        # Action change rate (difference between consecutive actions)
+                        if len(action_arr) > 1:
+                            action_diffs = np.diff(action_arr, axis=0)
+                            diff_norms = np.linalg.norm(action_diffs, axis=1)
+                            writer.add_scalar('train/action_change_rate_mean', np.mean(diff_norms), episode_num)
+                            writer.add_scalar('train/action_change_rate_std', np.std(diff_norms), episode_num)
+
+                            ###########
                 
                 # Log to CSV
                 with open(csv_filename, mode='a', newline='') as f:
