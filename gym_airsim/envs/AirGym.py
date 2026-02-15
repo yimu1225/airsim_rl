@@ -204,7 +204,12 @@ class AirSimEnv(gym.Env):
             return False
 
         try:
-            self.airgym.client.simGetVehiclePose()
+            # 优化：使用更轻量的日志消息API代替姿态查询
+            # 原方法：simGetVehiclePose() 需要获取完整的车辆状态信息，较慢
+            # self.airgym.client.simGetVehiclePose()
+            
+            # 新方法：simPrintLogMessage() 仅发送简短日志消息，更快
+            self.airgym.client.simPrintLogMessage("health_check", "", 0)
             return True
         except Exception:
             return False
