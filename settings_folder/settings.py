@@ -56,6 +56,17 @@ hard_range_dic = { "End": ["Mutable"],
                                       "VelocityRange": [[0, 5]],
                                       "Name": ["Name"],
                                       "NumberOfObjects": list(range(25, 35))}
+dynamic_obstacles_dic = { "End": ["Mutable"],
+                                      "MinimumDistance": [5,10],
+                                      "EnvType": ["Indoor"],
+                                      "ArenaSize": [[65, 65, 10],[55, 55, 10],[60, 60, 10]],
+                                      "PlayerStart": [[0, 0, 0]],
+                                      "NumberOfDynamicObjects": list(range(1, 6)),
+                                      "Walls1": [[200, 13, 99],[255, 255, 10],[0, 10, 10],[10, 100, 100],[126, 11, 90]],
+                                      "Seed": list(range(0, 10000)),
+                                      "VelocityRange": [[0, 1]],
+                                      "Name": ["Name"],
+                                      "NumberOfObjects": list(range(25, 35))}
 default_range_dic = easy_range_dic
 # ------------------------------------------------------------
 #-game related-
