@@ -38,6 +38,7 @@ from algorithm.st_mamba_td3.agent import ST_Mamba_Agent
 from algorithm.ST_VimTD3.agent import ST_Mamba_VimTokens_Agent
 from algorithm.ST_VimTD3_Safety.agent import ST_Mamba_VimTokens_Safety_Agent
 from algorithm.st_cnn_td3.st_cnn_td3 import ST_CNN_Agent
+from algorithm.gam_mamba_td3.td3 import GAMMambaTD3Agent
 
 
 def _raise_if_non_finite(name, value, step_info=""):
@@ -59,7 +60,7 @@ def expand_algorithms(algo_str):
     """
     # Predefined algorithm groups
     groups = {
-        'all': ['td3', 'aetd3', 'per_td3', 'per_aetd3', 'gru_td3', 'lstm_td3', 'gru_aetd3', 'lstm_aetd3', 'cfc_td3', 'vmamba_td3', 'vmamba_td3_no_cross', 'st_vmamba_td3', 'st_mamba_td3', 'ST-VimTD3', 'ST-VimTD3-Safety', 'st_cnn_td3'],
+        'all': ['td3', 'aetd3', 'per_td3', 'per_aetd3', 'gru_td3', 'lstm_td3', 'gru_aetd3', 'lstm_aetd3', 'cfc_td3', 'vmamba_td3', 'vmamba_td3_no_cross', 'st_vmamba_td3', 'st_mamba_td3', 'ST-VimTD3', 'ST-VimTD3-Safety', 'st_cnn_td3', 'gam_mamba_td3'],
         'base': ['td3', 'aetd3', 'per_td3', 'per_aetd3'],
         'seq': ['gru_td3', 'lstm_td3', 'gru_aetd3', 'lstm_aetd3', 'cfc_td3', 'vmamba_td3', 'vmamba_td3_no_cross', 'st_vmamba_td3', 'st_mamba_td3', 'ST-VimTD3', 'ST-VimTD3-Safety', 'st_cnn_td3']
     }
@@ -93,6 +94,7 @@ def get_agent_class(algo_name):
     if algo_name == 'ST-VimTD3': return ST_Mamba_VimTokens_Agent
     if algo_name == 'ST-VimTD3-Safety': return ST_Mamba_VimTokens_Safety_Agent
     if algo_name == 'st_cnn_td3': return ST_CNN_Agent
+    if algo_name == 'gam_mamba_td3': return GAMMambaTD3Agent
     raise ValueError(f"Unknown algorithm: {algo_name}")
 
 def main():
@@ -162,7 +164,7 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, ba
     print(f"Start Asynchronous Training {algo_name}...")
 
     # Restart interval for refreshing UE4 memory
-    restart_interval = 10000
+    restart_interval = 200000
     next_restart = restart_interval
 
     # Logging
