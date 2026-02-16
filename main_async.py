@@ -15,7 +15,6 @@ import csv
 import cv2  # Added for visualization
 import gc  # Added for memory management
 from torch.utils.tensorboard import SummaryWriter
-from collections import deque
 from tqdm import tqdm
 
 from config import get_config
@@ -124,7 +123,7 @@ def main():
             
             is_recurrent = algo_name in recurrent_algos
             
-            stack_frames = args.stack_frames_recurrent if is_recurrent else args.stack_frames
+            stack_frames = args.seq_len if is_recurrent else args.stack_frames
 
             # Initialize Environment
             print(f"Initialize AirSimEnv with stack_frames={stack_frames} for {algo_name} (seed={seed})...")
@@ -142,6 +141,15 @@ def main():
             depth_shape = depth_image.shape # (C, H, W)
             action_space = env.action_space
 
+            # Recurrent algorithms consume env stacked frames as temporal sequence.
+            # Most sequence models process each frame as single-channel (C=1), while
+            # vmamba_td3 variants use channel-stacked frames directly.
+            channel_stacked_recurrent_algos = {'vmamba_td3', 'vmamba_td3_no_cross'}
+            if is_recurrent and algo_name not in channel_stacked_recurrent_algos:
+                model_depth_shape = (1, depth_shape[-2], depth_shape[-1])
+            else:
+                model_depth_shape = depth_shape
+
             print(f"Observation shapes: Depth {depth_shape}, Base {base_dim}")
             print(f"Action space: {action_space}")
 
@@ -149,7 +157,7 @@ def main():
             device = torch.device("cuda" if args.cuda and torch.cuda.is_available() else "cpu")
             AgentClass = get_agent_class(algo_name)
             
-            agent = AgentClass(base_dim, depth_shape, action_space, args, device=device)
+            agent = AgentClass(base_dim, model_depth_shape, action_space, args, device=device)
 
             # Run training for this algorithm
             env = train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, base_state, depth_image, stack_frames)
@@ -191,21 +199,6 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, ba
     
     print(f"Logging to {csv_filename}")
 
-    # History Buffers for Recurrent Policies
-    if is_recurrent:
-        seq_len = args.seq_len
-        # Deques to store history
-        base_hist = deque(maxlen=seq_len)
-        depth_hist = deque(maxlen=seq_len)
-
-        # Initialize history
-        # Env returns (1, H, W) for recurrent.
-        # We assume 'depth_image' is already (1, H, W).
-        # We need to fill history.
-        for _ in range(seq_len):
-            base_hist.append(base_state)
-            depth_hist.append(depth_image)
-
     # Training parameters
     max_timesteps = args.max_timesteps
     steps_per_update = args.steps_per_update
@@ -232,15 +225,17 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, ba
             episode_timesteps += 1
             total_timesteps += 1
 
+            if is_recurrent:
+                depth_seq = state
+                if depth_seq.ndim == 3:
+                    depth_seq = np.expand_dims(depth_seq, axis=1)
+
             # Select Action
             if total_timesteps < start_timesteps and args.load_model == "":
                 action = env.action_space.sample()
             else:
                 if is_recurrent:
-                    base_seq = np.array(base_hist) # (Seq, BaseDim)
-                    depth_seq = np.array(depth_hist) # (Seq, 1, H, W)
-                    
-                    action = agent.select_action(base_seq, depth_seq)
+                    action = agent.select_action(base, depth_seq)
                 else:
                     # Non-recurrent: state is (4, H, W)
                     action = agent.select_action(base, state)
@@ -302,9 +297,10 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, ba
             if args.render_window:
                 vis_imgs = []
                 if is_recurrent:
-                    # 显示历史帧 + 当前帧 (Show history + current frame)
-                    vis_imgs.extend(list(depth_hist))
-                    vis_imgs.append(next_state)
+                    recurrent_vis = depth_seq
+                    if recurrent_vis.ndim == 4 and recurrent_vis.shape[1] == 1:
+                        recurrent_vis = recurrent_vis[:, 0]
+                    vis_imgs.extend(list(recurrent_vis))
                 else:
                     # 显示所有堆叠帧 (Show all stacked frames)
                     if len(next_state.shape) == 3:
@@ -339,17 +335,35 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, ba
             done_bool = float(done)
             
             if is_recurrent:
-                # Recurrent buffer usually expects single step data, sample() builds sequences.
-                # Generic recurrent buffer: store current step only, next state is derived by shifting on sample.
+                current_base = base
+                current_depth_seq = depth_seq
+                next_base_current = next_base
+                next_depth_seq = next_state
+                if next_depth_seq.ndim == 3:
+                    next_depth_seq = np.expand_dims(next_depth_seq, axis=1)
+
                 if algo_name == 'ST-VimTD3-Safety':
                     has_collided = float(step_info.get("has_collided", False)) if isinstance(step_info, dict) else 0.0
-                    agent.replay_buffer.add(base, state, action, reward, done_bool, has_collided)
+                    agent.replay_buffer.add(
+                        current_base,
+                        current_depth_seq,
+                        action,
+                        reward,
+                        next_base_current,
+                        next_depth_seq,
+                        done_bool,
+                        has_collided
+                    )
                 else:
-                    agent.replay_buffer.add(base, state, action, reward, done_bool)
-                
-                # Update history queues
-                base_hist.append(next_base)
-                depth_hist.append(next_state)
+                    agent.replay_buffer.add(
+                        current_base,
+                        current_depth_seq,
+                        action,
+                        reward,
+                        next_base_current,
+                        next_depth_seq,
+                        done_bool
+                    )
             else:
                 # Non-recurrent buffer
                 agent.replay_buffer.add(base, state, action, reward, next_base, next_state, done_bool)
@@ -441,15 +455,6 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, ba
                 state = obs['depth']
                 base = obs['base']
 
-                # Reset History
-                if is_recurrent:
-                    base_hist.clear()
-                    depth_hist.clear()
-                    
-                    for _ in range(seq_len):
-                        base_hist.append(base)
-                        depth_hist.append(state)
-                
                 # Memory cleanup after episode end
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()

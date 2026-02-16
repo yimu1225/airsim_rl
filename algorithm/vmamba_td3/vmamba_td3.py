@@ -115,7 +115,8 @@ class VMambaTD3Agent:
     def select_action(self, base_seq, depth_seq, noise=True):
         # Inputs are numpy arrays of shape (K, ...)
         # 使用最后4帧进行通道堆叠
-        current_base = base_seq[-1]  # (S,)
+        base_arr = np.asarray(base_seq)
+        current_base = base_arr if base_arr.ndim == 1 else base_arr[-1]
         
         # 取最后4帧，如果不足4帧则重复第一帧
         if len(depth_seq) >= 4:
@@ -162,9 +163,11 @@ class VMambaTD3Agent:
         # Convert to tensors
         base = torch.as_tensor(base, dtype=torch.float32, device=self.device)
         depth = torch.as_tensor(depth, dtype=torch.float32, device=self.device)
-        action = torch.as_tensor(action[:, -1, :], dtype=torch.float32, device=self.device)
-        reward = torch.as_tensor(reward[:, -1], dtype=torch.float32, device=self.device)
-        done = torch.as_tensor(done[:, -1], dtype=torch.float32, device=self.device)
+        action = torch.as_tensor(action, dtype=torch.float32, device=self.device)
+        reward = torch.as_tensor(reward, dtype=torch.float32, device=self.device)
+        reward = reward.view(-1, 1)
+        done = torch.as_tensor(done, dtype=torch.float32, device=self.device)
+        done = done.view(-1, 1)
 
         next_base = torch.as_tensor(next_base, dtype=torch.float32, device=self.device)
         next_depth = torch.as_tensor(next_depth, dtype=torch.float32, device=self.device)
@@ -173,29 +176,32 @@ class VMambaTD3Agent:
         action = (action - self.action_bias_tensor) / self.action_scale_tensor
 
         # 使用最后4帧进行通道堆叠
-        current_base = base[:, -1, :]  # (B, S)
-        next_current_base = next_base[:, -1, :]  # (B, S)
-        
-        # 堆叠最后4帧为4通道输入 (B, 4, H, W)
-        if depth.shape[1] >= 4:
-            current_depth = depth[:, -4:, :, :, :]  # 最后4帧
-            next_current_depth = next_depth[:, -4:, :, :, :]  # 最后4帧
-        else:
-            # 如果帧数不足4帧，重复第一帧到4帧
-            repeat_count = 4 - depth.shape[1]
-            first_frame = depth[:, 0:1, :, :]  # (B, 1, H, W)
-            repeated_frames = first_frame.repeat(1, repeat_count, 1, 1)  # (B, repeat_count, H, W)
-            current_depth = torch.cat([repeated_frames, depth], dim=1)  # (B, 4, H, W)
-            
-            next_first_frame = next_depth[:, 0:1, :, :]
-            next_repeated_frames = next_first_frame.repeat(1, repeat_count, 1, 1)
-            next_current_depth = torch.cat([next_repeated_frames, next_depth], dim=1)
+        current_base = base[:, -1, :] if base.dim() == 3 else base
+        next_current_base = next_base[:, -1, :] if next_base.dim() == 3 else next_base
         
         # 统一为 (B, 4, H, W)
-        if current_depth.dim() == 5 and current_depth.size(2) == 1:
-            current_depth = current_depth.squeeze(2)
-        if next_current_depth.dim() == 5 and next_current_depth.size(2) == 1:
-            next_current_depth = next_current_depth.squeeze(2)
+        if depth.dim() == 5:
+            current_depth = depth[:, -4:, ...]
+            next_current_depth = next_depth[:, -4:, ...]
+            if current_depth.size(2) == 1:
+                current_depth = current_depth.squeeze(2)
+            if next_current_depth.size(2) == 1:
+                next_current_depth = next_current_depth.squeeze(2)
+        elif depth.dim() == 4:
+            if depth.shape[1] >= 4:
+                current_depth = depth[:, -4:, :, :]
+                next_current_depth = next_depth[:, -4:, :, :]
+            else:
+                repeat_count = 4 - depth.shape[1]
+                first_frame = depth[:, 0:1, :, :]
+                repeated_frames = first_frame.repeat(1, repeat_count, 1, 1)
+                current_depth = torch.cat([repeated_frames, depth], dim=1)
+
+                next_first_frame = next_depth[:, 0:1, :, :]
+                next_repeated_frames = next_first_frame.repeat(1, repeat_count, 1, 1)
+                next_current_depth = torch.cat([next_repeated_frames, next_depth], dim=1)
+        else:
+            raise RuntimeError(f"Unexpected depth tensor shape in vmamba_td3.train: {tuple(depth.shape)}")
 
         # Critic Update
         state = self._process_stacked_frames(

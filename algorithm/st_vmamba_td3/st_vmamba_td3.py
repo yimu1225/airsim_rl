@@ -3,7 +3,6 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 from torch.optim import Adam
-from collections import deque
 import copy
 
 from .networks import STE_Encoder, Actor, Critic
@@ -100,23 +99,24 @@ class ST_VMamba_Agent:
         self.replay_buffer = SequenceReplayBuffer(getattr(args, 'buffer_size', 100000), self.seq_len)
 
     def select_action(self, base_state, depth_img, noise: bool = True):
-        # base_state: (Seq, BaseDim)
-        # depth_img: (Seq, C, H, W)
-
         # Ensure correct shape
         if isinstance(base_state, np.ndarray):
             base_state = torch.FloatTensor(base_state).to(self.device)
         if isinstance(depth_img, np.ndarray):
             depth_img = torch.FloatTensor(depth_img).to(self.device)
-        
-        # Add batch dimension: (Seq, ...) -> (1, Seq, ...)
-        if base_state.dim() == 2:
-            base_state = base_state.unsqueeze(0)
+
+        if depth_img.dim() == 3:
+            depth_img = depth_img.unsqueeze(1)
         if depth_img.dim() == 4:
             depth_img = depth_img.unsqueeze(0)
-            
-        # Use only the latest base_state for the MLP part
-        current_base_state = base_state[:, -1, :] # (1, BaseDim)
+
+        # base_state -> current step base vector with batch dim
+        if base_state.dim() == 1:
+            current_base_state = base_state.unsqueeze(0)
+        elif base_state.dim() == 2:
+            current_base_state = base_state[-1, :].unsqueeze(0)
+        else:
+            current_base_state = base_state[:, -1, :]
         
         with torch.no_grad():
             visual_feat = self.actor_visual(depth_img) # (1, D)
@@ -173,11 +173,6 @@ class ST_VMamba_Agent:
             current_state = state
             
         action = torch.FloatTensor(action).to(self.device)
-        # Adjust action if it has sequence dimension
-        # Buffer may return (B, T, ActionDim) or (B, ActionDim) depending on implementation
-        # For standard TD3 update Q(s_t, a_t), we need a_t (last in sequence if seq stored)
-        if action.dim() == 3 and action.shape[1] == self.seq_len:
-             action = action[:, -1, :]
         action = (action - self.action_bias) / self.action_scale
         action = action.clamp(-1.0, 1.0)
 
@@ -190,19 +185,8 @@ class ST_VMamba_Agent:
         next_depth = torch.FloatTensor(next_depth).to(self.device)
         reward = torch.FloatTensor(reward).to(self.device)
         done_flag = torch.FloatTensor(done_flag).to(self.device)
-        
-        # Adjust shapes for Sequence Replay Buffer (B, T, ...) -> Take last step for TD3 update
-        if reward.dim() > 1 and reward.shape[1] == self.seq_len:
-            if reward.dim() == 2: # (B, T)
-                reward = reward[:, -1].unsqueeze(1)
-            elif reward.dim() == 3: # (B, T, 1)
-                reward = reward[:, -1, :]
-                
-        if done_flag.dim() > 1 and done_flag.shape[1] == self.seq_len:
-            if done_flag.dim() == 2:
-                done_flag = done_flag[:, -1].unsqueeze(1)
-            elif done_flag.dim() == 3:
-                done_flag = done_flag[:, -1, :]
+        reward = reward.view(-1, 1)
+        done_flag = done_flag.view(-1, 1)
         not_done = 1.0 - done_flag
 
         with torch.no_grad():
