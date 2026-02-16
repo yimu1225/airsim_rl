@@ -136,8 +136,10 @@ class GRUTD3Agent:
         # GRU Processing: Only visual features
         gru_state = gru_encoder(visual_feat)  # (B, gru_hidden_dim)
         
-        # Get current base state (last timestep)
-        current_base = base[:, -1, :]  # (B, base_dim)
+        if base.dim() == 3:
+            current_base = base[:, -1, :]  # (B, base_dim)
+        else:
+            current_base = base
         
         # Concatenate GRU output with current base state
         state = torch.cat([gru_state, current_base], dim=1)  # (B, gru_hidden_dim + base_dim)
@@ -145,10 +147,18 @@ class GRUTD3Agent:
         return state
 
     def select_action(self, base_seq, depth_seq, noise=True):
-        # Inputs are numpy arrays of shape (K, ...)
-        # Add batch dimension
-        base = torch.as_tensor(base_seq, dtype=torch.float32, device=self.device).unsqueeze(0)
-        depth = torch.as_tensor(depth_seq, dtype=torch.float32, device=self.device).unsqueeze(0)
+        base = torch.as_tensor(base_seq, dtype=torch.float32, device=self.device)
+        depth = torch.as_tensor(depth_seq, dtype=torch.float32, device=self.device)
+        if depth.dim() == 3:
+            depth = depth.unsqueeze(1)
+        if depth.dim() == 4:
+            depth = depth.unsqueeze(0)
+        if base.dim() == 1:
+            base = base.unsqueeze(0)
+        elif base.dim() == 2:
+            base = base[-1:, :]
+        else:
+            base = base[:, -1, :]
         
         with torch.no_grad():
             state = self._process_sequence(base, depth, self.actor_visual_encoder, self.actor_gru)
@@ -172,10 +182,11 @@ class GRUTD3Agent:
         # Convert to tensors
         base = torch.as_tensor(base, dtype=torch.float32, device=self.device)
         depth = torch.as_tensor(depth, dtype=torch.float32, device=self.device)
-        action = torch.as_tensor(action[:, -1, :], dtype=torch.float32, device=self.device) # Action at last step
-        # Reward and Done are already (B, 1) from buffer slicing, no need to unsqueeze
-        reward = torch.as_tensor(reward[:, -1], dtype=torch.float32, device=self.device) # Reward at last step
-        done = torch.as_tensor(done[:, -1], dtype=torch.float32, device=self.device)     # Done at last step
+        action = torch.as_tensor(action, dtype=torch.float32, device=self.device)
+        reward = torch.as_tensor(reward, dtype=torch.float32, device=self.device)
+        reward = reward.view(-1, 1)
+        done = torch.as_tensor(done, dtype=torch.float32, device=self.device)
+        done = done.view(-1, 1)
 
         next_base = torch.as_tensor(next_base, dtype=torch.float32, device=self.device)
         next_depth = torch.as_tensor(next_depth, dtype=torch.float32, device=self.device)

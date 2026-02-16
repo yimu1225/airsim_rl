@@ -153,13 +153,18 @@ class ST_Mamba_VimTokens_Safety_Agent:
         if isinstance(depth_img, np.ndarray):
             depth_img = torch.as_tensor(depth_img, dtype=torch.float32, device=self.device)
 
-        if base_state.dim() == 2:
-            base_state = base_state.unsqueeze(0)
+        if depth_img.dim() == 3:
+            depth_img = depth_img.unsqueeze(1)
         if depth_img.dim() == 4:
             depth_img = depth_img.unsqueeze(0)
 
         depth_img = self._normalize_depth(depth_img)
-        current_state = base_state[:, -1, :]
+        if base_state.dim() == 1:
+            current_state = base_state.unsqueeze(0)
+        elif base_state.dim() == 2:
+            current_state = base_state[-1, :].unsqueeze(0)
+        else:
+            current_state = base_state[:, -1, :]
 
         with torch.no_grad():
             visual_feat = self.actor_encoder(depth_img, current_state)
@@ -220,8 +225,6 @@ class ST_Mamba_VimTokens_Safety_Agent:
             next_state_curr = next_state
 
         action = torch.as_tensor(action, dtype=torch.float32, device=self.device)
-        if action.dim() == 3 and action.shape[1] == self.seq_len:
-            action = action[:, -1, :]
         action = self._unscale_action(action).clamp(-1.0, 1.0)
 
         reward = torch.as_tensor(reward, dtype=torch.float32, device=self.device)
@@ -229,17 +232,11 @@ class ST_Mamba_VimTokens_Safety_Agent:
         if collision_flag is not None:
             collision_flag = torch.as_tensor(collision_flag, dtype=torch.float32, device=self.device)
 
-        if reward.dim() > 1 and reward.shape[1] == self.seq_len:
-            reward = reward[:, -1]
         reward = reward.view(-1, 1)
 
-        if done_flag.dim() > 1 and done_flag.shape[1] == self.seq_len:
-            done_flag = done_flag[:, -1]
         done_flag = done_flag.view(-1, 1)
 
         if collision_flag is not None:
-            if collision_flag.dim() > 1 and collision_flag.shape[1] == self.seq_len:
-                collision_flag = collision_flag[:, -1]
             collision_flag = collision_flag.view(-1, 1)
 
         not_done = 1.0 - done_flag

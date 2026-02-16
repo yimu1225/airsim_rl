@@ -28,7 +28,7 @@ def get_config(argv=None):
     parser.add_argument("--env_name", type=str, default='AirSimEnv-v42', help="要训练的环境名称")  # AirSimEnv-v42  CartPole-v0
 
     # 算法选择 (Algorithm Selection)
-    parser.add_argument("--algorithm_name", type=str, default='td3,ST-VimTD3,gam_mamba_td3',
+    parser.add_argument("--algorithm_name", type=str, default='ST-VimTD3,gam_mamba_td3',
                         help="要训练的算法。支持: td3, aetd3, per_td3, per_aetd3, gru_td3, lstm_td3, gru_aetd3, lstm_aetd3, cfc_td3, vmamba_td3, vmamba_td3_no_cross, st_vmamba_td3, st_mamba_td3, ST-VimTD3, ST-VimTD3-Safety, st_cnn_td3, gam_mamba_td3。可以是单个，多个（逗号分隔），或组名 ('all', 'base', 'seq')")
     parser.add_argument("--smooth_window", type=int, default=1000, help="平滑窗口大小，用于平滑学习曲线")
 
@@ -66,9 +66,8 @@ def get_config(argv=None):
         
     # 循环网络参数 (LSTM/GRU)
     parser.add_argument("--stack_frames", type=int, default=4, help="非时序算法的图像堆叠帧数")
-    parser.add_argument("--stack_frames_recurrent", type=int, default=1, help="时序算法的图像堆叠帧数 (通常为1，使用外部历史队列)")
     
-    parser.add_argument("--seq_len", type=int, default=4, help="循环网络的序列长度，即输入到时序算法的连续帧数 (默认: 16)")
+    parser.add_argument("--seq_len", type=int, default=4, help="时序算法输入序列长度；环境会直接返回该长度的堆叠帧")
 
     # TD3 的 OU 噪声 (OU Noise for TD3)
     parser.add_argument("--ou_theta", type=float, default=0.15, help="OU噪声的theta参数")

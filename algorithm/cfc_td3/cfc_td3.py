@@ -114,23 +114,31 @@ class CFCTD3Agent:
         self.total_it = 0
 
     def select_action(self, base_seq, depth_seq, noise=True):
-        # base_seq: (Seq_Len, Base_Dim)
-        # depth_seq: (Seq_Len, 1, H, W)
         with torch.no_grad():
-            base = torch.as_tensor(base_seq, dtype=torch.float32, device=self.device).unsqueeze(0)     # (1, Seq_Len, Base_Dim)
-            depth = torch.as_tensor(depth_seq, dtype=torch.float32, device=self.device).unsqueeze(0)   # (1, Seq_Len, 1, H, W)
+            base = torch.as_tensor(base_seq, dtype=torch.float32, device=self.device)
+            depth = torch.as_tensor(depth_seq, dtype=torch.float32, device=self.device)
+            if depth.dim() == 4:
+                depth = depth.unsqueeze(0)
+            if base.dim() == 1:
+                base = base.unsqueeze(0)
+            elif base.dim() == 2 and depth.dim() == 5 and base.size(0) == depth.size(1):
+                base = base[-1:, :]
 
             # Visual Encoding: Batch process for efficiency
             # CNN is applied independently to each frame, so batch processing
             # is mathematically equivalent to frame-by-frame, but faster
             B, S, C, H, W = depth.shape
+            if base.dim() == 2:
+                base_for_cfc = base.unsqueeze(1).expand(-1, S, -1)
+            else:
+                base_for_cfc = base
             depth_reshaped = depth.reshape(B * S, C, H, W)
             depth_features = self.actor_visual_encoder(depth_reshaped)
             depth_features = depth_features.view(B, S, -1)
 
             # CFC Processing: Frame-by-frame inside CFCEncoder
             # For each t: concat(base_expanded_t, depth_features_t) -> CfC(hx_{t-1}) -> hx_t
-            state_repr = self.actor_cfc(base, depth_features)
+            state_repr = self.actor_cfc(base_for_cfc, depth_features)
 
             # Actor
             action = self.actor(state_repr).cpu().data.numpy().flatten()
@@ -166,7 +174,6 @@ class CFCTD3Agent:
         not_done = 1.0 - done_flag
         
         # Shapes:
-        # base: (B, Seq_Len, Base_Dim)
         # depth: (B, Seq_Len, 1, H, W)
         # action, reward, not_done: (B, Dim) are from the *last* step of the sequence
 
@@ -176,11 +183,15 @@ class CFCTD3Agent:
             
             # Target Encoder (Next State)
             B, S, C, H, W = next_depth.shape
+            if next_base.dim() == 2:
+                next_base_for_cfc = next_base.unsqueeze(1).expand(-1, S, -1)
+            else:
+                next_base_for_cfc = next_base
             next_depth_reshaped = next_depth.view(B * S, C, H, W)
             next_depth_features = self.actor_visual_encoder_target(next_depth_reshaped)
             next_depth_features = next_depth_features.view(B, S, -1)
             
-            next_state_repr = self.actor_cfc_target(next_base, next_depth_features)
+            next_state_repr = self.actor_cfc_target(next_base_for_cfc, next_depth_features)
             
             # Target Actor
             next_action = (self.actor_target(next_state_repr) + noise).clamp(-1.0, 1.0)
@@ -195,7 +206,7 @@ class CFCTD3Agent:
             
             next_depth_features_c = self.critic_visual_encoder_target(next_depth_reshaped)
             next_depth_features_c = next_depth_features_c.view(B, S, -1)
-            next_state_repr_c = self.critic_cfc_target(next_base, next_depth_features_c)
+            next_state_repr_c = self.critic_cfc_target(next_base_for_cfc, next_depth_features_c)
             
             target_Q1, target_Q2 = self.critic_target(next_state_repr_c, next_action)
             target_Q = torch.min(target_Q1, target_Q2)
@@ -203,12 +214,16 @@ class CFCTD3Agent:
 
         # Current Q estimates
         B, S, C, H, W = depth.shape
+        if base.dim() == 2:
+            base_for_cfc = base.unsqueeze(1).expand(-1, S, -1)
+        else:
+            base_for_cfc = base
         depth_reshaped = depth.view(B * S, C, H, W)
         
         # Critic Update
         depth_features_c = self.critic_visual_encoder(depth_reshaped)
         depth_features_c = depth_features_c.view(B, S, -1)
-        state_repr_c = self.critic_cfc(base, depth_features_c)
+        state_repr_c = self.critic_cfc(base_for_cfc, depth_features_c)
         
         current_Q1, current_Q2 = self.critic(state_repr_c, action)
 
@@ -228,7 +243,7 @@ class CFCTD3Agent:
             # Actor Update
             depth_features_a = self.actor_visual_encoder(depth_reshaped)
             depth_features_a = depth_features_a.view(B, S, -1)
-            state_repr_a = self.actor_cfc(base, depth_features_a)
+            state_repr_a = self.actor_cfc(base_for_cfc, depth_features_a)
             
             q1_pi, _ = self.critic(state_repr_a, self.actor(state_repr_a))
             actor_loss = -q1_pi.mean()
