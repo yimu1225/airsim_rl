@@ -339,7 +339,8 @@ class ST_Mamba_VimTokens_Safety_Agent:
             actor_action = actor_action_safe
             self._assert_finite_tensor("train.actor_action_scaled", actor_action)
 
-            q_visual = self.critic_encoder(depth, current_state)
+            with torch.no_grad():
+                q_visual = self.critic_encoder(depth, current_state)
             self._assert_finite_tensor("train.q_visual", q_visual)
             q_input = torch.cat([q_visual, current_state], dim=-1)
             actor_q_loss = -self.critic_1(q_input, actor_action).mean()
