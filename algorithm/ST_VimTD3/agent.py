@@ -37,7 +37,7 @@ class ST_Mamba_VimTokens_Agent:
             args=args
         ).to(self.device)
         self.actor = Actor(
-            feature_dim=args.st_mamba_embed_dim * self.seq_len + self.base_dim,
+            feature_dim=args.st_mamba_embed_dim + self.base_dim,
             action_dim=self.action_dim,
             hidden_dim=args.hidden_dim
         ).to(self.device)
@@ -48,12 +48,12 @@ class ST_Mamba_VimTokens_Agent:
             args=args
         ).to(self.device)
         self.critic_1 = Critic(
-            feature_dim=args.st_mamba_embed_dim * self.seq_len + self.base_dim,
+            feature_dim=args.st_mamba_embed_dim + self.base_dim,
             action_dim=self.action_dim,
             hidden_dim=args.hidden_dim
         ).to(self.device)
         self.critic_2 = Critic(
-            feature_dim=args.st_mamba_embed_dim * self.seq_len + self.base_dim,
+            feature_dim=args.st_mamba_embed_dim + self.base_dim,
             action_dim=self.action_dim,
             hidden_dim=args.hidden_dim
         ).to(self.device)
@@ -107,14 +107,6 @@ class ST_Mamba_VimTokens_Agent:
                 f"shape={array.shape}"
             )
 
-    def _normalize_depth(self, depth_tensor):
-        if depth_tensor.dtype != torch.float32:
-            depth_tensor = depth_tensor.float()
-        max_val = depth_tensor.max().item() if depth_tensor.numel() > 0 else 1.0
-        if max_val > 1.0:
-            depth_tensor = depth_tensor / 255.0
-        return depth_tensor.clamp(0.0, 1.0)
-
     def _scale_action(self, action):
         return action * self.action_scale + self.action_bias
 
@@ -129,7 +121,8 @@ class ST_Mamba_VimTokens_Agent:
         if depth_img.dim() == 4:
             depth_img = depth_img.unsqueeze(0)
 
-        depth_img = self._normalize_depth(depth_img)
+        if depth_img.dtype != torch.float32:
+            depth_img = depth_img.float()
         if base_state.dim() == 1:
             current_state = base_state.unsqueeze(0)
         elif base_state.dim() == 2:
@@ -171,8 +164,6 @@ class ST_Mamba_VimTokens_Agent:
 
         depth = torch.as_tensor(depth, dtype=torch.float32, device=self.device)
         next_depth = torch.as_tensor(next_depth, dtype=torch.float32, device=self.device)
-        depth = self._normalize_depth(depth)
-        next_depth = self._normalize_depth(next_depth)
 
         state = torch.as_tensor(state, dtype=torch.float32, device=self.device)
         next_state = torch.as_tensor(next_state, dtype=torch.float32, device=self.device)

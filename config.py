@@ -28,8 +28,8 @@ def get_config(argv=None):
     parser.add_argument("--env_name", type=str, default='AirSimEnv-v42', help="要训练的环境名称")  # AirSimEnv-v42  CartPole-v0
 
     # 算法选择 (Algorithm Selection)
-    parser.add_argument("--algorithm_name", type=str, default='ST-VimTD3,gam_mamba_td3',
-                        help="要训练的算法。支持: td3, aetd3, per_td3, per_aetd3, gru_td3, lstm_td3, gru_aetd3, lstm_aetd3, cfc_td3, vmamba_td3, vmamba_td3_no_cross, st_vmamba_td3, st_mamba_td3, ST-VimTD3, ST-VimTD3-Safety, st_cnn_td3, gam_mamba_td3。可以是单个，多个（逗号分隔），或组名 ('all', 'base', 'seq')")
+    parser.add_argument("--algorithm_name", type=str, default='ST-VimTD3,gam_mamba_td3,td3',
+                        help="要训练的算法。支持: td3, aetd3, per_td3, per_aetd3, gru_td3, lstm_td3, gru_aetd3, lstm_aetd3, cfc_td3, st_mamba_td3, ST-VimTD3, ST-VimTD3-Safety, st_cnn_td3, gam_mamba_td3。可以是单个，多个（逗号分隔），或组名 ('all', 'base', 'seq')")
     parser.add_argument("--smooth_window", type=int, default=1000, help="平滑窗口大小，用于平滑学习曲线")
 
     # 训练设置 (Training Setup)
@@ -41,7 +41,7 @@ def get_config(argv=None):
     parser.add_argument("--n_rollout_threads", type=int, default=1, help="Rollout线程数（在AirSim环境中必须为1）")
     parser.add_argument("--max_timesteps", type=int, default=200000, help='要训练的环境步数 (默认: 10e6)')
     parser.add_argument("--buffer_size", type=int, default=20000, help='经验池大小 (注意内存占用: 30000步约占用4GB)')
-    parser.add_argument("--learning_starts", type=int, default=000, help="训练开始前的时间步数 (兼容 start_timesteps)")
+    parser.add_argument("--learning_starts", type=int, default=2000, help="训练开始前的时间步数 (兼容 start_timesteps)")
     parser.add_argument("--gradient_steps", type=int, default=1, help="每次更新的梯度步数")
     parser.add_argument("--episode_length", type=int, default=200, help='每个环境中的最大回合长度')
     parser.add_argument("--eval_freq", type=int, default=5000, help="评估频率")
@@ -86,16 +86,6 @@ def get_config(argv=None):
     parser.add_argument("--cfc_units", type=int, default=32, help="NCPs 拓扑总神经元数")
     parser.add_argument("--cfc_motor_units", type=int, default=8, help="NCPs 拓扑输出 (运动) 神经元数")
 
-    # VMamba-TD3 参数
-    parser.add_argument("--vmamba_patch_size", type=int, default=2, help="VMamba 图像切分的 patch 大小")
-    parser.add_argument("--vmamba_hidden_dim", type=int, default=64, help="VMamba 基础隐藏层维度")
-    parser.add_argument("--vmamba_num_vss_blocks", type=int, nargs='+', default=[2, 2, 5, 2], help="VMamba 每个阶段的 VSSBlock 数量，列表长度决定 Stage 数量")
-    parser.add_argument("--vmamba_drop_path_rate", type=float, default=0.1, help="VMamba DropPath 比率")
-    parser.add_argument("--vmamba_layer_scale_init", type=float, default=1e-6, help="VMamba LayerScale 初始化值")
-    parser.add_argument("--vmamba_ssm_d_state", type=int, default=32, help="VMamba SSM 状态维度")
-    parser.add_argument("--vmamba_ssm_ratio", type=float, default=2.0, help="VMamba SSM 比率")
-    parser.add_argument("--vmamba_mlp_ratio", type=float, default=4.0, help="VMamba MLP 比率")
-    parser.add_argument("--vmamba_num_heads", type=int, default=4, help="VMamba CrossAttention 头数")
     parser.add_argument("--state_feature_dim", type=int, default=32, help="状态特征维度")
     
     # 时序Mamba参数 (Temporal Mamba Parameters)
@@ -111,7 +101,7 @@ def get_config(argv=None):
     parser.add_argument("--gam_mamba_expand", type=int, default=2, help="GAM-Mamba-TD3中Mamba扩展因子")
 
     # ST-Mamba 参数
-    parser.add_argument("--st_mamba_embed_dim", type=int, default=256, help="ST-Mamba 嵌入维度")
+    parser.add_argument("--st_mamba_embed_dim", type=int, default=64, help="ST-Mamba 嵌入维度")
     parser.add_argument("--st_mamba_depth", type=int, default=4, help="ST-Mamba Block 数量")
     parser.add_argument("--st_mamba_patch_size", type=int, default=16, help="ST-Mamba Patch 大小")
     parser.add_argument("--st_mamba_d_state", type=int, default=16, help="ST-Mamba SSM 状态维度")

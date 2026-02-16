@@ -30,9 +30,6 @@ from algorithm.lstm_td3.lstm_td3 import LSTMTD3Agent
 from algorithm.gru_aetd3.gru_aetd3 import GRUAETD3Agent
 from algorithm.lstm_aetd3.lstm_aetd3 import LSTMAETD3Agent
 from algorithm.cfc_td3.cfc_td3 import CFCTD3Agent
-from algorithm.vmamba_td3.vmamba_td3 import VMambaTD3Agent
-from algorithm.vmamba_td3_no_cross.vmamba_td3_no_cross import VMambaTD3NoCrossAgent
-from algorithm.st_vmamba_td3.st_vmamba_td3 import ST_VMamba_Agent
 from algorithm.st_mamba_td3.agent import ST_Mamba_Agent
 from algorithm.ST_VimTD3.agent import ST_Mamba_VimTokens_Agent
 from algorithm.ST_VimTD3_Safety.agent import ST_Mamba_VimTokens_Safety_Agent
@@ -59,9 +56,9 @@ def expand_algorithms(algo_str):
     """
     # Predefined algorithm groups
     groups = {
-        'all': ['td3', 'aetd3', 'per_td3', 'per_aetd3', 'gru_td3', 'lstm_td3', 'gru_aetd3', 'lstm_aetd3', 'cfc_td3', 'vmamba_td3', 'vmamba_td3_no_cross', 'st_vmamba_td3', 'st_mamba_td3', 'ST-VimTD3', 'ST-VimTD3-Safety', 'st_cnn_td3', 'gam_mamba_td3'],
+        'all': ['td3', 'aetd3', 'per_td3', 'per_aetd3', 'gru_td3', 'lstm_td3', 'gru_aetd3', 'lstm_aetd3', 'cfc_td3', 'st_mamba_td3', 'ST-VimTD3', 'ST-VimTD3-Safety', 'st_cnn_td3', 'gam_mamba_td3'],
         'base': ['td3', 'aetd3', 'per_td3', 'per_aetd3'],
-        'seq': ['gru_td3', 'lstm_td3', 'gru_aetd3', 'lstm_aetd3', 'cfc_td3', 'vmamba_td3', 'vmamba_td3_no_cross', 'st_vmamba_td3', 'st_mamba_td3', 'ST-VimTD3', 'ST-VimTD3-Safety', 'st_cnn_td3']
+        'seq': ['gru_td3', 'lstm_td3', 'gru_aetd3', 'lstm_aetd3', 'cfc_td3', 'st_mamba_td3', 'ST-VimTD3', 'ST-VimTD3-Safety', 'st_cnn_td3']
     }
     
     # Check if it's a predefined group
@@ -86,9 +83,6 @@ def get_agent_class(algo_name):
     if algo_name == 'gru_aetd3': return GRUAETD3Agent
     if algo_name == 'lstm_aetd3': return LSTMAETD3Agent
     if algo_name == 'cfc_td3': return CFCTD3Agent
-    if algo_name == 'vmamba_td3': return VMambaTD3Agent
-    if algo_name == 'vmamba_td3_no_cross': return VMambaTD3NoCrossAgent
-    if algo_name == 'st_vmamba_td3': return ST_VMamba_Agent
     if algo_name == 'st_mamba_td3': return ST_Mamba_Agent
     if algo_name == 'ST-VimTD3': return ST_Mamba_VimTokens_Agent
     if algo_name == 'ST-VimTD3-Safety': return ST_Mamba_VimTokens_Safety_Agent
@@ -118,7 +112,7 @@ def main():
             # Determine properties for this algorithm
             recurrent_algos = [
                 'gru_td3', 'lstm_td3', 'gru_aetd3', 'lstm_aetd3', 'cfc_td3',
-                'st_cnn_td3', 'vmamba_td3', 'st_vmamba_td3', 'st_mamba_td3', 'ST-VimTD3', 'ST-VimTD3-Safety', 'vmamba_td3_no_cross'  # vmamba_td3 也是时序算法
+                'st_cnn_td3', 'st_mamba_td3', 'ST-VimTD3', 'ST-VimTD3-Safety'
             ]
             
             is_recurrent = algo_name in recurrent_algos
@@ -142,10 +136,8 @@ def main():
             action_space = env.action_space
 
             # Recurrent algorithms consume env stacked frames as temporal sequence.
-            # Most sequence models process each frame as single-channel (C=1), while
-            # vmamba_td3 variants use channel-stacked frames directly.
-            channel_stacked_recurrent_algos = {'vmamba_td3', 'vmamba_td3_no_cross'}
-            if is_recurrent and algo_name not in channel_stacked_recurrent_algos:
+            # Most sequence models process each frame as single-channel (C=1)
+            if is_recurrent:
                 model_depth_shape = (1, depth_shape[-2], depth_shape[-1])
             else:
                 model_depth_shape = depth_shape
