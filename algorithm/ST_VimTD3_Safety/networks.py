@@ -101,7 +101,8 @@ class STVimTokenMambaEncoder(nn.Module):
         frame_tokens = frame_tokens.view(B, T, self.embed_dim)
 
         temporal_tokens = self.temporal_mamba(frame_tokens)
-        vis_tokens = temporal_tokens.view(B, -1)
+        # Return only the last temporal token
+        vis_tokens = temporal_tokens[:, -1, :]
 
         return vis_tokens
 
