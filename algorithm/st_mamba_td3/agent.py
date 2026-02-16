@@ -197,7 +197,8 @@ class ST_Mamba_Agent:
             actor_input = torch.cat([actor_visual, current_state], dim=-1)
             actor_action = self.actor(actor_input)
 
-            q_visual = self.critic_encoder(depth, current_state)
+            with torch.no_grad():
+                q_visual = self.critic_encoder(depth, current_state)
             q_input = torch.cat([q_visual, current_state], dim=-1)
             q1_pi, _ = self.critic(q_input, actor_action)
             actor_loss = -q1_pi.mean()
