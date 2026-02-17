@@ -30,7 +30,7 @@ def get_config(argv=None):
     # 算法选择 (Algorithm Selection)
     parser.add_argument("--algorithm_name", type=str, default='ST-VimTD3,gam_mamba_td3,td3',
                         help="要训练的算法。支持: td3, aetd3, per_td3, per_aetd3, gru_td3, lstm_td3, gru_aetd3, lstm_aetd3, cfc_td3, st_mamba_td3, ST-VimTD3, ST-VimTD3-Safety, st_cnn_td3, gam_mamba_td3。可以是单个，多个（逗号分隔），或组名 ('all', 'base', 'seq')")
-    parser.add_argument("--smooth_window", type=int, default=1000, help="平滑窗口大小，用于平滑学习曲线")
+    parser.add_argument("--smooth_window", type=int, default=1, help="平滑窗口大小，用于平滑学习曲线")
 
     # 训练设置 (Training Setup)
     parser.add_argument("--seed", type=str, default="25", help="随机种子 (支持逗号分隔多个种子)")
@@ -56,7 +56,7 @@ def get_config(argv=None):
     parser.add_argument("--policy_noise", type=float, default=0.2, help="策略噪声")
     parser.add_argument("--noise_clip", type=float, default=0.2, help="噪声裁剪")
     parser.add_argument("--policy_freq", type=int, default=10, help="策略更新频率")
-    parser.add_argument("--grad_clip", type=float, default=1.0, help="梯度裁剪")
+    parser.add_argument("--grad_clip", type=float, default=2.0, help="梯度裁剪")
 
     # 可视化 (Visualization)
     parser.add_argument("--render_window", action='store_true', default=False, help="显示实时可视化窗口 (默认开启，可用 --no-render_window 关闭)")
@@ -101,7 +101,7 @@ def get_config(argv=None):
     parser.add_argument("--gam_mamba_expand", type=int, default=2, help="GAM-Mamba-TD3中Mamba扩展因子")
 
     # ST-Mamba 参数
-    parser.add_argument("--st_mamba_embed_dim", type=int, default=64, help="ST-Mamba 嵌入维度")
+    parser.add_argument("--st_mamba_embed_dim", type=int, default=256, help="ST-Mamba 嵌入维度")
     parser.add_argument("--st_mamba_depth", type=int, default=4, help="ST-Mamba Block 数量")
     parser.add_argument("--st_mamba_patch_size", type=int, default=16, help="ST-Mamba Patch 大小")
     parser.add_argument("--st_mamba_d_state", type=int, default=16, help="ST-Mamba SSM 状态维度")
