@@ -2,7 +2,7 @@ import numpy as np
 import torch
 
 class PrioritizedReplayBuffer:
-    def __init__(self, capacity, alpha=0.6, eps=1e-6):
+    def __init__(self, capacity, alpha=0.6, eps=1e-6, seed=None):
         self.capacity = capacity
         self.alpha = alpha
         self.eps = eps
@@ -10,6 +10,7 @@ class PrioritizedReplayBuffer:
         self.pos = 0
         self.priorities = np.zeros((capacity,), dtype=np.float32)
         self.max_priority = 1.0
+        self.rng = np.random.default_rng(seed)
 
     def add(self, state, action, reward, next_state, done):
         state_np = [s.cpu().numpy() if isinstance(s, torch.Tensor) else s for s in state]
@@ -33,7 +34,7 @@ class PrioritizedReplayBuffer:
         probs = priorities ** self.alpha
         probs /= probs.sum()
 
-        indices = np.random.choice(len(self.buffer), batch_size, p=probs)
+        indices = self.rng.choice(len(self.buffer), batch_size, p=probs)
         samples = [self.buffer[idx] for idx in indices]
 
         total = len(self.buffer)
@@ -80,7 +81,7 @@ class MultiPoolAdaptiveBuffer:
         weights: [w_random, w_noisy, w_clean]
         """
         # Determine how many to sample from each pool
-        counts = np.random.multinomial(batch_size, weights)
+        counts = self.rng.multinomial(batch_size, weights)
         
         all_samples = []
         all_indices = [] # (buffer_type, index_in_buffer)
@@ -107,7 +108,7 @@ class MultiPoolAdaptiveBuffer:
             valid_buffers = [(b, i) for i, b in enumerate([self.random_buffer, self.noisy_buffer, self.clean_buffer]) if len(b) > 0]
             if not valid_buffers: break
             
-            buf, btype = valid_buffers[np.random.randint(len(valid_buffers))]
+            buf, btype = valid_buffers[self.rng.integers(len(valid_buffers))]
             res = buf.sample(1, beta)
             if res:
                 samples, indices, w = res

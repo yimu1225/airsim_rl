@@ -1,3 +1,3 @@
-from .agent import ST_Mamba_VimTokens_Safety_Agent
+from .agent import STVimTD3SafetyAgent
 
-__all__ = ["ST_Mamba_VimTokens_Safety_Agent"]
+__all__ = ["STVimTD3SafetyAgent"]

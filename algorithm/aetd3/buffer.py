@@ -2,12 +2,17 @@ import numpy as np
 
 
 class ReplayBuffer:
-    """Replay buffer for AETD3 (base_state + depth) with pre-allocated numpy arrays."""
+    """Replay buffer for AETD3 (base_state + depth) with pre-allocated numpy arrays.
 
-    def __init__(self, max_size: int):
+    Provides its own RNG instance for sampling.
+    """
+
+    def __init__(self, max_size: int, seed=None):
         self.max_size = int(max_size)
         self.ptr = 0
         self.current_size = 0
+
+        self.rng = np.random.default_rng(seed)
 
         self.base_buf = None
         self.depth_buf = None
@@ -48,7 +53,7 @@ class ReplayBuffer:
         self.current_size = min(self.current_size + 1, self.max_size)
 
     def sample(self, batch_size: int):
-        ind = np.random.randint(0, self.current_size, size=batch_size)
+        ind = self.rng.integers(0, self.current_size, size=batch_size)
 
         return (
             self.base_buf[ind],

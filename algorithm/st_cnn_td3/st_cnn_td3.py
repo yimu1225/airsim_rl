@@ -14,9 +14,10 @@ class ST_CNN_Agent:
     ST-CNN-TD3 Algorithm.
     Contrast Method: "Sequence Input -> CNN (Spatial) -> 1D Mamba (Temporal) -> Self-Attention (Spatial Refine) -> Pooling -> Concat"
     """
-    def __init__(self, base_dim, depth_shape, action_space, args, device=None):
+    def __init__(self, base_dim, depth_shape, action_space, args, device=None, seed=None):
         self.device = torch.device(device if device is not None else ("cuda" if torch.cuda.is_available() else "cpu"))
         print(f"ST-CNN-TD3 Agent using device: {self.device}")
+        self.rng = np.random.default_rng(seed)
         
         self.args = args
         self.base_dim = base_dim
@@ -104,14 +105,19 @@ class ST_CNN_Agent:
         self.policy_freq = getattr(args, 'policy_freq', 2)
 
         self.exploration_noise = getattr(args, 'exploration_noise', 0.1)
+        self.exploration_noise_final = getattr(args, "exploration_noise_final", 0.05)
 
         self.batch_size = args.batch_size
         self.total_it = 0
         
         # Replay Buffer
-        self.replay_buffer = SequenceReplayBuffer(getattr(args, 'buffer_size', 100000), self.seq_len)
+        self.replay_buffer = SequenceReplayBuffer(getattr(args, 'buffer_size', 100000), self.seq_len, seed=seed)
 
-    def select_action(self, base_state, depth_img, noise: bool = True):
+    def _get_current_noise(self, progress_ratio: float) -> float:
+        current_noise = self.exploration_noise * (1 - progress_ratio) + self.exploration_noise_final * progress_ratio
+        return current_noise
+
+    def select_action(self, base_state, depth_img, noise: bool = True, progress_ratio: float = 0.0):
         # Ensure correct shape
         if isinstance(base_state, np.ndarray):
             base_state = torch.FloatTensor(base_state).to(self.device)
@@ -139,7 +145,8 @@ class ST_CNN_Agent:
             action = self.actor_head(feat).cpu().numpy().flatten()
 
         if noise:
-            noise = np.random.normal(0, self.exploration_noise, size=self.action_dim)
+            current_noise = self._get_current_noise(progress_ratio)
+            noise = self.rng.normal(0, current_noise, size=self.action_dim)
             action = action + noise
 
         action = np.clip(action, -1.0, 1.0)

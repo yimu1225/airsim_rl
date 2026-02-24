@@ -3,12 +3,13 @@ import numpy as np
 class SequenceReplayBuffer:
     """Single-step replay buffer with explicit next-state transition."""
 
-    def __init__(self, max_size: int, sequence_length: int):
+    def __init__(self, max_size: int, sequence_length: int, seed=None):
         self.max_size = int(max_size)
         self.seq_len = int(sequence_length)
         self.ptr = 0
-        self.size = 0
+        self.current_size = 0
         
+        self.rng = np.random.default_rng(seed)
         # Pre-allocated buffers (initialized on first add)
         self.base_buf = None
         self.depth_buf = None
@@ -41,12 +42,12 @@ class SequenceReplayBuffer:
         self.done_buf[self.ptr] = done
 
         self.ptr = (self.ptr + 1) % self.max_size
-        self.size = min(self.size + 1, self.max_size)
+        self.current_size = min(self.current_size + 1, self.max_size)
 
     def sample(self, batch_size: int):
-        if self.size == 0:
+        if self.current_size == 0:
             return None
-        ind = np.random.randint(0, self.size, size=batch_size)
+        ind = self.rng.integers(0, self.current_size, size=batch_size)
         
         return (
             self.base_buf[ind],
@@ -59,7 +60,7 @@ class SequenceReplayBuffer:
         )
 
     def size_buffer(self):
-        return self.size
+        return self.current_size
 
     def size(self):
-        return self.size
+        return self.current_size

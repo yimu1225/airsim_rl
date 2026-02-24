@@ -8,8 +8,9 @@ from ..per_buffer import PrioritizedReplayBuffer
 
 
 class PERAETD3Agent:
-    def __init__(self, base_dim: int, depth_shape, action_space, args, device=None):
+    def __init__(self, base_dim: int, depth_shape, action_space, args, device=None, seed=None):
         self.device = torch.device(device if device is not None else ("cuda" if torch.cuda.is_available() else "cpu"))
+        self.rng = np.random.default_rng(seed)
 
         self.base_dim = base_dim
         self.depth_shape = depth_shape
@@ -70,12 +71,17 @@ class PERAETD3Agent:
         self.batch_size = args.batch_size
         
         self.exploration_noise = args.exploration_noise
+        self.exploration_noise_final = getattr(args, "exploration_noise_final", 0.05)
 
 
-        self.replay_buffer = PrioritizedReplayBuffer(args.buffer_size)
+        self.replay_buffer = PrioritizedReplayBuffer(args.buffer_size, seed=seed)
         self.total_it = 0
 
-    def select_action(self, base_state, depth, noise: bool = True):
+    def _get_current_noise(self, progress_ratio: float) -> float:
+        current_noise = self.exploration_noise * (1 - progress_ratio) + self.exploration_noise_final * progress_ratio
+        return current_noise
+
+    def select_action(self, base_state, depth, noise: bool = True, progress_ratio: float = 0.0):
         base_tensor = torch.as_tensor(base_state, dtype=torch.float32, device=self.device).view(1, -1)
         depth_tensor = torch.as_tensor(depth, dtype=torch.float32, device=self.device)
         with torch.no_grad():
@@ -83,7 +89,8 @@ class PERAETD3Agent:
             state = torch.cat([base_tensor, depth_features], dim=1)
             action = self.actor(state).cpu().numpy().flatten()
         if noise:
-            noise = np.random.normal(0, self.exploration_noise, size=self.action_dim)
+            current_noise = self._get_current_noise(progress_ratio)
+            noise = self.rng.normal(0, current_noise, size=self.action_dim)
             action = action + noise
         action = np.clip(action, -1.0, 1.0)
         real_action = self.action_scale.cpu().numpy() * action + self.action_bias.cpu().numpy()

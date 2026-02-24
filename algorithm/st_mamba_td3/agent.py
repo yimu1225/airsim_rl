@@ -10,9 +10,10 @@ from .buffer import SequenceReplayBuffer
 
 
 class ST_Mamba_Agent:
-    def __init__(self, base_dim, depth_shape, action_space, args, device=None):
+    def __init__(self, base_dim, depth_shape, action_space, args, device=None, seed=None):
         self.device = torch.device(device if device is not None else ("cuda" if torch.cuda.is_available() else "cpu"))
         print(f"ST-Mamba-TD3 Agent using device: {self.device}")
+        self.rng = np.random.default_rng(seed)
 
         self.args = args
         self.base_dim = base_dim
@@ -74,15 +75,20 @@ class ST_Mamba_Agent:
         self.grad_clip = getattr(args, "grad_clip", 1.0)
 
         self.exploration_noise = args.exploration_noise
+        self.exploration_noise_final = getattr(args, "exploration_noise_final", 0.05)
 
         self.batch_size = args.batch_size
-        self.replay_buffer = SequenceReplayBuffer(args.buffer_size, self.seq_len)
+        self.replay_buffer = SequenceReplayBuffer(args.buffer_size, self.seq_len, seed=seed)
         self.total_it = 0
 
     def _scale_action(self, action):
         return action * self.action_scale + self.action_bias
 
-    def select_action(self, base_state, depth_img, noise: bool = True):
+    def _get_current_noise(self, progress_ratio: float) -> float:
+        current_noise = self.exploration_noise * (1 - progress_ratio) + self.exploration_noise_final * progress_ratio
+        return current_noise
+
+    def select_action(self, base_state, depth_img, noise: bool = True, progress_ratio: float = 0.0):
         if isinstance(base_state, np.ndarray):
             base_state = torch.as_tensor(base_state, dtype=torch.float32, device=self.device)
         if isinstance(depth_img, np.ndarray):
@@ -108,7 +114,8 @@ class ST_Mamba_Agent:
             action = self.actor(actor_input).cpu().numpy().flatten()
 
         if noise:
-            noise = np.random.normal(0, self.exploration_noise, size=self.action_dim)
+            current_noise = self._get_current_noise(progress_ratio)
+            noise = self.rng.normal(0, current_noise, size=self.action_dim)
             action = action + noise
 
         action = np.clip(action, -1.0, 1.0)
