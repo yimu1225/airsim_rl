@@ -287,35 +287,52 @@ class CFCTD3Agent:
         }
 
     def save(self, filename):
-        torch.save(self.critic.state_dict(), filename + "_critic")
-        torch.save(self.critic_optimizer.state_dict(), filename + "_critic_optimizer")
-        
-        torch.save(self.actor.state_dict(), filename + "_actor")
-        torch.save(self.actor_optimizer.state_dict(), filename + "_actor_optimizer")
-        
-        # Save encoders
-        torch.save(self.actor_visual_encoder.state_dict(), filename + "_actor_vis")
-        torch.save(self.actor_cfc.state_dict(), filename + "_actor_cfc")
-        
-        torch.save(self.critic_visual_encoder.state_dict(), filename + "_critic_vis")
-        torch.save(self.critic_cfc.state_dict(), filename + "_critic_cfc")
-
+        torch.save(
+            {
+                "critic": self.critic.state_dict(),
+                "critic_optimizer": self.critic_optimizer.state_dict(),
+                "actor": self.actor.state_dict(),
+                "actor_optimizer": self.actor_optimizer.state_dict(),
+                "actor_visual_encoder": self.actor_visual_encoder.state_dict(),
+                "actor_cfc": self.actor_cfc.state_dict(),
+                "critic_visual_encoder": self.critic_visual_encoder.state_dict(),
+                "critic_cfc": self.critic_cfc.state_dict(),
+                "critic_target": self.critic_target.state_dict(),
+                "actor_target": self.actor_target.state_dict(),
+                "actor_visual_encoder_target": self.actor_visual_encoder_target.state_dict(),
+                "actor_cfc_target": self.actor_cfc_target.state_dict(),
+                "critic_visual_encoder_target": self.critic_visual_encoder_target.state_dict(),
+                "critic_cfc_target": self.critic_cfc_target.state_dict(),
+                "total_it": self.total_it,
+            },
+            filename,
+        )
 
     def load(self, filename):
-        self.critic.load_state_dict(torch.load(filename + "_critic"))
-        self.critic_optimizer.load_state_dict(torch.load(filename + "_critic_optimizer"))
-        self.critic_target.load_state_dict(self.critic.state_dict())
+        checkpoint = torch.load(filename, map_location=self.device)
+        self.critic.load_state_dict(checkpoint["critic"])
+        self.critic_optimizer.load_state_dict(checkpoint["critic_optimizer"])
+        if "critic_target" in checkpoint:
+            self.critic_target.load_state_dict(checkpoint["critic_target"])
 
-        self.actor.load_state_dict(torch.load(filename + "_actor"))
-        self.actor_optimizer.load_state_dict(torch.load(filename + "_actor_optimizer"))
-        self.actor_target.load_state_dict(self.actor.state_dict())
-        
-        self.actor_visual_encoder.load_state_dict(torch.load(filename + "_actor_vis"))
-        self.actor_cfc.load_state_dict(torch.load(filename + "_actor_cfc"))
-        self.actor_visual_encoder_target.load_state_dict(self.actor_visual_encoder.state_dict())
-        self.actor_cfc_target.load_state_dict(self.actor_cfc.state_dict())
-        
-        self.critic_visual_encoder.load_state_dict(torch.load(filename + "_critic_vis"))
-        self.critic_cfc.load_state_dict(torch.load(filename + "_critic_cfc"))
-        self.critic_visual_encoder_target.load_state_dict(self.critic_visual_encoder.state_dict())
-        self.critic_cfc_target.load_state_dict(self.critic_cfc.state_dict())
+        self.actor.load_state_dict(checkpoint["actor"])
+        self.actor_optimizer.load_state_dict(checkpoint["actor_optimizer"])
+        if "actor_target" in checkpoint:
+            self.actor_target.load_state_dict(checkpoint["actor_target"])
+
+        self.actor_visual_encoder.load_state_dict(checkpoint["actor_visual_encoder"])
+        self.actor_cfc.load_state_dict(checkpoint["actor_cfc"])
+        if "actor_visual_encoder_target" in checkpoint:
+            self.actor_visual_encoder_target.load_state_dict(checkpoint["actor_visual_encoder_target"])
+        if "actor_cfc_target" in checkpoint:
+            self.actor_cfc_target.load_state_dict(checkpoint["actor_cfc_target"])
+
+        self.critic_visual_encoder.load_state_dict(checkpoint["critic_visual_encoder"])
+        self.critic_cfc.load_state_dict(checkpoint["critic_cfc"])
+        if "critic_visual_encoder_target" in checkpoint:
+            self.critic_visual_encoder_target.load_state_dict(checkpoint["critic_visual_encoder_target"])
+        if "critic_cfc_target" in checkpoint:
+            self.critic_cfc_target.load_state_dict(checkpoint["critic_cfc_target"])
+
+        if "total_it" in checkpoint:
+            self.total_it = checkpoint["total_it"]
