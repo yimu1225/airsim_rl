@@ -7,7 +7,7 @@ from collections import deque
 import copy
 
 from .networks import STE_CNN_Encoder, Actor, Critic, StateMLP
-from ..lstm_td3.buffer import SequenceReplayBuffer
+from .buffer import SequenceReplayBuffer
 
 class ST_CNN_Agent:
     """

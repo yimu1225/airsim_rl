@@ -39,7 +39,7 @@ def get_config(argv=None):
     parser.add_argument("--cuda_deterministic", action='store_false', default=True, help="CUDA是否确定性")
     parser.add_argument("--n_training_threads", type=int, default=1, help="训练线程数")
     parser.add_argument("--n_rollout_threads", type=int, default=1, help="Rollout线程数（在AirSim环境中必须为1）")
-    parser.add_argument("--max_timesteps", type=int, default=100000, help='要训练的环境步数 (默认: 10e6)')
+    parser.add_argument("--max_timesteps", type=int, default=150000, help='要训练的环境步数 (默认: 10e6)')
     parser.add_argument("--buffer_size", type=int, default=20000, help='经验池大小 (注意内存占用: 30000步约占用4GB)')
     parser.add_argument("--learning_starts", type=int, default=2000, help="训练开始前的时间步数 (兼容 start_timesteps)")
     parser.add_argument("--gradient_steps", type=int, default=1, help="每次更新的梯度步数")
