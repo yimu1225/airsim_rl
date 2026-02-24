@@ -29,7 +29,7 @@ def get_config(argv=None):
 
     # 算法选择 (Algorithm Selection)
     parser.add_argument("--algorithm_name", type=str, default='td3,ST-VimTD3',
-                        help="要训练的算法。支持: td3, aetd3, per_td3, per_aetd3, gru_td3, lstm_td3, gru_aetd3, lstm_aetd3, cfc_td3, st_mamba_td3, ST-VimTD3, ST-VimTD3-Safety, st_cnn_td3, gam_mamba_td3。可以是单个，多个（逗号分隔），或组名 ('all', 'base', 'seq')")
+                        help="要训练的算法。支持: td3, aetd3, per_td3, per_aetd3, cfc_td3, st_mamba_td3, ST-VimTD3, ST-VimTD3-Safety, st_cnn_td3, gam_mamba_td3。可以是单个，多个（逗号分隔），或组名 ('all', 'base', 'seq')")
     parser.add_argument("--smooth_window", type=int, default=500, help="平滑窗口大小，用于平滑学习曲线")
 
     # 训练设置 (Training Setup)
@@ -41,7 +41,7 @@ def get_config(argv=None):
     parser.add_argument("--n_rollout_threads", type=int, default=1, help="Rollout线程数（在AirSim环境中必须为1）")
     parser.add_argument("--max_timesteps", type=int, default=150000, help='要训练的环境步数 (默认: 10e6)')
     parser.add_argument("--buffer_size", type=int, default=20000, help='经验池大小 (注意内存占用: 30000步约占用4GB)')
-    parser.add_argument("--learning_starts", type=int, default=000, help="训练开始前的时间步数 (兼容 start_timesteps)")
+    parser.add_argument("--learning_starts", type=int, default=2000, help="训练开始前的时间步数 (兼容 start_timesteps)")
     parser.add_argument("--gradient_steps", type=int, default=1, help="每次更新的梯度步数")
     parser.add_argument("--episode_length", type=int, default=200, help='每个环境中的最大回合长度')
     parser.add_argument("--eval_freq", type=int, default=5000, help="评估频率")
@@ -51,7 +51,7 @@ def get_config(argv=None):
     parser.add_argument("--exploration_noise_final", type=float, default=0.05, help="最终探索噪声")
     parser.add_argument("--batch_size", type=int, default=256, help="批次大小")
     parser.add_argument("--gamma", type=float, default=0.98, help="折扣因子") 
-    parser.add_argument("--tau", type=float, default=0.005, help="软更新参数")
+    parser.add_argument("--tau", type=float, default=0.003, help="软更新参数")
     parser.add_argument("--actor_lr", type=float, default=7e-4, help="Actor学习率")
     parser.add_argument("--critic_lr", type=float, default=7e-4, help="Critic学习率")
     parser.add_argument("--policy_noise", type=float, default=0.2, help="策略噪声")
