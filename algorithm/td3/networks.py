@@ -68,7 +68,7 @@ class Actor(nn.Module):
 
     def forward(self, obs, std=None):
         # apply input normalization
-        # obs = self.input_norm(obs)
+        obs = self.input_norm(obs)
         mu = self.policy(obs)
         mu = torch.tanh(mu) 
         
@@ -81,24 +81,24 @@ class Critic(nn.Module):
         super().__init__()
 
         # LayerNorm for critic input (repr + action)
-        # self.input_norm = nn.LayerNorm(repr_dim + action_shape[0])
+        self.input_norm = nn.LayerNorm(repr_dim + action_shape[0])
         # Add LayerNorm inside critic MLP hidden layers for stability
         self.Q1 = nn.Sequential(
             nn.Linear(repr_dim + action_shape[0], hidden_dim),
-            # nn.LayerNorm(hidden_dim),
+            nn.LayerNorm(hidden_dim),
             nn.ReLU(inplace=True),
             nn.Linear(hidden_dim, hidden_dim),
-            # nn.LayerNorm(hidden_dim),
+            nn.LayerNorm(hidden_dim),
             nn.ReLU(inplace=True),
             nn.Linear(hidden_dim, 1)
         )
 
         self.Q2 = nn.Sequential(
             nn.Linear(repr_dim + action_shape[0], hidden_dim),
-            # nn.LayerNorm(hidden_dim),
+            nn.LayerNorm(hidden_dim),
             nn.ReLU(inplace=True),
             nn.Linear(hidden_dim, hidden_dim),
-            # nn.LayerNorm(hidden_dim),
+            nn.LayerNorm(hidden_dim),
             nn.ReLU(inplace=True),
             nn.Linear(hidden_dim, 1)
         )
@@ -113,7 +113,7 @@ class Critic(nn.Module):
 
     def forward(self, obs, action):
         h_action = torch.cat([obs, action], dim=-1)
-        # h_action = self.input_norm(h_action)
+        h_action = self.input_norm(h_action)
         q1 = self.Q1(h_action)
         q2 = self.Q2(h_action)
         return q1, q2
