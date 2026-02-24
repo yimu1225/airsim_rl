@@ -5,14 +5,15 @@ import torch.nn.functional as F
 from torch import nn
 from torch.optim import Adam
 
-from .networks import STVimTokenMambaEncoder, Actor, Critic, SafetyConstraintHead, safety_project_actions
-from .buffer import SequenceReplayBuffer
+from .networks import STVimEncoder, Actor, Critic, SafetyConstraintHead, safety_project_actions
+from .buffer import ReplayBuffer
 
 
-class ST_Mamba_VimTokens_Safety_Agent:
-    def __init__(self, base_dim, depth_shape, action_space, args, device=None):
+class STVimTD3SafetyAgent:
+    def __init__(self, base_dim, depth_shape, action_space, args, device=None, seed=None):
         self.device = torch.device(device if device is not None else ("cuda" if torch.cuda.is_available() else "cpu"))
         print(f"ST-Mamba-VimTokens-Safety-TD3 Agent using device: {self.device}")
+        self.rng = np.random.default_rng(seed)
 
         self.args = args
         self.base_dim = base_dim
@@ -30,22 +31,14 @@ class ST_Mamba_VimTokens_Safety_Agent:
         self.action_scale = torch.from_numpy((self.max_action - self.min_action) / 2.0).float().to(self.device)
         self.action_bias = torch.from_numpy((self.max_action + self.min_action) / 2.0).float().to(self.device)
 
-        self.actor_encoder = STVimTokenMambaEncoder(
-            state_dim=self.base_dim,
-            action_dim=None,
-            args=args
-        ).to(self.device)
+        self.actor_encoder = STVimEncoder(args).to(self.device)
         self.actor = Actor(
             feature_dim=args.st_mamba_embed_dim + self.base_dim,
             action_dim=self.action_dim,
             hidden_dim=args.hidden_dim
         ).to(self.device)
 
-        self.critic_encoder = STVimTokenMambaEncoder(
-            state_dim=self.base_dim,
-            action_dim=None,
-            args=args
-        ).to(self.device)
+        self.critic_encoder = STVimEncoder(args).to(self.device)
         self.critic_1 = Critic(
             feature_dim=args.st_mamba_embed_dim + self.base_dim,
             action_dim=self.action_dim,
@@ -59,7 +52,7 @@ class ST_Mamba_VimTokens_Safety_Agent:
 
         self.use_safety_layer = getattr(args, "use_vim_safety_layer", True)
         self.safety_model = SafetyConstraintHead(
-            latent_dim=args.st_mamba_embed_dim,
+            latent_dim=args.st_mamba_embed_dim + self.base_dim,
             action_dim=self.action_dim
         ).to(self.device)
 
@@ -93,6 +86,7 @@ class ST_Mamba_VimTokens_Safety_Agent:
         self.grad_clip = getattr(args, "grad_clip", 1.0)
 
         self.exploration_noise = args.exploration_noise
+        self.exploration_noise_final = getattr(args, "exploration_noise_final", 0.05)
 
         self.safety_loss_coef = getattr(args, "safety_loss_coef", 1.0)
         self.safety_actor_penalty_coef = getattr(args, "safety_actor_penalty_coef", 0.05)
@@ -101,7 +95,7 @@ class ST_Mamba_VimTokens_Safety_Agent:
         self.safety_label_mode = getattr(args, "safety_label_mode", "collision_then_reward")
 
         self.batch_size = args.batch_size
-        self.replay_buffer = SequenceReplayBuffer(args.buffer_size, self.seq_len)
+        self.replay_buffer = ReplayBuffer(args.buffer_size, self.seq_len, seed=seed)
         self.total_it = 0
 
     def _assert_finite_tensor(self, name: str, tensor: torch.Tensor):
@@ -131,46 +125,47 @@ class ST_Mamba_VimTokens_Safety_Agent:
     def _unscale_action(self, scaled_action):
         return (scaled_action - self.action_bias) / (self.action_scale + 1e-6)
 
-    def _apply_safety_projection(self, raw_action, visual_feat):
+    def _apply_safety_projection(self, raw_action, visual_feat, current_state):
         if not self.use_safety_layer:
             return raw_action, None
-        g, h = self.safety_model(visual_feat)
+        safety_input = torch.cat([visual_feat, current_state], dim=-1)
+        g, h = self.safety_model(safety_input)
         safe_action, violation = safety_project_actions(raw_action, g, h)
         safe_action = safe_action.clamp(-1.0, 1.0)
         return safe_action, violation
 
-    def select_action(self, base_state, depth_img, noise: bool = True):
+    def _get_current_noise(self, progress_ratio: float) -> float:
+        current_noise = self.exploration_noise * (1 - progress_ratio) + self.exploration_noise_final * progress_ratio
+        return current_noise
+
+    def select_action(self, base_state, depth_img, noise: bool = True, progress_ratio: float = 0.0):
         if isinstance(base_state, np.ndarray):
             base_state = torch.as_tensor(base_state, dtype=torch.float32, device=self.device)
         if isinstance(depth_img, np.ndarray):
             depth_img = torch.as_tensor(depth_img, dtype=torch.float32, device=self.device)
 
-        if depth_img.dim() == 3:
-            depth_img = depth_img.unsqueeze(1)
-        if depth_img.dim() == 4:
-            depth_img = depth_img.unsqueeze(0)
+        # Add batch dimension to depth sequence
+        depth_img = depth_img.unsqueeze(0)  # (T, C, H, W) -> (1, T, C, H, W)
 
-        if depth_img.dtype != torch.float32:
-            depth_img = depth_img.float()
+        # Ensure base_state has batch dimension
         if base_state.dim() == 1:
-            current_state = base_state.unsqueeze(0)
-        elif base_state.dim() == 2:
-            current_state = base_state[-1, :].unsqueeze(0)
+            current_state = base_state.unsqueeze(0)  # (dim,) -> (1, dim)
         else:
-            current_state = base_state[:, -1, :]
+            current_state = base_state
 
         with torch.no_grad():
-            visual_feat = self.actor_encoder(depth_img, current_state)
+            visual_feat = self.actor_encoder(depth_img)
             self._assert_finite_tensor("select_action.visual_feat", visual_feat)
 
             actor_input = torch.cat([visual_feat, current_state], dim=-1)
             raw_action = self.actor(actor_input)
-            safe_action, _ = self._apply_safety_projection(raw_action, visual_feat)
+            safe_action, _ = self._apply_safety_projection(raw_action, visual_feat, current_state)
             action = safe_action.cpu().numpy().flatten()
             self._assert_finite_array("select_action.actor_output", action)
 
         if noise:
-            noise_arr = np.random.normal(0, self.exploration_noise, size=self.action_dim)
+            current_noise = self._get_current_noise(progress_ratio)
+            noise_arr = self.rng.normal(0, current_noise, size=self.action_dim)
             action = action + noise_arr
             self._assert_finite_array("select_action.action_plus_noise", action)
 
@@ -179,26 +174,11 @@ class ST_Mamba_VimTokens_Safety_Agent:
         self._assert_finite_array("select_action.scaled_action", scaled_action)
         return scaled_action
 
-    def train(self, replay_buffer=None, batch_size=None):
+    def train(self):
         self.total_it += 1
 
-        if batch_size is None:
-            batch_size = self.batch_size
-
-        if replay_buffer is None:
-            replay_buffer = self.replay_buffer
-
-        sampled = replay_buffer.sample(batch_size)
-        if sampled is None:
-            return {"critic_loss": 0.0, "actor_loss": 0.0, "safety_loss": 0.0, "safety_violation_rate": 0.0}
-
-        if len(sampled) == 8:
-            (state, depth, action, reward,
-             next_state, next_depth, done_flag, collision_flag) = sampled
-        else:
-            (state, depth, action, reward,
-             next_state, next_depth, done_flag) = sampled
-            collision_flag = None
+        (state, depth, action, reward,
+         next_state, next_depth, dones, collision_flag) = self.replay_buffer.sample(self.batch_size)
 
         depth = torch.as_tensor(depth, dtype=torch.float32, device=self.device)
         next_depth = torch.as_tensor(next_depth, dtype=torch.float32, device=self.device)
@@ -206,40 +186,26 @@ class ST_Mamba_VimTokens_Safety_Agent:
         state = torch.as_tensor(state, dtype=torch.float32, device=self.device)
         next_state = torch.as_tensor(next_state, dtype=torch.float32, device=self.device)
 
-        if state.dim() == 3:
-            current_state = state[:, -1, :]
-        else:
-            current_state = state
-        if next_state.dim() == 3:
-            next_state_curr = next_state[:, -1, :]
-        else:
-            next_state_curr = next_state
+        # No need for additional assignments, use state and next_state directly
 
         action = torch.as_tensor(action, dtype=torch.float32, device=self.device)
         action = self._unscale_action(action).clamp(-1.0, 1.0)
 
-        reward = torch.as_tensor(reward, dtype=torch.float32, device=self.device)
-        done_flag = torch.as_tensor(done_flag, dtype=torch.float32, device=self.device)
+        reward = torch.as_tensor(reward, dtype=torch.float32, device=self.device).view(-1, 1)
+        dones = torch.as_tensor(dones, dtype=torch.float32, device=self.device).view(-1, 1)
         if collision_flag is not None:
-            collision_flag = torch.as_tensor(collision_flag, dtype=torch.float32, device=self.device)
+            collision_flag = torch.as_tensor(collision_flag, dtype=torch.float32, device=self.device).view(-1, 1)
 
-        reward = reward.view(-1, 1)
-
-        done_flag = done_flag.view(-1, 1)
-
-        if collision_flag is not None:
-            collision_flag = collision_flag.view(-1, 1)
-
-        not_done = 1.0 - done_flag
-
+    
         with torch.no_grad():
-            next_visual = self.actor_encoder_target(next_depth, next_state_curr)
+            next_visual = self.actor_encoder_target(next_depth)
             self._assert_finite_tensor("train.next_visual", next_visual)
-            next_actor_input = torch.cat([next_visual, next_state_curr], dim=-1)
+            next_actor_input = torch.cat([next_visual, next_state], dim=-1)
             next_action_raw = self.actor_target(next_actor_input)
 
             if self.use_safety_layer:
-                next_g, next_h = self.safety_model_target(next_visual)
+                next_safety_input = torch.cat([next_visual, next_state], dim=-1)
+                next_g, next_h = self.safety_model_target(next_safety_input)
                 next_action_raw, _ = safety_project_actions(next_action_raw, next_g, next_h)
                 next_action_raw = next_action_raw.clamp(-1.0, 1.0)
 
@@ -248,20 +214,20 @@ class ST_Mamba_VimTokens_Safety_Agent:
             next_action = (next_action_raw + noise).clamp(-1.0, 1.0)
             self._assert_finite_tensor("train.next_action_noisy", next_action)
 
-            target_visual = self.critic_encoder_target(next_depth, next_state_curr)
+            target_visual = self.critic_encoder_target(next_depth)
             self._assert_finite_tensor("train.target_visual", target_visual)
-            target_input = torch.cat([target_visual, next_state_curr], dim=-1)
+            target_input = torch.cat([target_visual, next_state], dim=-1)
             target_Q1 = self.critic_1_target(target_input, next_action)
             target_Q2 = self.critic_2_target(target_input, next_action)
             self._assert_finite_tensor("train.target_Q1", target_Q1)
             self._assert_finite_tensor("train.target_Q2", target_Q2)
             target_Q = torch.min(target_Q1, target_Q2)
-            target_Q = reward + not_done * self.gamma * target_Q
+            target_Q = reward + (1.0 - dones) * self.gamma * target_Q
             self._assert_finite_tensor("train.target_Q", target_Q)
 
-        current_visual = self.critic_encoder(depth, current_state)
+        current_visual = self.critic_encoder(depth)
         self._assert_finite_tensor("train.current_visual", current_visual)
-        critic_input = torch.cat([current_visual, current_state], dim=-1)
+        critic_input = torch.cat([current_visual, state], dim=-1)
         current_Q1 = self.critic_1(critic_input, action)
         current_Q2 = self.critic_2(critic_input, action)
         self._assert_finite_tensor("train.current_Q1", current_Q1)
@@ -281,20 +247,21 @@ class ST_Mamba_VimTokens_Safety_Agent:
         safety_loss_value = 0.0
         safety_violation_rate = 0.0
         if self.use_safety_layer and self.total_it >= self.safety_warmup_steps:
-            safety_visual = self.actor_encoder(depth, current_state)
-            safety_input = safety_visual if self.safety_end_to_end else safety_visual.detach()
+            safety_visual = self.actor_encoder(depth)
+            safety_input = torch.cat([safety_visual, state], dim=-1)
+            safety_input = safety_input if self.safety_end_to_end else safety_input.detach()
             g, h = self.safety_model(safety_input)
 
             logits = (g * action).sum(dim=-1, keepdim=True) + h
 
-            reward_proxy_target = ((done_flag > 0.5) & (reward <= self.safety_collision_reward_threshold)).float()
+            reward_proxy_target = ((dones > 0.5) & (reward <= self.safety_collision_reward_threshold)).float()
 
             if self.safety_label_mode == "collision" and collision_flag is not None:
-                collision_target = ((done_flag > 0.5) & (collision_flag > 0.5)).float()
+                collision_target = ((dones > 0.5) & (collision_flag > 0.5)).float()
             elif self.safety_label_mode == "reward_proxy" or collision_flag is None:
                 collision_target = reward_proxy_target
             else:
-                real_collision_target = ((done_flag > 0.5) & (collision_flag > 0.5)).float()
+                real_collision_target = ((dones > 0.5) & (collision_flag > 0.5)).float()
                 collision_target = torch.maximum(real_collision_target, reward_proxy_target)
 
             safety_loss = F.binary_cross_entropy_with_logits(logits, collision_target)
@@ -311,16 +278,17 @@ class ST_Mamba_VimTokens_Safety_Agent:
 
         actor_loss_value = 0.0
         if self.total_it % self.policy_freq == 0:
-            actor_visual = self.actor_encoder(depth, current_state)
+            actor_visual = self.actor_encoder(depth)
             self._assert_finite_tensor("train.actor_visual", actor_visual)
-            actor_input = torch.cat([actor_visual, current_state], dim=-1)
+            actor_input = torch.cat([actor_visual, state], dim=-1)
             actor_action_raw = self.actor(actor_input)
             self._assert_finite_tensor("train.actor_action_raw", actor_action_raw)
 
             safety_penalty = torch.tensor(0.0, device=self.device)
             if self.use_safety_layer:
                 with torch.no_grad():
-                    g_actor, h_actor = self.safety_model(actor_visual)
+                    safety_input_actor = torch.cat([actor_visual, state], dim=-1)
+                    g_actor, h_actor = self.safety_model(safety_input_actor)
                 actor_action_safe, actor_violation = safety_project_actions(actor_action_raw, g_actor, h_actor)
                 actor_action_safe = actor_action_safe.clamp(-1.0, 1.0)
                 safety_penalty = torch.clamp(actor_violation, min=0.0).mean()
@@ -331,9 +299,9 @@ class ST_Mamba_VimTokens_Safety_Agent:
             self._assert_finite_tensor("train.actor_action_scaled", actor_action)
 
             with torch.no_grad():
-                q_visual = self.critic_encoder(depth, current_state)
+                q_visual = self.critic_encoder(depth)
             self._assert_finite_tensor("train.q_visual", q_visual)
-            q_input = torch.cat([q_visual, current_state], dim=-1)
+            q_input = torch.cat([q_visual, state], dim=-1)
             actor_q_loss = -self.critic_1(q_input, actor_action).mean()
             actor_loss = actor_q_loss + self.safety_actor_penalty_coef * safety_penalty
             self._assert_finite_tensor("train.actor_loss", actor_loss)

@@ -7,8 +7,10 @@ import os
 
 # Set CUDA memory allocator configuration to reduce fragmentation
 os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'expandable_segments:True'
+os.environ.setdefault('CUBLAS_WORKSPACE_CONFIG', ':4096:8')
 
 import time
+import random
 import numpy as np
 import torch
 import csv
@@ -25,14 +27,11 @@ from algorithm.td3.td3 import TD3Agent
 from algorithm.aetd3.aetd3 import AETD3Agent
 from algorithm.per_td3.per_td3 import PERTD3Agent
 from algorithm.per_aetd3.per_aetd3 import PERAETD3Agent
-from algorithm.gru_td3.gru_td3 import GRUTD3Agent
-from algorithm.lstm_td3.lstm_td3 import LSTMTD3Agent
-from algorithm.gru_aetd3.gru_aetd3 import GRUAETD3Agent
-from algorithm.lstm_aetd3.lstm_aetd3 import LSTMAETD3Agent
+
 from algorithm.cfc_td3.cfc_td3 import CFCTD3Agent
 from algorithm.st_mamba_td3.agent import ST_Mamba_Agent
-from algorithm.ST_VimTD3.agent import ST_Mamba_VimTokens_Agent
-from algorithm.ST_VimTD3_Safety.agent import ST_Mamba_VimTokens_Safety_Agent
+from algorithm.ST_VimTD3.agent import STVimTD3Agent
+from algorithm.ST_VimTD3_Safety.agent import STVimTD3SafetyAgent
 from algorithm.st_cnn_td3.st_cnn_td3 import ST_CNN_Agent
 from algorithm.gam_mamba_td3.td3 import GAMMambaTD3Agent
 
@@ -49,6 +48,27 @@ def _raise_if_non_finite(name, value, step_info=""):
         raise FloatingPointError(message)
 
 
+def _configure_reproducibility(seed: int, args):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed(seed)
+        torch.cuda.manual_seed_all(seed)
+
+    deterministic = bool(getattr(args, "cuda_deterministic", True))
+    torch.backends.cudnn.benchmark = not deterministic
+    torch.backends.cudnn.deterministic = deterministic
+    torch.backends.cuda.matmul.allow_tf32 = not deterministic
+    torch.backends.cudnn.allow_tf32 = not deterministic
+
+    if deterministic:
+        torch.use_deterministic_algorithms(True, warn_only=True)
+    else:
+        torch.use_deterministic_algorithms(False)
+
+
 def expand_algorithms(algo_str):
     """
     Expand algorithm string to list of individual algorithms.
@@ -56,9 +76,9 @@ def expand_algorithms(algo_str):
     """
     # Predefined algorithm groups
     groups = {
-        'all': ['td3', 'aetd3', 'per_td3', 'per_aetd3', 'gru_td3', 'lstm_td3', 'gru_aetd3', 'lstm_aetd3', 'cfc_td3', 'st_mamba_td3', 'ST-VimTD3', 'ST-VimTD3-Safety', 'st_cnn_td3', 'gam_mamba_td3'],
+        'all': ['td3', 'aetd3', 'per_td3', 'per_aetd3', 'cfc_td3', 'st_mamba_td3', 'ST-VimTD3', 'ST-VimTD3-Safety', 'st_cnn_td3', 'gam_mamba_td3'],
         'base': ['td3', 'aetd3', 'per_td3', 'per_aetd3'],
-        'seq': ['gru_td3', 'lstm_td3', 'gru_aetd3', 'lstm_aetd3', 'cfc_td3', 'st_mamba_td3', 'ST-VimTD3', 'ST-VimTD3-Safety', 'st_cnn_td3']
+        'seq': ['cfc_td3', 'st_mamba_td3', 'ST-VimTD3', 'ST-VimTD3-Safety', 'st_cnn_td3']
     }
     
     # Check if it's a predefined group
@@ -74,20 +94,21 @@ def expand_algorithms(algo_str):
 
 
 def get_agent_class(algo_name):
-    if algo_name == 'td3': return TD3Agent
-    if algo_name == 'aetd3': return AETD3Agent
-    if algo_name == 'per_td3': return PERTD3Agent
-    if algo_name == 'per_aetd3': return PERAETD3Agent
-    if algo_name == 'gru_td3': return GRUTD3Agent
-    if algo_name == 'lstm_td3': return LSTMTD3Agent
-    if algo_name == 'gru_aetd3': return GRUAETD3Agent
-    if algo_name == 'lstm_aetd3': return LSTMAETD3Agent
-    if algo_name == 'cfc_td3': return CFCTD3Agent
-    if algo_name == 'st_mamba_td3': return ST_Mamba_Agent
-    if algo_name == 'ST-VimTD3': return ST_Mamba_VimTokens_Agent
-    if algo_name == 'ST-VimTD3-Safety': return ST_Mamba_VimTokens_Safety_Agent
-    if algo_name == 'st_cnn_td3': return ST_CNN_Agent
-    if algo_name == 'gam_mamba_td3': return GAMMambaTD3Agent
+    agents = {
+        'td3': TD3Agent,
+        'aetd3': AETD3Agent,
+        'per_td3': PERTD3Agent,
+        'per_aetd3': PERAETD3Agent,
+
+        'cfc_td3': CFCTD3Agent,
+        'st_mamba_td3': ST_Mamba_Agent,
+        'ST-VimTD3': STVimTD3Agent,
+        'ST-VimTD3-Safety': STVimTD3SafetyAgent,
+        'st_cnn_td3': ST_CNN_Agent,
+        'gam_mamba_td3': GAMMambaTD3Agent
+    }
+    if algo_name in agents:
+        return agents[algo_name]
     raise ValueError(f"Unknown algorithm: {algo_name}")
 
 def main():
@@ -100,8 +121,7 @@ def main():
 
     for seed in seeds:
         args.seed = seed
-        torch.manual_seed(seed)
-        np.random.seed(seed)
+        _configure_reproducibility(seed, args)
 
         # Run training for each algorithm
         for algo_name in algorithms:
@@ -111,8 +131,7 @@ def main():
 
             # Determine properties for this algorithm
             recurrent_algos = [
-                'gru_td3', 'lstm_td3', 'gru_aetd3', 'lstm_aetd3', 'cfc_td3',
-                'st_cnn_td3', 'st_mamba_td3', 'ST-VimTD3', 'ST-VimTD3-Safety'
+                'cfc_td3', 'st_cnn_td3', 'st_mamba_td3', 'ST-VimTD3', 'ST-VimTD3-Safety'
             ]
             
             is_recurrent = algo_name in recurrent_algos
@@ -122,6 +141,8 @@ def main():
             # Initialize Environment
             print(f"Initialize AirSimEnv with stack_frames={stack_frames} for {algo_name} (seed={seed})...")
             env = AirSimEnv(need_render=args.need_render, takeoff_height=args.takeoff_height, config=args, stack_frames=stack_frames)
+            if hasattr(env, "action_space") and hasattr(env.action_space, "seed"):
+                env.action_space.seed(seed)
 
             # Initial Reset
             obs, _ = env.reset(seed=seed)
@@ -149,7 +170,8 @@ def main():
             device = torch.device("cuda" if args.cuda and torch.cuda.is_available() else "cpu")
             AgentClass = get_agent_class(algo_name)
             
-            agent = AgentClass(base_dim, model_depth_shape, action_space, args, device=device)
+            # pass seed to agent so it can create its own RNG
+            agent = AgentClass(base_dim, model_depth_shape, action_space, args, device=device, seed=seed)
 
             # Run training for this algorithm
             env = train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, base_state, depth_image, stack_frames)
@@ -226,11 +248,12 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, ba
             if total_timesteps < start_timesteps and args.load_model == "":
                 action = env.action_space.sample()
             else:
+                progress_ratio = total_timesteps / max_timesteps
                 if is_recurrent:
-                    action = agent.select_action(base, depth_seq)
+                    action = agent.select_action(base, depth_seq, progress_ratio=progress_ratio)
                 else:
                     # Non-recurrent: state is (4, H, W)
-                    action = agent.select_action(base, state)
+                    action = agent.select_action(base, state, progress_ratio=progress_ratio)
 
                 _raise_if_non_finite(
                     "actor.action",
@@ -327,9 +350,6 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, ba
             done_bool = float(done)
             
             if is_recurrent:
-                current_base = base
-                current_depth_seq = depth_seq
-                next_base_current = next_base
                 next_depth_seq = next_state
                 if next_depth_seq.ndim == 3:
                     next_depth_seq = np.expand_dims(next_depth_seq, axis=1)
@@ -337,22 +357,22 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, ba
                 if algo_name == 'ST-VimTD3-Safety':
                     has_collided = float(step_info.get("has_collided", False)) if isinstance(step_info, dict) else 0.0
                     agent.replay_buffer.add(
-                        current_base,
-                        current_depth_seq,
+                        base,
+                        depth_seq,
                         action,
                         reward,
-                        next_base_current,
+                        next_base,
                         next_depth_seq,
                         done_bool,
                         has_collided
                     )
                 else:
                     agent.replay_buffer.add(
-                        current_base,
-                        current_depth_seq,
+                        base,
+                        depth_seq,
                         action,
                         reward,
-                        next_base_current,
+                        next_base,
                         next_depth_seq,
                         done_bool
                     )
@@ -372,10 +392,10 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, ba
                 if len(env.success_deque) > 0:
                     success_rate = sum(env.success_deque) / len(env.success_deque)
                 
-                # Log to TensorBoard
-                writer.add_scalar('train/episode_reward', episode_reward, episode_num)
-                writer.add_scalar('train/episode_length', episode_timesteps, episode_num)
-                writer.add_scalar('train/success_rate', success_rate, episode_num)
+                # Log to TensorBoard (use total_timesteps as x-axis)
+                writer.add_scalar('train/episode_reward', episode_reward, total_timesteps)
+                writer.add_scalar('train/episode_length', episode_timesteps, total_timesteps)
+                writer.add_scalar('train/success_rate', success_rate, total_timesteps)
 
                 # Log action distribution to TensorBoard (per episode)
                 if len(action_hist) > 0:
@@ -383,31 +403,10 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, ba
                     if action_arr.ndim == 1:
                         writer.add_histogram('train/action_distribution', action_arr, episode_num)
                     else:
-                        # Record each action dimension separately
+                        # Record each action dimension separately - only keep histograms
                         action_dim_names = ['forward_speed', 'vertical_speed', 'yaw_rate'] if action_arr.shape[1] == 3 else [f'action_dim_{i}' for i in range(action_arr.shape[1])]
                         for dim, name in enumerate(action_dim_names):
                             writer.add_histogram(f'train/{name}', action_arr[:, dim], episode_num)
-
-                            #############
-                            # Additional scalar statistics for each dimension
-                            writer.add_scalar(f'train/{name}_mean', np.mean(action_arr[:, dim]), episode_num)
-                            writer.add_scalar(f'train/{name}_std', np.std(action_arr[:, dim]), episode_num)
-                            writer.add_scalar(f'train/{name}_min', np.min(action_arr[:, dim]), episode_num)
-                            writer.add_scalar(f'train/{name}_max', np.max(action_arr[:, dim]), episode_num)
-                        
-                        # Overall action statistics
-                        action_norms = np.linalg.norm(action_arr, axis=1)
-                        writer.add_scalar('train/action_norm_mean', np.mean(action_norms), episode_num)
-                        writer.add_scalar('train/action_norm_std', np.std(action_norms), episode_num)
-                        
-                        # Action change rate (difference between consecutive actions)
-                        if len(action_arr) > 1:
-                            action_diffs = np.diff(action_arr, axis=0)
-                            diff_norms = np.linalg.norm(action_diffs, axis=1)
-                            writer.add_scalar('train/action_change_rate_mean', np.mean(diff_norms), episode_num)
-                            writer.add_scalar('train/action_change_rate_std', np.std(diff_norms), episode_num)
-
-                            ###########
                 
                 # Log to CSV
                 with open(csv_filename, mode='a', newline='') as f:
@@ -454,15 +453,13 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, ba
 
         # Training Update
         
-        # Check buffer size property (some use .size(), some .size, we handle it generally)
-        buffer_size = agent.replay_buffer.size if not callable(getattr(agent.replay_buffer, 'size', None)) else agent.replay_buffer.size()
-        
-        if buffer_size >= args.batch_size and total_timesteps >= start_timesteps:
+        if agent.replay_buffer.size() >= args.batch_size and total_timesteps >= start_timesteps:
             # Show progress bar for the update steps
             loss_info_list = []
             for _ in tqdm(range(steps_per_update), desc=f"Training ({total_timesteps})", leave=False):
                 # Pass progress for schedulers if needed (conceptually)
-                train_info = agent.train()
+                progress_ratio = total_timesteps / max_timesteps
+                train_info = agent.train(progress_ratio=progress_ratio)
                 if train_info:
                     for metric_name in ("actor_loss", "critic_loss"):
                         if metric_name in train_info:

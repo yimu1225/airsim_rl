@@ -9,8 +9,10 @@ from .buffer import ReplayBuffer
 
 
 class TD3Agent:
-    def __init__(self, base_dim: int, depth_shape, action_space, args, device=None):
+    def __init__(self, base_dim: int, depth_shape, action_space, args, device=None, seed=None):
         self.device = torch.device(device if device is not None else ("cuda" if torch.cuda.is_available() else "cpu"))
+        # RNG for this agent: used for action noise and buffer sampling
+        self.rng = np.random.default_rng(seed)
 
         self.base_dim = base_dim
         self.depth_shape = depth_shape  # (C, H, W)
@@ -63,7 +65,7 @@ class TD3Agent:
         self.critic_params = list(self.critic.parameters()) + list(self.critic_encoder.parameters())
         self.critic_optimizer = Adam(self.critic_params, lr=args.critic_lr)
 
-        self.replay_buffer = ReplayBuffer(args.buffer_size)
+        self.replay_buffer = ReplayBuffer(args.buffer_size, seed=seed)
 
         self.gamma = args.gamma
         self.tau = args.tau
@@ -73,7 +75,7 @@ class TD3Agent:
         self.batch_size = args.batch_size
 
         self.exploration_noise = args.exploration_noise
-
+        self.exploration_noise_final = getattr(args, "exploration_noise_final", 0.05)
         
         self.total_it = 0
 
@@ -92,7 +94,19 @@ class TD3Agent:
             depth_features = depth_features.detach()
         return torch.cat([base, depth_features], dim=1)
 
-    def select_action(self, base_state, depth, noise: bool = True):
+    def _get_current_noise(self, progress_ratio: float) -> float:
+        """
+        计算当前步骤的线性递减噪声强度
+        Args:
+            progress_ratio: 训练进度比例 (0.0 到 1.0)
+        Returns:
+            当前噪声强度
+        """
+        # 线性递减：从初始噪声到最终噪声
+        current_noise = self.exploration_noise * (1 - progress_ratio) + self.exploration_noise_final * progress_ratio
+        return current_noise
+
+    def select_action(self, base_state, depth, noise: bool = True, progress_ratio: float = 0.0):
         base_tensor = torch.as_tensor(base_state, dtype=torch.float32, device=self.device).view(1, -1)
         depth_tensor = torch.as_tensor(depth, dtype=torch.float32, device=self.device)
         with torch.no_grad():
@@ -102,7 +116,9 @@ class TD3Agent:
             action = self.actor(state).cpu().numpy().flatten()
 
         if noise:
-            noise = np.random.normal(0, self.exploration_noise, size=self.action_dim)
+            # 使用线性递减的噪声强度
+            current_noise = self._get_current_noise(progress_ratio)
+            noise = self.rng.normal(0, current_noise, size=self.action_dim)
             action = action + noise
         
         # Clip to (-1, 1)

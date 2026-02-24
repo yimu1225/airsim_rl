@@ -416,7 +416,7 @@ class AirSimEnv(gym.Env):
         r = -distance_now*0.02#0.02
 
         if math.cos(r_yaw)>=0:
-            r += self.speed*math.cos(r_yaw)
+            r += 2 * self.speed*math.cos(r_yaw)
 
         # Calculate jerk penalty for smoothness
         if self.config is not None and hasattr(self.action_space, 'shape') and len(self.action_space.shape) > 0:
@@ -427,9 +427,9 @@ class AirSimEnv(gym.Env):
                 self.config.max_yaw_rate - (-self.config.max_yaw_rate)  # yaw rate range
             ], dtype=np.float32)
             jerk_penalty = (
-                0.05 * abs(action_diff[1]) / action_range[1] +
-                0.05 * abs(action_diff[0]) / action_range[0] +
-                0.1 * abs(action_diff[2]) / action_range[2]
+                0.1 * abs(action_diff[1]) / action_range[1] +
+                0.1 * abs(action_diff[0]) / action_range[0] +
+                0.2 * abs(action_diff[2]) / action_range[2]
             )
             jerk_penalty = float(np.clip(jerk_penalty, 0.0, 1.0))
         else:

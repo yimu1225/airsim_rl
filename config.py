@@ -28,35 +28,36 @@ def get_config(argv=None):
     parser.add_argument("--env_name", type=str, default='AirSimEnv-v42', help="要训练的环境名称")  # AirSimEnv-v42  CartPole-v0
 
     # 算法选择 (Algorithm Selection)
-    parser.add_argument("--algorithm_name", type=str, default='ST-VimTD3,gam_mamba_td3,td3',
+    parser.add_argument("--algorithm_name", type=str, default='td3,ST-VimTD3',
                         help="要训练的算法。支持: td3, aetd3, per_td3, per_aetd3, gru_td3, lstm_td3, gru_aetd3, lstm_aetd3, cfc_td3, st_mamba_td3, ST-VimTD3, ST-VimTD3-Safety, st_cnn_td3, gam_mamba_td3。可以是单个，多个（逗号分隔），或组名 ('all', 'base', 'seq')")
-    parser.add_argument("--smooth_window", type=int, default=1, help="平滑窗口大小，用于平滑学习曲线")
+    parser.add_argument("--smooth_window", type=int, default=500, help="平滑窗口大小，用于平滑学习曲线")
 
     # 训练设置 (Training Setup)
-    parser.add_argument("--seed", type=str, default="25", help="随机种子 (支持逗号分隔多个种子)")
-    parser.add_argument("--steps_per_update", type=int, default=50, help='每次更新前收集的步数')
+    parser.add_argument("--seed", type=str, default="1", help="随机种子 (支持逗号分隔多个种子)")
+    parser.add_argument("--steps_per_update", type=int, default=100, help='每次更新前收集的步数')
     parser.add_argument("--cuda", action='store_false', default=True, help="是否使用CUDA")
     parser.add_argument("--cuda_deterministic", action='store_false', default=True, help="CUDA是否确定性")
     parser.add_argument("--n_training_threads", type=int, default=1, help="训练线程数")
     parser.add_argument("--n_rollout_threads", type=int, default=1, help="Rollout线程数（在AirSim环境中必须为1）")
-    parser.add_argument("--max_timesteps", type=int, default=200000, help='要训练的环境步数 (默认: 10e6)')
+    parser.add_argument("--max_timesteps", type=int, default=100000, help='要训练的环境步数 (默认: 10e6)')
     parser.add_argument("--buffer_size", type=int, default=20000, help='经验池大小 (注意内存占用: 30000步约占用4GB)')
     parser.add_argument("--learning_starts", type=int, default=2000, help="训练开始前的时间步数 (兼容 start_timesteps)")
     parser.add_argument("--gradient_steps", type=int, default=1, help="每次更新的梯度步数")
     parser.add_argument("--episode_length", type=int, default=200, help='每个环境中的最大回合长度')
     parser.add_argument("--eval_freq", type=int, default=5000, help="评估频率")
     parser.add_argument("--feature_dim", type=int, default=128, help="特征维度")
-    parser.add_argument("--hidden_dim", type=int, default=256, help="隐藏层维度")
+    parser.add_argument("--hidden_dim", type=int, default=128, help="隐藏层维度")
     parser.add_argument("--exploration_noise", type=float, default=0.3, help="探索噪声")
+    parser.add_argument("--exploration_noise_final", type=float, default=0.05, help="最终探索噪声")
     parser.add_argument("--batch_size", type=int, default=256, help="批次大小")
-    parser.add_argument("--gamma", type=float, default=0.99, help="折扣因子") 
-    parser.add_argument("--tau", type=float, default=0.005, help="软更新参数")
-    parser.add_argument("--actor_lr", type=float, default=3e-4, help="Actor学习率")
-    parser.add_argument("--critic_lr", type=float, default=3e-3, help="Critic学习率")
+    parser.add_argument("--gamma", type=float, default=0.98, help="折扣因子") 
+    parser.add_argument("--tau", type=float, default=0.003, help="软更新参数")
+    parser.add_argument("--actor_lr", type=float, default=7e-4, help="Actor学习率")
+    parser.add_argument("--critic_lr", type=float, default=7e-4, help="Critic学习率")
     parser.add_argument("--policy_noise", type=float, default=0.2, help="策略噪声")
     parser.add_argument("--noise_clip", type=float, default=0.2, help="噪声裁剪")
-    parser.add_argument("--policy_freq", type=int, default=10, help="策略更新频率")
-    parser.add_argument("--grad_clip", type=float, default=2.0, help="梯度裁剪")
+    parser.add_argument("--policy_freq", type=int, default=5, help="策略更新频率")
+    parser.add_argument("--grad_clip", type=float, default=5.0, help="梯度裁剪")
 
     # 可视化 (Visualization)
     parser.add_argument("--render_window", action='store_true', default=False, help="显示实时可视化窗口 (默认开启，可用 --no-render_window 关闭)")
@@ -101,15 +102,15 @@ def get_config(argv=None):
     parser.add_argument("--gam_mamba_expand", type=int, default=2, help="GAM-Mamba-TD3中Mamba扩展因子")
 
     # ST-Mamba 参数
-    parser.add_argument("--st_mamba_embed_dim", type=int, default=256, help="ST-Mamba 嵌入维度")
-    parser.add_argument("--st_mamba_depth", type=int, default=4, help="ST-Mamba Block 数量")
-    parser.add_argument("--st_mamba_patch_size", type=int, default=16, help="ST-Mamba Patch 大小")
+    parser.add_argument("--st_mamba_embed_dim", type=int, default=128, help="ST-Mamba 嵌入维度")
+    parser.add_argument("--st_mamba_depth", type=int, default=2, help="ST-Mamba Block 数量")
+    parser.add_argument("--st_mamba_patch_size", type=int, default=32, help="ST-Mamba Patch 大小")
     parser.add_argument("--st_mamba_d_state", type=int, default=16, help="ST-Mamba SSM 状态维度")
     parser.add_argument("--st_mamba_d_conv", type=int, default=4, help="ST-Mamba SSM 卷积宽度")
     parser.add_argument("--st_mamba_expand", type=int, default=2, help="ST-Mamba Block 扩展因子")
     parser.add_argument("--st_mamba_drop_rate", type=float, default=0.1, help="ST-Mamba Dropout 率 (pos_drop)")
     parser.add_argument("--st_mamba_drop_path_rate", type=float, default=0.1, help="ST-Mamba Drop Path 率 (stochastic depth)")
-    parser.add_argument("--st_mamba_temporal_depth", type=int, default=2, help="ST-Mamba-VimTokens 时序 Mamba Block 数量")
+    parser.add_argument("--st_mamba_temporal_depth", type=int, default=1, help="ST-Mamba-VimTokens 时序 Mamba Block 数量")
 
     # ST-VimTD3 Safety Layer 参数
     parser.add_argument("--use_vim_safety_layer", dest="use_vim_safety_layer", action='store_true', help="启用基于Vim隐空间的Safety Layer")
@@ -118,7 +119,7 @@ def get_config(argv=None):
     parser.add_argument("--safety_lr", type=float, default=5e-4, help="Safety Constraint Head 学习率")
     parser.add_argument("--safety_loss_coef", type=float, default=1.0, help="安全监督损失系数")
     parser.add_argument("--safety_actor_penalty_coef", type=float, default=0.05, help="Actor 的约束违反惩罚系数")
-    parser.add_argument("--safety_collision_reward_threshold", type=float, default=-10.0, help="将终止步标记为碰撞风险样本的奖励阈值")
+    parser.add_argument("--safety_collision_reward_threshold", type=float, default=-20.0, help="将终止步标记为碰撞风险样本的奖励阈值")
     parser.add_argument("--safety_warmup_steps", type=int, default=0, help="开始训练Safety Head前的迭代步数")
     parser.add_argument("--safety_end_to_end", action='store_true', default=False, help="是否让Safety损失回传并更新Vim Encoder")
     parser.add_argument("--safety_label_mode", type=str, default="collision_then_reward", choices=["collision", "reward_proxy", "collision_then_reward"], help="Safety标签来源：真实碰撞、奖励代理、或二者融合(fallback)")
@@ -150,7 +151,7 @@ def get_config(argv=None):
     
     # 训练循环参数 (Training Loop Parameters)
     
-    parser.add_argument("--step_penalty", type=float, default=0.05, help="每步惩罚，以鼓励更快完成")
+    parser.add_argument("--step_penalty", type=float, default=0.1, help="每步惩罚，以鼓励更快完成")
 
     # 日志 (Logging)
     parser.add_argument("--log_interval", type=int, default=1, help="日志记录间隔")

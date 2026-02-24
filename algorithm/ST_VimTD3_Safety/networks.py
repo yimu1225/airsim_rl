@@ -38,8 +38,8 @@ class TemporalMambaStack(nn.Module):
         return x
 
 
-class STVimTokenMambaEncoder(nn.Module):
-    def __init__(self, state_dim, action_dim, args):
+class STVimEncoder(nn.Module):
+    def __init__(self, args):
         super().__init__()
         self.embed_dim = args.st_mamba_embed_dim
         self.depth = args.st_mamba_depth
@@ -88,7 +88,7 @@ class STVimTokenMambaEncoder(nn.Module):
             expand=self.expand
         )
 
-    def forward(self, depth_seq, state_vec, action=None):
+    def forward(self, depth_seq, action=None):
         if depth_seq.dim() == 4:
             depth_seq = depth_seq.unsqueeze(0)
 
@@ -110,6 +110,9 @@ class STVimTokenMambaEncoder(nn.Module):
 class Actor(nn.Module):
     def __init__(self, feature_dim, action_dim, hidden_dim=256):
         super().__init__()
+
+        self.input_norm = nn.LayerNorm(feature_dim)
+
         self.net = nn.Sequential(
             nn.Linear(feature_dim, hidden_dim),
             nn.LayerNorm(hidden_dim),
@@ -129,6 +132,7 @@ class Actor(nn.Module):
                 nn.init.constant_(m.bias, 0)
 
     def forward(self, x):
+        x = self.input_norm(x)
         return self.net(x)
 
 

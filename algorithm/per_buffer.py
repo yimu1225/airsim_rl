@@ -2,8 +2,12 @@ import numpy as np
 import torch
 
 class PrioritizedReplayBuffer:
-    """Prioritized Replay Buffer using proportional prioritization."""
-    def __init__(self, capacity, alpha=0.6, eps=1e-6):
+    """Prioritized Replay Buffer using proportional prioritization.
+
+    The buffer owns its own RNG so that each instance can be seeded
+    independently.
+    """
+    def __init__(self, capacity, alpha=0.6, eps=1e-6, seed=None):
         self.capacity = capacity
         self.alpha = alpha
         self.eps = eps
@@ -11,6 +15,7 @@ class PrioritizedReplayBuffer:
         self.pos = 0
         self.priorities = np.zeros((capacity,), dtype=np.float32)
         self.max_priority = 1.0
+        self.rng = np.random.default_rng(seed)
 
     def add(self, *data):
         if len(self.storage) < self.capacity:
@@ -30,7 +35,7 @@ class PrioritizedReplayBuffer:
         probs = priorities ** self.alpha
         probs /= probs.sum()
 
-        indices = np.random.choice(current_len, batch_size, p=probs)
+        indices = self.rng.choice(current_len, batch_size, p=probs)
         samples = [self.storage[idx] for idx in indices]
 
         # Importance sampling weights

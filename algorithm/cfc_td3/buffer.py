@@ -1,13 +1,18 @@
 import numpy as np
 
 class SequenceReplayBuffer:
-    """Single-step replay buffer with explicit next-state transition."""
+    """Single-step replay buffer with explicit next-state transition.
 
-    def __init__(self, max_size: int, sequence_length: int):
+    Uses its own RNG; can be seeded separately.
+    """
+
+    def __init__(self, max_size: int, sequence_length: int, seed=None):
         self.max_size = int(max_size)
         self.seq_len = int(sequence_length)
         self.ptr = 0
         self.size = 0
+
+        self.rng = np.random.default_rng(seed)
         
         # Pre-allocated buffers (initialized on first add)
         self.base_buf = None
@@ -50,7 +55,7 @@ class SequenceReplayBuffer:
     def sample(self, batch_size: int):
         if self.size == 0:
             return None
-        ind = np.random.randint(0, self.size, size=batch_size)
+        ind = self.rng.integers(0, self.size, size=batch_size)
 
         return (
             self.base_buf[ind],
