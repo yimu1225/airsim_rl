@@ -262,17 +262,50 @@ class ST_CNN_Agent:
             target_param.data.copy_(tau * param.data + (1 - tau) * target_param.data)
 
     def save(self, filename):
-        torch.save(self.actor_visual.state_dict(), filename + "_actor_visual")
-        torch.save(self.actor_state_net.state_dict(), filename + "_actor_state")
-        torch.save(self.actor_head.state_dict(), filename + "_actor_head")
-        torch.save(self.critic_visual.state_dict(), filename + "_critic_visual")
-        torch.save(self.critic_state_net.state_dict(), filename + "_critic_state")
-        torch.save(self.critic_head.state_dict(), filename + "_critic_head")
+        torch.save(
+            {
+                "actor_visual": self.actor_visual.state_dict(),
+                "actor_state_net": self.actor_state_net.state_dict(),
+                "actor_head": self.actor_head.state_dict(),
+                "critic_visual": self.critic_visual.state_dict(),
+                "critic_state_net": self.critic_state_net.state_dict(),
+                "critic_head": self.critic_head.state_dict(),
+                "actor_visual_target": self.actor_visual_target.state_dict(),
+                "actor_state_net_target": self.actor_state_net_target.state_dict(),
+                "actor_head_target": self.actor_head_target.state_dict(),
+                "critic_visual_target": self.critic_visual_target.state_dict(),
+                "critic_state_net_target": self.critic_state_net_target.state_dict(),
+                "critic_head_target": self.critic_head_target.state_dict(),
+                "actor_optimizer": self.actor_optimizer.state_dict(),
+                "critic_optimizer": self.critic_optimizer.state_dict(),
+                "total_it": self.total_it,
+            },
+            filename,
+        )
 
     def load(self, filename):
-        self.actor_visual.load_state_dict(torch.load(filename + "_actor_visual"))
-        self.actor_state_net.load_state_dict(torch.load(filename + "_actor_state"))
-        self.actor_head.load_state_dict(torch.load(filename + "_actor_head"))
-        self.critic_visual.load_state_dict(torch.load(filename + "_critic_visual"))
-        self.critic_state_net.load_state_dict(torch.load(filename + "_critic_state"))
-        self.critic_head.load_state_dict(torch.load(filename + "_critic_head"))
+        checkpoint = torch.load(filename, map_location=self.device)
+        self.actor_visual.load_state_dict(checkpoint["actor_visual"])
+        self.actor_state_net.load_state_dict(checkpoint["actor_state_net"])
+        self.actor_head.load_state_dict(checkpoint["actor_head"])
+        self.critic_visual.load_state_dict(checkpoint["critic_visual"])
+        self.critic_state_net.load_state_dict(checkpoint["critic_state_net"])
+        self.critic_head.load_state_dict(checkpoint["critic_head"])
+        if "actor_visual_target" in checkpoint:
+            self.actor_visual_target.load_state_dict(checkpoint["actor_visual_target"])
+        if "actor_state_net_target" in checkpoint:
+            self.actor_state_net_target.load_state_dict(checkpoint["actor_state_net_target"])
+        if "actor_head_target" in checkpoint:
+            self.actor_head_target.load_state_dict(checkpoint["actor_head_target"])
+        if "critic_visual_target" in checkpoint:
+            self.critic_visual_target.load_state_dict(checkpoint["critic_visual_target"])
+        if "critic_state_net_target" in checkpoint:
+            self.critic_state_net_target.load_state_dict(checkpoint["critic_state_net_target"])
+        if "critic_head_target" in checkpoint:
+            self.critic_head_target.load_state_dict(checkpoint["critic_head_target"])
+        if "actor_optimizer" in checkpoint:
+            self.actor_optimizer.load_state_dict(checkpoint["actor_optimizer"])
+        if "critic_optimizer" in checkpoint:
+            self.critic_optimizer.load_state_dict(checkpoint["critic_optimizer"])
+        if "total_it" in checkpoint:
+            self.total_it = checkpoint["total_it"]
