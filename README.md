@@ -18,7 +18,7 @@
 - **真实物理模拟**: 基于Microsoft AirSim的高保真无人机物理模拟
 - **多模态输入**: 支持深度图像、灰度图像和状态信息的融合输入
 - **先进算法**: 实现了多种TD3变体，包括基于Mamba和Vision Transformer的最新算法
-- **时序建模**: 支持RNN、LSTM、GRU以及状态空间模型(SSM)等时序建模方法
+- **时序建模**: 支持状态空间模型(SSM)等时序建模方法
 - **环境随机化**: 内置环境参数随机化，提高策略泛化能力
 
 ## 🧠 算法架构
@@ -30,9 +30,7 @@
 - **AETD3**: 自适应集成TD3，使用多个Critic网络提高稳定性
 - **PER TD3**: 优先经验回放TD3，智能采样重要经验
 
-#### 2. 循环神经网络变体
-- **GRU TD3**: 门控循环单元TD3，处理时序依赖
-- **LSTM TD3**: 长短期记忆TD3，长期时序建模
+#### 2. 时序建模变体
 - **CFC TD3**: 闭式连续时间TD3，高效时序处理
 
 #### 3. 先进的视觉架构
@@ -50,7 +48,6 @@
 | 算法 | 时序处理 | 视觉编码器 | 特点 |
 |------|----------|------------|------|
 | TD3 | 无 | CNN | 基础算法，帧堆叠 |
-| GRU/LSTM TD3 | RNN | CNN | 循环时序建模 |
 | VMamba TD3 | Mamba | VMamba | 状态空间模型 |
 | ST-Mamba TD3 | Mamba | VisionMamba | 时空一体化处理 |
 | ST-VimTD3 | TemporalMamba | VisionMamba | 分层时空处理 |
@@ -143,9 +140,6 @@ pip install -e .
 # 训练标准TD3算法
 python main_async.py --algorithm_name td3 --max_timesteps 1000000
 
-# 训练LSTM TD3算法
-python main_async.py --algorithm_name lstm_td3 --max_timesteps 1000000
-
 # 训练ST-VimTD3算法
 python main_async.py --algorithm_name ST-VimTD3 --max_timesteps 1000000
 ```
@@ -157,7 +151,7 @@ python main_async.py --algorithm_name ST-VimTD3 --max_timesteps 1000000
 python main_async.py --algorithm_name "td3,aetd3,per_td3" --max_timesteps 500000
 
 # 训练所有时序算法
-python main_async.py --algorithm_name "gru_td3,lstm_td3,cfc_td3" --max_timesteps 500000
+python main_async.py --algorithm_name "cfc_td3" --max_timesteps 500000
 
 # 训练所有Mamba算法
 python main_async.py --algorithm_name "vmamba_td3,st_vmamba_td3,st_mamba_td3,ST-VimTD3" --max_timesteps 500000
@@ -232,7 +226,6 @@ graph TD
 | 算法 | 收敛速度 | 稳定性 | 计算效率 | 内存占用 |
 |------|----------|--------|----------|----------|
 | TD3 | 中等 | 中等 | 高 | 低 |
-| LSTM TD3 | 慢 | 高 | 中等 | 中等 |
 | VMamba TD3 | 快 | 高 | 中等 | 中等 |
 | ST-VimTD3 | 快 | 很高 | 低 | 高 |
 
@@ -277,11 +270,10 @@ graph TD
 airsim_rl/
 ├── algorithm/                 # 算法实现
 │   ├── td3/                  # 基础TD3
-│   ├── lstm_td3/             # LSTM TD3
-│   ├── gru_td3/              # GRU TD3
 │   ├── vmamba_td3/           # VMamba TD3
 │   ├── st_mamba_td3/         # 时空Mamba TD3
-│   ├── ST_VimTD3/           # 时空Vision Mamba TD3
+│   ├── ST_VimTD3/            # 时空Vision Mamba TD3
+│   ├── cfc_td3/              # CFC TD3
 │   └── ...
 ├── gym_airsim/              # AirSim环境包装
 ├── Vim/                     # Vision Mamba实现
