@@ -47,7 +47,7 @@ class Actor(nn.Module):
         super().__init__()
 
         # LayerNorm on input representation to normalize features
-        # self.input_norm = nn.LayerNorm(repr_dim)
+        self.input_norm = nn.LayerNorm(repr_dim)
 
         self.policy = nn.Sequential(
             nn.Linear(repr_dim, hidden_dim),

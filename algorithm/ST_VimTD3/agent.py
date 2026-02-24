@@ -237,15 +237,46 @@ class STVimTD3Agent:
             target_param.data.copy_(tau * param.data + (1 - tau) * target_param.data)
 
     def save(self, filename):
-        torch.save(self.actor_encoder.state_dict(), filename + "_actor_encoder")
-        torch.save(self.actor.state_dict(), filename + "_actor_head")
-        torch.save(self.critic_encoder.state_dict(), filename + "_critic_encoder")
-        torch.save(self.critic_1.state_dict(), filename + "_critic_1_head")
-        torch.save(self.critic_2.state_dict(), filename + "_critic_2_head")
+        # Store all components in a single checkpoint dictionary for convenience
+        torch.save(
+            {
+                "actor_encoder": self.actor_encoder.state_dict(),
+                "actor": self.actor.state_dict(),
+                "critic_encoder": self.critic_encoder.state_dict(),
+                "critic_1": self.critic_1.state_dict(),
+                "critic_2": self.critic_2.state_dict(),
+                "actor_encoder_target": self.actor_encoder_target.state_dict(),
+                "actor_target": self.actor_target.state_dict(),
+                "critic_encoder_target": self.critic_encoder_target.state_dict(),
+                "critic_1_target": self.critic_1_target.state_dict(),
+                "critic_2_target": self.critic_2_target.state_dict(),
+                "actor_optimizer": self.actor_optimizer.state_dict(),
+                "critic_optimizer": self.critic_optimizer.state_dict(),
+                "total_it": self.total_it,
+            },
+            filename,
+        )
 
     def load(self, filename):
-        self.actor_encoder.load_state_dict(torch.load(filename + "_actor_encoder"))
-        self.actor.load_state_dict(torch.load(filename + "_actor_head"))
-        self.critic_encoder.load_state_dict(torch.load(filename + "_critic_encoder"))
-        self.critic_1.load_state_dict(torch.load(filename + "_critic_1_head"))
-        self.critic_2.load_state_dict(torch.load(filename + "_critic_2_head"))
+        checkpoint = torch.load(filename, map_location=self.device)
+        self.actor_encoder.load_state_dict(checkpoint["actor_encoder"])
+        self.actor.load_state_dict(checkpoint["actor"])
+        self.critic_encoder.load_state_dict(checkpoint["critic_encoder"])
+        self.critic_1.load_state_dict(checkpoint["critic_1"])
+        self.critic_2.load_state_dict(checkpoint["critic_2"])
+        if "actor_encoder_target" in checkpoint:
+            self.actor_encoder_target.load_state_dict(checkpoint["actor_encoder_target"])
+        if "actor_target" in checkpoint:
+            self.actor_target.load_state_dict(checkpoint["actor_target"])
+        if "critic_encoder_target" in checkpoint:
+            self.critic_encoder_target.load_state_dict(checkpoint["critic_encoder_target"])
+        if "critic_1_target" in checkpoint:
+            self.critic_1_target.load_state_dict(checkpoint["critic_1_target"])
+        if "critic_2_target" in checkpoint:
+            self.critic_2_target.load_state_dict(checkpoint["critic_2_target"])
+        if "actor_optimizer" in checkpoint:
+            self.actor_optimizer.load_state_dict(checkpoint["actor_optimizer"])
+        if "critic_optimizer" in checkpoint:
+            self.critic_optimizer.load_state_dict(checkpoint["critic_optimizer"])
+        if "total_it" in checkpoint:
+            self.total_it = checkpoint["total_it"]
