@@ -51,10 +51,10 @@ class Actor(nn.Module):
 
         self.policy = nn.Sequential(
             nn.Linear(repr_dim, hidden_dim),
-            # nn.LayerNorm(hidden_dim),
+            nn.LayerNorm(hidden_dim),
             nn.ReLU(inplace=True),
             nn.Linear(hidden_dim, hidden_dim),
-            # nn.LayerNorm(hidden_dim),
+            nn.LayerNorm(hidden_dim),
             nn.ReLU(inplace=True),
             nn.Linear(hidden_dim, action_shape[0])
         )
