@@ -174,7 +174,10 @@ class STVimTD3SafetyAgent:
         self._assert_finite_array("select_action.scaled_action", scaled_action)
         return scaled_action
 
-    def train(self):
+    def train(self, progress_ratio: float = 0.0):
+        # progress_ratio parameter kept for uniform agent interface. Not used
+        # in this implementation but may be utilized for noise scheduling or
+        # safety adjustments in future.
         self.total_it += 1
 
         (state, depth, action, reward,

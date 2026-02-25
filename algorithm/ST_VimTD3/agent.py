@@ -141,7 +141,10 @@ class STVimTD3Agent:
         self._assert_finite_array("select_action.scaled_action", scaled_action)
         return scaled_action
 
-    def train(self):
+    def train(self, progress_ratio: float = 0.0):
+        # progress_ratio is currently unused in training updates but accepted for
+        # API compatibility with other agents. It can be used later for schedules
+        # or adaptive behaviors.
         self.total_it += 1
 
         (state, depth, action, reward, next_state, next_depth, dones) = self.replay_buffer.sample(self.batch_size)

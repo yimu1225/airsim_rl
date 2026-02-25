@@ -33,7 +33,7 @@ easy_range_dic = { "End": ["Mutable"],
                                       "Seed": list(range(0, 10000)),
                                       "VelocityRange": [[0, 2]],
                                       "Name": ["Name"],
-                                      "NumberOfObjects": list(range(8, 12))}
+                                      "NumberOfObjects": list(range(10, 15))}
 medium_range_dic = { "End": ["Mutable"],
                                       "MinimumDistance": [5,10],
                                       "EnvType": ["Indoor"],
@@ -44,7 +44,7 @@ medium_range_dic = { "End": ["Mutable"],
                                       "Seed": list(range(0, 10000)),
                                       "VelocityRange": [[0, 4]],
                                       "Name": ["Name"],
-                                      "NumberOfObjects": list(range(15, 22))}
+                                      "NumberOfObjects": list(range(16, 24))}
 hard_range_dic = { "End": ["Mutable"],
                                       "MinimumDistance": [5,10],
                                       "EnvType": ["Indoor"],

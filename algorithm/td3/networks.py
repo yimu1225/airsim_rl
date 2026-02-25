@@ -82,7 +82,7 @@ class Critic(nn.Module):
 
         # LayerNorm for critic input (repr + action)
         self.input_norm = nn.LayerNorm(repr_dim + action_shape[0])
-        # Add LayerNorm inside critic MLP hidden layers for stability
+        
         self.Q1 = nn.Sequential(
             nn.Linear(repr_dim + action_shape[0], hidden_dim),
             nn.LayerNorm(hidden_dim),
