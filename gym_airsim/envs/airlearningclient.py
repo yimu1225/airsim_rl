@@ -96,8 +96,9 @@ class AirLearningClient(object):
         client_port = port if port is not None else getattr(settings, 'port', 41451)
         
         # connect to the AirSim simulator
-        # Set timeout to 10 seconds to prevent hanging if game crashes
-        self.client = airsim.MultirotorClient(ip=client_ip, port=client_port, timeout_value=10)
+        # Set timeout to 60 seconds to prevent timeout with complex environments (many obstacles)
+        # Note: Complex scenes with many obstacles require more time for rendering depth images
+        self.client = airsim.MultirotorClient(ip=client_ip, port=client_port, timeout_value=60)
         self._apply_client_patches()
         self.client.confirmConnection()
         self.client.enableApiControl(True)
