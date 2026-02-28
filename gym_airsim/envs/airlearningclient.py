@@ -71,7 +71,7 @@ class AirLearningClient(object):
     def __init__(self, z, ip=None, port=None, config=None):
         """
         初始化 AirLearningClient
-        1. 初始化图像缓冲区 (last_img, last_grey, last_rgb)。
+        1. 初始化图像缓冲区 (last_img)。
         2. 连接到AirSim仿真器 (MultirotorClient)。
         3. 应用兼容性补丁。
         4. 确认连接并启用API控制。
@@ -86,10 +86,8 @@ class AirLearningClient(object):
         
         self.z = z
 
-        self.last_img = np.zeros((1, 112, 112))
-        self.last_grey = np.zeros((112, 112))
-        self.last_rgb = np.zeros((112, 112, 3))
-        self.width, self.height=84,84 ## DeepMind 设定分辨率
+        self.last_img = np.zeros((1, 128, 128))
+        self.width, self.height=128,128 ## 统一使用128x128分辨率
 
         # 使用传入的ip和port，如果为None则使用settings中的默认值
         client_ip = ip if ip is not None else settings.ip
@@ -98,7 +96,7 @@ class AirLearningClient(object):
         # connect to the AirSim simulator
         # Set timeout to 60 seconds to prevent timeout with complex environments (many obstacles)
         # Note: Complex scenes with many obstacles require more time for rendering depth images
-        self.client = airsim.MultirotorClient(ip=client_ip, port=client_port, timeout_value=60)
+        self.client = airsim.MultirotorClient(ip=client_ip, port=client_port, timeout_value=10)
         self._apply_client_patches()
         self.client.confirmConnection()
         self.client.enableApiControl(True)
@@ -131,122 +129,66 @@ class AirLearningClient(object):
 
         return np.array([track])
 
-    def getScreenRGB(self):
-        """
-        获取前方摄像头(ID: "0")的RGB图像。
-        
-        1. 发送 simGetImages 请求获取 Scene 类型的图像。
-        2. 将返回的 uint8 数据转换为 numpy 数组。
-        3. 调整 reshape 为 (height, width, channels)。
-        4. 如果是4通道(BGRA)，转换为3通道(BGR)。
-        5. 如果获取失败，返回上一帧图像 (self.last_rgb)。
-        
-        Returns:
-            np.array: RGB图像数据
-        """
-        # 3D? 假设使用的是摄像头 "0" 或 "front_center"
-        # responses = self.client.simGetImage("3d", airsim.ImageType.Scene) # 旧调用，返回字节而不是列表？不，Python客户端simGetImage返回字节？
-        # 实际上 simGetImage 在旧版本中返回原始字节或字节列表？
-        # 为了一致性和更安全的 API，我们使用 simGetImages
-        responses = self.client.simGetImages([airsim.ImageRequest("0", airsim.ImageType.Scene, False, False)], vehicle_name='SimpleFlight')
-        response = responses[0]
-        img1d = np.fromstring(response.image_data_uint8, dtype=np.uint8)
-        if ((response.width != 0 or response.height != 0)):
-            # img_rgba = img1d.reshape((response.height, response.width, 3)) # AirSim 如果不压缩通常返回3通道？还是4通道BGRA？
-            # 然而，如果 compressed=False（上面的默认值），它返回未压缩的 "image_data_uint8"。
-            # 通常是 BGRA（4通道）。
-            # 如果设置了默认捕获，我们需要验证。
-            # 假设 Scene 是3通道？不，通常是4。
-            # 让我们安全地检查形状
-            if img1d.size == response.width * response.height * 4:
-                 img_rgba = img1d.reshape((response.height, response.width, 4))
-                 rgb = cv2.cvtColor(img_rgba, cv2.COLOR_BGRA2BGR)
-            elif img1d.size == response.width * response.height * 3:
-                 rgb = img1d.reshape((response.height, response.width, 3))
-            else:
-                 # 回退方案
-                 rgb = self.last_rgb
-            
-            self.last_rgb=rgb
-        else:
-            print("Something bad happened! Restting AirSim!")
-            self.AirSim_reset()
-
-            rgb=self.last_rgb
-        rgb = cv2.resize(rgb, (128, 128), interpolation=cv2.INTER_AREA)
-
-        return rgb
 
     def getScreenDepth(self):
         """
-        获取前方摄像头(ID: "0")的深度图像。
+        获取前方摄像头(ID: "0")的深度图像，失败时直接重置环境。
         
         1. 发送 simGetImages 请求获取 DepthPerspective 类型的图像（浮点数据）。
-        2. 如果请求失败，返回全0数组。
-        3. 截断最大深度值 (clip max=20)，并归一化缩放到 0-255 范围。
+        2. 如果请求超时或失败，直接重置环境并返回零数组。
+        3. 截断最大深度值 (clip max=10)，并归一化缩放到 0-255 范围。
         4. 将数据 reshape 为 2D 图像。
-        5. 为了适配模型输入，统一 resize 到 112x112 分辨率。
+        5. 统一 resize 到 128x128 分辨率。
         
         Returns:
-            list or np.array: 处理后的深度图像。如果有多个相机，返回列表；单个相机则返回单个数组。
-                              当前代码逻辑中只请求了一个相机，所以通常返回单个数组。
+            np.array: 处理后的深度图像 (128x128)。
         """
         # 使用第一个可用车辆和摄像头 "0" (前置中心)
-        responses = self.client.simGetImages([airsim.ImageRequest("0", airsim.ImageType.DepthPerspective, True,
-                                                                  False)
-                                              ]
-                                             ,vehicle_name='SimpleFlight')
-        #responses = self.client.simGetImages([airsim.ImageRequest("0", airsim.ImageType.DepthVis,True, False)])
+        responses = self.client.simGetImages([airsim.ImageRequest("0", airsim.ImageType.DepthPerspective, True, False)], vehicle_name='SimpleFlight')
 
         if (responses == None):
-            print("Camera is not returning image!")
-            print("Image size:" + str(responses[0].height) + "," + str(responses[0].width))
-            img = [np.array([0]) for _ in responses]
+            print("Camera timeout! Resetting environment...")
+            self.AirSim_reset()
+            if hasattr(self, 'last_img') and self.last_img.size > 0:
+                if len(self.last_img.shape) == 3:
+                    return self.last_img[0]
+                else:
+                    return self.last_img
+            return np.zeros((128, 128), dtype=np.float32)
         else:
             img = []
             for res in responses:
                 img.append(np.array(res.image_data_float, dtype=float))
             img = np.stack(img, axis=0)
 
+            ## 深度图预处理
+            img = img.clip(max=10)
+            # 归一化到 0-255 范围
+            img = (img / 10.0) * 255.0
 
-        ## 深度图预处理
-        img = img.clip(max=10)
-        # 归一化到 0-255 范围
-        img = (img / 10.0) * 255.0
+            img2d = []
+            for i in range(len(responses)):
+                if ((responses[i].width != 0 or responses[i].height != 0)):
+                    img2d.append(np.reshape(img[i], (responses[i].height, responses[i].width)))
+                else:
+                    print("Invalid image dimensions! Resetting environment...")
+                    self.AirSim_reset()
+                    img2d.append(self.last_img[i] if i < len(self.last_img) else np.zeros((128, 128)))
 
-        img2d=[]
-        for i in range(len(responses)):
-            if ((responses[i].width != 0 or responses[i].height != 0)):
-                img2d.append(np.reshape(img[i], (responses[i].height, responses[i].width)))
+            self.last_img = np.stack(img2d, axis=0)
+
+            # Resize to 128x128
+            img2d_resized = []
+            for im in img2d:
+                 if im.shape != (128, 128):
+                     im = cv2.resize(im, (128, 128), interpolation=cv2.INTER_AREA)
+                 img2d_resized.append(im)
+            
+            if len(img2d_resized) > 1:
+                return np.stack(img2d_resized, axis=0)
             else:
-                print("Something bad happened! Restting AirSim!")
-                img2d.append(self.last_img[i])
+                return img2d_resized[0]
 
-        self.last_img = np.stack(img2d, axis=0)
-
-        # Resize to 128x128
-        img2d_resized = []
-        for im in img2d:
-             if im.shape != (128, 128):
-                 im = cv2.resize(im, (128, 128), interpolation=cv2.INTER_AREA)
-             img2d_resized.append(im)
-        
-        if len(img2d_resized)>1:
-            return img2d_resized
-        else:
-            return img2d_resized[0]
-
-    def getScreenGray(self):
-        rgb = self.getScreenRGB()
-        if rgb is None:
-             return np.zeros((128, 128), dtype=np.float32)
-        
-        # Resize if needed
-        if rgb.shape[0] != 128 or rgb.shape[1] != 128:
-             rgb = cv2.resize(rgb, (128, 128), interpolation=cv2.INTER_AREA)
-
-        gray = cv2.cvtColor(rgb, cv2.COLOR_BGR2GRAY)
-        return gray.astype(np.float32)
 
     def get_ryp(self):
         """
@@ -403,7 +345,7 @@ class AirLearningClient(object):
         # self.client.simPause(False)
         
         # 打印当前起飞高度
-        pos = self.client.simGetVehiclePose().position
+        # pos = self.client.simGetVehiclePose().position
         # print(f"[AirSim_reset] Reset & Takeoff sequence finished. Current Altitude (Z): {pos.z_val:.4f} (Target: {self.z})")
 
     def unreal_reset(self):
