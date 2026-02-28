@@ -50,23 +50,20 @@ class AirSimEnv(gym.Env):
         self.max_altitude_penalty = config.max_altitude_penalty
         self.altitude_penalty_value = config.altitude_penalty_value
     
-        STATE_RGB_H, STATE_RGB_W = 128,128
+        STATE_DEPTH_H, STATE_DEPTH_W = 128,128
 
         self.stack_frames = stack_frames
         self.episode_reward = 0
 
         self.base_dim = 10
-        self.depth_shape = (self.stack_frames, STATE_RGB_H, STATE_RGB_W)
-        self.gray_shape = (self.stack_frames, STATE_RGB_H, STATE_RGB_W)
+        self.depth_shape = (self.stack_frames, STATE_DEPTH_H, STATE_DEPTH_W)
 
         self.observation_space = spaces.Dict({
             "depth": spaces.Box(low=np.float32(0), high=np.float32(255), shape=self.depth_shape, dtype=np.float32),
-            "gray": spaces.Box(low=np.float32(0), high=np.float32(255), shape=self.gray_shape, dtype=np.float32),
             "base": spaces.Box(low=-np.inf, high=np.inf, shape=(self.base_dim,), dtype=np.float32)
         })
 
         self.depth_stack = collections.deque(maxlen=self.stack_frames)
-        self.gray_stack = collections.deque(maxlen=self.stack_frames)
 
 
         # 速度需要大于 2 或者持续时间大于 0.4
@@ -75,7 +72,7 @@ class AirSimEnv(gym.Env):
             self.action_space = spaces.Box(np.array([-0.3, -0.3], dtype=np.float32),
                                            np.array([+0.3, +0.3], dtype=np.float32),
                                            dtype=np.float32)
-        elif (settings.control_mode == "Continuous_TD3"):
+        elif (settings.control_mode == "Continuous"):
             # Continuous action space: [forward_speed, z_velocity, yaw_rate]
             fwd_min = config.min_forward_speed
             fwd_max = config.max_forward_speed
@@ -334,19 +331,15 @@ class AirSimEnv(gym.Env):
         # inform = self.normalize_base_state(inform)
         
         depth_stack_np = np.array(self.depth_stack, dtype=np.float32)
-        gray_stack_np = np.array(self.gray_stack, dtype=np.float32)
         return {
             "depth": depth_stack_np,
-            "gray": gray_stack_np,
             "base": inform
         }
 
     def init_state_f(self):
         self.depth_stack.clear()
-        self.gray_stack.clear()
         for i in range(self.stack_frames):
             self.depth_stack.append(self.airgym.getScreenDepth())
-            self.gray_stack.append(self.airgym.getScreenGray())
             time.sleep(0.03)
         return self.get_obs()
 
@@ -514,7 +507,7 @@ class AirSimEnv(gym.Env):
 
             collided = self.airgym.take_continious_action(action, duration=self.action_duration)
 
-        elif (settings.control_mode == "Continuous_TD3"):
+        elif (settings.control_mode == "Continuous"):
              # 适配连续动作：如果有多余的维度（batch维），去除它
             if np.ndim(action) > 1:
                 action = action[0]
@@ -527,11 +520,9 @@ class AirSimEnv(gym.Env):
 
         # Update stacks
         depth_img = None
-        gray_img = None
         for attempt in range(4):  # 初始尝试 + 3次重试
             try:
                 depth_img = self.airgym.getScreenDepth()
-                gray_img = self.airgym.getScreenGray()
                 break
             except Exception as e:
                 if attempt < 3:
@@ -547,18 +538,14 @@ class AirSimEnv(gym.Env):
                         # 最后一次尝试
                         try:
                             depth_img = self.airgym.getScreenDepth()
-                            gray_img = self.airgym.getScreenGray()
                         except Exception as e2:
                             print(f"Still failed after restart: {e2}. Using zero arrays.")
                             depth_img = np.zeros((128, 128), dtype=np.float32)
-                            gray_img = np.zeros((128, 128), dtype=np.float32)
                     else:
                         print("No game handler available. Using zero arrays.")
                         depth_img = np.zeros((128, 128), dtype=np.float32)
-                        gray_img = np.zeros((128, 128), dtype=np.float32)
         
         self.depth_stack.append(depth_img)
-        self.gray_stack.append(gray_img)
 
         # Get observation
         state = self.get_obs()
@@ -575,7 +562,7 @@ class AirSimEnv(gym.Env):
         if current_altitude > self.max_altitude:
             collided = True
             altitude_violation = True
-            print(f"[最大高度越界] 当前高度: {current_altitude:.2f}m，最大高度: {self.max_altitude}m")
+            # print(f"[最大高度越界] 当前高度: {current_altitude:.2f}m，最大高度: {self.max_altitude}m")
 
         if distance < settings.success_distance_to_goal:
             self.success_count += 1
@@ -589,8 +576,8 @@ class AirSimEnv(gym.Env):
             done = True
             reward = -20.0
             self.success = False
-            if altitude_violation:
-                print(f"[终止] 高度越界导致episode终止")
+            # if altitude_violation:
+            #     print(f"[终止] 高度越界导致episode终止")
 
         elif self.stepN >= self.config.episode_length:
             done = True

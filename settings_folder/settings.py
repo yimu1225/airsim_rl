@@ -66,7 +66,7 @@ dynamic_obstacles_dic = { "End": ["Mutable"],
                                       "Seed": list(range(0, 10000)),
                                       "VelocityRange": [[0, 1]],
                                       "Name": ["Name"],
-                                      "NumberOfObjects": list(range(35, 45))}
+                                      "NumberOfObjects": list(range(30, 35))}
 default_range_dic = easy_range_dic
 # ------------------------------------------------------------
 #-game related-
@@ -166,7 +166,7 @@ window_restart_ctr_threshold = 2  # how many times we are allowed to restart the
 
 #-------------------------------
 #control mode
-control_mode="Continuous_TD3" # "moveByVelocity" "Discrete" "Continuous_TD3"
+control_mode="Continuous" # "moveByVelocity" "Discrete" "Continuous_TD3"
 
 #-------------------------------
 #algorithm
