@@ -57,7 +57,7 @@ hard_range_dic = { "End": ["Mutable"],
                                       "Name": ["Name"],
                                       "NumberOfObjects": list(range(25, 35))}
 dynamic_obstacles_dic = { "End": ["Mutable"],
-                                      "MinimumDistance": [5,10],
+                                      "MinimumDistance": [8,12],
                                       "EnvType": ["Indoor"],
                                       "ArenaSize": [[65, 65, 10],[55, 55, 10],[60, 60, 10]],
                                       "PlayerStart": [[0, 0, 0]],
@@ -66,7 +66,7 @@ dynamic_obstacles_dic = { "End": ["Mutable"],
                                       "Seed": list(range(0, 10000)),
                                       "VelocityRange": [[0, 1]],
                                       "Name": ["Name"],
-                                      "NumberOfObjects": list(range(25, 35))}
+                                      "NumberOfObjects": list(range(35, 45))}
 default_range_dic = easy_range_dic
 # ------------------------------------------------------------
 #-game related-
@@ -153,7 +153,7 @@ yaw_rate_2_16 = yaw_rate_2_8 * 0.5
 # general params
 # ---------------------------
 nb_max_episodes_steps = 512*3  # pay attention
-success_distance_to_goal = 2
+success_distance_to_goal = 1
 slow_down_activation_distance =  2*success_distance_to_goal  # detrmines at which distance we will punish the higher velocities
 
 # ---------------------------
