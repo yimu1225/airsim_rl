@@ -24,6 +24,7 @@ from gym_airsim.envs.AirGym import AirSimEnv
 
 # Algorithm Imports
 from algorithm.td3.td3 import TD3Agent
+from algorithm.ddpg.ddpg import DDPGAgent
 from algorithm.aetd3.aetd3 import AETD3Agent
 from algorithm.per_td3.per_td3 import PERTD3Agent
 from algorithm.per_aetd3.per_aetd3 import PERAETD3Agent
@@ -76,8 +77,8 @@ def expand_algorithms(algo_str):
     """
     # Predefined algorithm groups
     groups = {
-        'all': ['td3', 'aetd3', 'per_td3', 'per_aetd3', 'cfc_td3', 'st_mamba_td3', 'ST-VimTD3', 'ST-VimTD3-Safety', 'st_cnn_td3', 'gam_mamba_td3'],
-        'base': ['td3', 'aetd3', 'per_td3', 'per_aetd3'],
+        'all': ['td3', 'ddpg', 'aetd3', 'per_td3', 'per_aetd3', 'cfc_td3', 'st_mamba_td3', 'ST-VimTD3', 'ST-VimTD3-Safety', 'st_cnn_td3', 'gam_mamba_td3'],
+        'base': ['td3', 'ddpg', 'aetd3', 'per_td3', 'per_aetd3'],
         'seq': ['cfc_td3', 'st_mamba_td3', 'ST-VimTD3', 'ST-VimTD3-Safety', 'st_cnn_td3']
     }
     
@@ -94,8 +95,13 @@ def expand_algorithms(algo_str):
 
 
 def get_agent_class(algo_name):
+    # 去掉 CL- 前缀（如果存在）
+    if algo_name.startswith("CL-"):
+        algo_name = algo_name[3:]
+    
     agents = {
         'td3': TD3Agent,
+        'ddpg': DDPGAgent,
         'aetd3': AETD3Agent,
         'per_td3': PERTD3Agent,
         'per_aetd3': PERAETD3Agent,
@@ -129,12 +135,22 @@ def main():
             print(f"Training algorithm: {algo_name} (seed={seed})")
             print(f"{'='*50}")
 
+            # 根据算法名判断是否使用课程学习
+            # 算法名以 "CL-" 开头时启用课程学习
+            if algo_name.startswith("CL-"):
+                # 去掉 CL- 前缀获取实际算法名
+                actual_algo_name = algo_name[3:]
+                print(f"  [Curriculum Learning Enabled] {actual_algo_name}")
+            else:
+                actual_algo_name = algo_name
+                print(f"  [Curriculum Learning Disabled] {algo_name}")
+
             # Determine properties for this algorithm
             recurrent_algos = [
                 'cfc_td3', 'st_cnn_td3', 'st_mamba_td3', 'ST-VimTD3', 'ST-VimTD3-Safety'
             ]
             
-            is_recurrent = algo_name in recurrent_algos
+            is_recurrent = actual_algo_name in recurrent_algos
             
             stack_frames = args.seq_len if is_recurrent else args.stack_frames
 
@@ -184,8 +200,8 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, ba
         agent.load(args.load_model)
 
     # 根据是否使用课程学习修改算法显示名称（用于日志和绘图）
-    # 使用课程学习时添加 CL- 前缀，不使用则保持原名称
-    display_algo_name = f"CL-{algo_name}" if getattr(args, 'use_curriculum', True) else algo_name
+    # algo_name 已经包含了 CL- 前缀（如果启用课程学习），直接使用即可
+    display_algo_name = algo_name
     print(f"Start Asynchronous Training {display_algo_name}...")
 
     # Restart interval for refreshing UE4 memory

@@ -125,7 +125,9 @@ class AirSimEnv(gym.Env):
         self.success = False
         
         # 课程学习设置
-        self.use_curriculum = getattr(config, "use_curriculum", True)
+        # 通过算法名前缀判断是否使用课程学习 (CL-前缀表示启用)
+        algorithm_name = getattr(config, "algorithm_name", "")
+        self.use_curriculum = algorithm_name.startswith("CL-")
         self.curriculum_start_level = getattr(config, "curriculum_start_level", 0)
         
         if self.use_curriculum:
