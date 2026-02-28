@@ -1,15 +1,47 @@
 import os
 import glob
 import pandas as pd
+import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 from config import get_config
 
-def plot_curves(algorithms, save_path="learning_curves.png", smooth_window=10):
+def smooth_curve(values, window=10):
+    """对曲线进行平滑处理。
+
+    原来的实现使用 ``np.convolve``+``mode='same'``，该模式会在
+    序列两端假定零填充，因此边缘点会被错误地拉低，尤其在
+    窗口较大时会产生不自然的下降或上升。
+    
+    这里改用 pandas 的滚动平均，``center=True`` 保证窗口
+    居中，``min_periods=1`` 在边缘处仍然返回合理值。结果长度
+   与输入保持一致，不会出现边缘失真。
+    """
+    if window <= 1 or len(values) < window:
+        return values
+    # 使用 pandas rolling 计算居中移动平均，自动处理边界
+    series = pd.Series(values)
+    smoothed = series.rolling(window, center=True, min_periods=1).mean().to_numpy()
+    return smoothed
+
+def plot_curves(algorithms, save_path="learning_curves.png", smooth_window=10,
+                smooth_method="moving", smooth_alpha=0.6,
+                plot_cl=True, plot_non_cl=True):
     """
     Plots learning curves for specified algorithms on the same figures.
     Reads CSV logs from 'results' directory.
     All algorithms are plotted together: one figure for reward, one for success rate.
+    
+    Args:
+        algorithms: 算法列表
+        save_path: 保存路径
+        smooth_window: 平滑窗口大小（仅对 ``moving`` 方法有效）
+        smooth_method: 平滑方法，"moving" 或 "ema"。
+        smooth_alpha: 对于 ``ema`` 使用，遵循 TensorBoard 语义——
+            越大越平滑（0.0 无平滑，1.0 完全保留过去）。
+            内部会转换成 pandas 所需的 ``alpha = 1 - smooth_alpha``。
+        plot_cl: 是否绘制带 CL- 前缀的算法
+        plot_non_cl: 是否绘制不带 CL- 前缀的算法
     """
     results_dir = "./results"
     
@@ -17,22 +49,30 @@ def plot_curves(algorithms, save_path="learning_curves.png", smooth_window=10):
     plt.rcParams['font.family'] = 'Arial'
     plt.rcParams['font.size'] = 12
     
-    # Collect all data from all algorithms
+    # 收集所有数据
     all_data = []
     
     for algo in algorithms:
-        # Data gathering for this algorithm
-        algo_data = []
+        # 根据参数决定搜索哪些算法变体
+        algo_variants = []
+        if plot_non_cl:
+            algo_variants.append(algo)
+        if plot_cl:
+            algo_variants.append(f"CL-{algo}")
         
-        # Find all log files for this algorithm
-        search_patterns = [
-            os.path.join(results_dir, f"{algo}*", f"{algo}_log.csv"),
-            os.path.join(results_dir, f"{algo}*", "**", f"{algo}_log.csv"),
-            os.path.join(results_dir, f"{algo}*", "*_log.csv"),
-        ]
+        if not algo_variants:
+            print(f"Warning: plot_cl and plot_non_cl are both False for {algo}, skipping...")
+            continue
+        
         csv_files = []
-        for pattern in search_patterns:
-            csv_files.extend(glob.glob(pattern, recursive=True))
+        for algo_variant in algo_variants:
+            search_patterns = [
+                os.path.join(results_dir, f"{algo_variant}*", f"{algo_variant}_seed*_log.csv"),
+                os.path.join(results_dir, f"{algo_variant}*", "**", f"{algo_variant}_seed*_log.csv"),
+                os.path.join(results_dir, f"{algo_variant}*", "*_log.csv"),
+            ]
+            for pattern in search_patterns:
+                csv_files.extend(glob.glob(pattern, recursive=True))
         csv_files = sorted(set(csv_files))
         
         if not csv_files:
@@ -44,60 +84,79 @@ def plot_curves(algorithms, save_path="learning_curves.png", smooth_window=10):
         for file in csv_files:
             try:
                 df = pd.read_csv(file)
-                # Add algorithm name for grouping
-                df['Algorithm'] = algo.upper()
-                algo_data.append(df)
+                # 从文件名中提取实际的算法名和种子
+                file_basename = os.path.basename(file)
+                if '_seed' in file_basename:
+                    parts = file_basename.split('_seed')
+                    actual_algo = parts[0]
+                    # 提取种子号
+                    seed_part = parts[1].split('_')[0] if len(parts) > 1 else 'unknown'
+                else:
+                    actual_algo = algo
+                    seed_part = 'unknown'
+                
+                df['Algorithm'] = actual_algo
+                df['Seed'] = seed_part
+                all_data.append(df)
+                print(f"  Loaded: {file_basename} -> {actual_algo} (seed={seed_part})")
             except Exception as e:
                 print(f"Error reading {file}: {e}")
-        
-        if not algo_data:
-            print(f"No data loaded for {algo}. Skipping.")
-            continue
-
-        # Combine all dataframes for this algorithm
-        algo_df = pd.concat(algo_data, ignore_index=True)
-        
-        # Apply smoothing to this algorithm's data
-        if smooth_window > 1:
-            algo_df['reward_smooth'] = algo_df['reward'].rolling(window=smooth_window, min_periods=1).mean()
-            algo_df['success_rate_smooth'] = algo_df['success_rate'].rolling(window=smooth_window, min_periods=1).mean()
-        else:
-            algo_df['reward_smooth'] = algo_df['reward']
-            algo_df['success_rate_smooth'] = algo_df['success_rate']
-        
-        all_data.append(algo_df)
     
     if not all_data:
-        print("No data loaded for any algorithm. Exiting.")
+        print("No data loaded. Exiting.")
         return
     
-    # Combine all data from all algorithms
+    # 合并所有数据
     full_df = pd.concat(all_data, ignore_index=True)
     
-    # Set style
-    sns.set(style="whitegrid")
+    # 获取所有唯一的算法名
+    unique_algorithms = full_df['Algorithm'].unique()
+    print(f"\nAlgorithms to plot: {list(unique_algorithms)}")
     
-    # Plot Reward - Single Figure for all algorithms
+    # 为每个算法分配颜色
+    colors = plt.cm.tab10(np.linspace(0, 1, len(unique_algorithms)))
+    color_map = {algo: colors[i] for i, algo in enumerate(unique_algorithms)}
+    
+    # === Plot Reward ===
     fig_reward, ax_reward = plt.subplots(figsize=(12, 8))
     
-    # Plot each algorithm as a separate line with mean values
-    for algo in algorithms:
-        algo_df = full_df[full_df['Algorithm'] == algo.upper()]
-        if not algo_df.empty:
-            # Calculate mean reward across all runs for this algorithm
-            grouped = algo_df.groupby('total_timesteps', sort=True)['reward_smooth']
-            mean_reward = grouped.mean()
-            std_reward = grouped.std().fillna(0.0)
-            
-            # Plot mean line
-            ax_reward.plot(mean_reward.index, mean_reward.values, 
-                          label=algo.upper(), linewidth=2.5, alpha=0.8)
-            
-            # Add confidence interval (optional)
-            ax_reward.fill_between(mean_reward.index, 
-                                  mean_reward.values - std_reward.values,
-                                  mean_reward.values + std_reward.values,
-                                  alpha=0.2)
+    for algo_name in unique_algorithms:
+        algo_df = full_df[full_df['Algorithm'] == algo_name]
+        if algo_df.empty:
+            continue
+        
+        # 获取该算法的所有种子
+        seeds = algo_df['Seed'].unique()
+        print(f"\n{algo_name}: {len(seeds)} seeds")
+        
+        # 按 timestep 分组计算均值和标准差
+        grouped = algo_df.groupby('total_timesteps')['reward']
+        mean_reward = grouped.mean()
+        std_reward = grouped.std().fillna(0.0)
+        
+        # 对均值进行平滑
+        if smooth_method == "moving":
+            mean_smooth = smooth_curve(mean_reward.values, smooth_window)
+        else:  # ema
+            # TensorBoard 平滑参数越大越平滑；pandas 需要传入 alpha=新值
+            tb_val = smooth_alpha
+            alpha = 1.0 - tb_val
+            series = pd.Series(mean_reward.values)
+            mean_smooth = series.ewm(alpha=alpha, adjust=False).mean().to_numpy()
+        
+        # 计算置信区间（均值 ± 标准差）
+        upper = mean_smooth + std_reward.values
+        lower = mean_smooth - std_reward.values
+        
+        color = color_map[algo_name]
+        
+        # 绘制均值曲线
+        ax_reward.plot(mean_reward.index, mean_smooth, 
+                      label=algo_name, linewidth=2.5, color=color)
+        
+        # 绘制阴影区域（标准差）
+        ax_reward.fill_between(mean_reward.index, lower, upper,
+                              color=color, alpha=0.15)
     
     ax_reward.set_xlabel("Total Timesteps", fontfamily='Arial', fontsize=14)
     ax_reward.set_ylabel("Reward", fontfamily='Arial', fontsize=14)
@@ -105,62 +164,68 @@ def plot_curves(algorithms, save_path="learning_curves.png", smooth_window=10):
     ax_reward.legend(prop={'family': 'Arial', 'size': 12}, loc='best')
     ax_reward.grid(True, alpha=0.3)
     
-    # Adjust layout
     plt.tight_layout()
-    
     reward_save_path = os.path.join(results_dir, "combined_reward_curves.png")
     plt.savefig(reward_save_path, dpi=600, bbox_inches='tight')
-    print(f"Combined reward plot saved to {reward_save_path}")
+    print(f"\nCombined reward plot saved to {reward_save_path}")
     
-    # Plot Success Rate - Single Figure for all algorithms
+    # === Plot Success Rate ===
     fig_success, ax_success = plt.subplots(figsize=(12, 8))
     
-    # Plot each algorithm as a separate line with mean values
-    for algo in algorithms:
-        algo_df = full_df[full_df['Algorithm'] == algo.upper()]
-        if not algo_df.empty:
-            # Calculate mean success rate across all runs for this algorithm
-            grouped = algo_df.groupby('total_timesteps', sort=True)['success_rate_smooth']
-            mean_success = grouped.mean()
-            std_success = grouped.std().fillna(0.0)
-            
-            # Plot mean line
-            ax_success.plot(mean_success.index, mean_success.values, 
-                           label=algo.upper(), linewidth=2.5, alpha=0.8)
-            
-            # Add confidence interval (optional)
-            ax_success.fill_between(mean_success.index, 
-                                   mean_success.values - std_success.values,
-                                   mean_success.values + std_success.values,
-                                   alpha=0.2)
+    for algo_name in unique_algorithms:
+        algo_df = full_df[full_df['Algorithm'] == algo_name]
+        if algo_df.empty:
+            continue
+        
+        # 按 timestep 分组计算均值和标准差
+        grouped = algo_df.groupby('total_timesteps')['success_rate']
+        mean_success = grouped.mean()
+        std_success = grouped.std().fillna(0.0)
+        
+        # 对均值进行平滑
+        if smooth_method == "moving":
+            mean_smooth = smooth_curve(mean_success.values, smooth_window)
+        else:  # ema
+            tb_val = smooth_alpha
+            alpha = 1.0 - tb_val
+            series = pd.Series(mean_success.values)
+            mean_smooth = series.ewm(alpha=alpha, adjust=False).mean().to_numpy()
+        
+        # 计算置信区间
+        upper = np.clip(mean_smooth + std_success.values, 0, 1)
+        lower = np.clip(mean_smooth - std_success.values, 0, 1)
+        
+        color = color_map[algo_name]
+        
+        # 绘制均值曲线
+        ax_success.plot(mean_success.index, mean_smooth, 
+                       label=algo_name, linewidth=2.5, color=color)
+        
+        # 绘制阴影区域
+        ax_success.fill_between(mean_success.index, lower, upper,
+                               color=color, alpha=0.15)
     
     ax_success.set_xlabel("Total Timesteps", fontfamily='Arial', fontsize=14)
     ax_success.set_ylabel("Success Rate", fontfamily='Arial', fontsize=14)
-    ax_success.set_title("Learning Curves - Success Rate Comparison", fontfamily='Arial', fontsize=16, fontweight='bold')
+    # ax_success.set_title("Learning Curves - Success Rate Comparison", fontfamily='Arial', fontsize=16, fontweight='bold')
     ax_success.set_ylim(0, 1.05)
     ax_success.legend(prop={'family': 'Arial', 'size': 12}, loc='best')
     ax_success.grid(True, alpha=0.3)
     
-    # Adjust layout
     plt.tight_layout()
-    
     success_save_path = os.path.join(results_dir, "combined_success_rate_curves.png")
     plt.savefig(success_save_path, dpi=600, bbox_inches='tight')
     print(f"Combined success rate plot saved to {success_save_path}")
     
-    # Show both plots in windows
+    # Show both plots
     plt.show()
-    
-    # Close figures to free memory after showing
     plt.close('all')
 
 def main():
-    # Use config parser to get parameters
     args = get_config()
     
     algo_list_input = args.algorithm_name
     
-    # Define groups same as config.py hint implies
     supported_algos = [
         'td3', 'aetd3', 'per_td3', 'per_aetd3',
         'gru_td3', 'lstm_td3', 'gru_aetd3', 'lstm_aetd3', 'cfc_td3',
@@ -170,11 +235,23 @@ def main():
     if algo_list_input == 'all':
         algos_to_plot = supported_algos
     else:
-        # Split by comma and strip whitespace
         algos_to_plot = [a.strip() for a in algo_list_input.split(',')]
         
     print(f"Plotting curves for: {algos_to_plot}")
-    plot_curves(algos_to_plot, smooth_window=args.smooth_window)
+    print(f"Plot CL algorithms: {args.plot_cl}")
+    print(f"Plot non-CL algorithms: {args.plot_non_cl}")
+    
+    if not args.plot_cl and not args.plot_non_cl:
+        print("Error: Both --plot_cl and --plot_non_cl are False. Nothing to plot.")
+        return
+    
+    plot_curves(
+        algos_to_plot,
+        smooth_window=args.smooth_window,
+        smooth_method=args.smooth_method,
+        smooth_alpha=args.smooth_alpha,
+        plot_cl=args.plot_cl,
+        plot_non_cl=args.plot_non_cl)
 
 if __name__ == "__main__":
     main()

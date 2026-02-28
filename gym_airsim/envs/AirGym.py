@@ -123,7 +123,20 @@ class AirSimEnv(gym.Env):
         self.prev_state = self.get_obs()
         self.init_state = self.prev_state
         self.success = False
-        self.level=0
+        
+        # 课程学习设置
+        self.use_curriculum = getattr(config, "use_curriculum", True)
+        self.curriculum_start_level = getattr(config, "curriculum_start_level", 0)
+        
+        if self.use_curriculum:
+            # 使用课程学习：从指定等级开始
+            self.level = self.curriculum_start_level
+        else:
+            # 不使用课程学习：直接使用最高等级（3）
+            self.level = 3
+            # 直接设置为 dynamic_obstacles_dic（最高难度）
+            self.game_config_handler = GameConfigHandler(range_dic_name="settings.dynamic_obstacles_dic")
+        
         self.success_deque = collections.deque(maxlen=100)
         self.seed()
 
@@ -667,7 +680,8 @@ class AirSimEnv(gym.Env):
         # 取消暂停，确保重置和起飞命令可以执行
         self.airgym.client.simPause(False)
 
-        if len(self.success_deque)>0:
+        # 课程学习等级升级（仅在启用课程学习时）
+        if self.use_curriculum and len(self.success_deque)>0:
             succes_rate=sum(self.success_deque) / len(self.success_deque)
             if succes_rate>0.6 and self.level==0 and self.success_count>300:
                 self.level=1
