@@ -183,7 +183,10 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, ba
         print(f"Loading model: {args.load_model}")
         agent.load(args.load_model)
 
-    print(f"Start Asynchronous Training {algo_name}...")
+    # 根据是否使用课程学习修改算法显示名称（用于日志和绘图）
+    # 使用课程学习时添加 CL- 前缀，不使用则保持原名称
+    display_algo_name = f"CL-{algo_name}" if getattr(args, 'use_curriculum', True) else algo_name
+    print(f"Start Asynchronous Training {display_algo_name}...")
 
     # Restart interval for refreshing UE4 memory
     restart_interval = 200000
@@ -194,7 +197,8 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, ba
     if not os.path.exists("./models"): os.makedirs("./models")
     
     # 移除时间戳，固定文件夹名称以实现覆盖 (Remove timestamp to use fixed folder for overwriting)
-    run_name = f"{algo_name}_seed{args.seed}"
+    # 使用 display_algo_name（带 CL- 前缀）用于日志目录和文件名
+    run_name = f"{display_algo_name}_seed{args.seed}"
     log_dir = f"./results/{run_name}"
     
     # 如果文件夹已存在，则清理内容实现真正覆盖 (Clean directory if exists for true overwrite)
@@ -206,7 +210,7 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, ba
     writer = SummaryWriter(log_dir=log_dir)
     
     # Initialize CSV logger
-    csv_filename = os.path.join(log_dir, f"{algo_name}_seed{args.seed}_log.csv")
+    csv_filename = os.path.join(log_dir, f"{display_algo_name}_seed{args.seed}_log.csv")
     with open(csv_filename, mode='w', newline='') as f:
         csv_writer = csv.writer(f)
         csv_writer.writerow(['episode', 'total_timesteps', 'reward', 'episode_length', 'success_rate'])
@@ -258,7 +262,7 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, ba
                 _raise_if_non_finite(
                     "actor.action",
                     action,
-                    f"algo={algo_name}, total_timesteps={total_timesteps}, episode={episode_num}, episode_step={episode_timesteps}"
+                    f"algo={display_algo_name}, total_timesteps={total_timesteps}, episode={episode_num}, episode_step={episode_timesteps}"
                 )
 
                 # Track actions for distribution logging (per episode)
@@ -292,7 +296,7 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, ba
             _raise_if_non_finite(
                 "env.reward",
                 reward,
-                f"algo={algo_name}, total_timesteps={total_timesteps}, episode={episode_num}, episode_step={episode_timesteps}"
+                f"algo={display_algo_name}, total_timesteps={total_timesteps}, episode={episode_num}, episode_step={episode_timesteps}"
             )
             
             next_state = next_obs['depth']
@@ -301,12 +305,12 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, ba
             _raise_if_non_finite(
                 "env.next_depth",
                 next_state,
-                f"algo={algo_name}, total_timesteps={total_timesteps}, episode={episode_num}, episode_step={episode_timesteps}"
+                f"algo={display_algo_name}, total_timesteps={total_timesteps}, episode={episode_num}, episode_step={episode_timesteps}"
             )
             _raise_if_non_finite(
                 "env.next_base",
                 next_base,
-                f"algo={algo_name}, total_timesteps={total_timesteps}, episode={episode_num}, episode_step={episode_timesteps}"
+                f"algo={display_algo_name}, total_timesteps={total_timesteps}, episode={episode_num}, episode_step={episode_timesteps}"
             )
 
             if args.render_window:
@@ -413,7 +417,7 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, ba
                     csv_writer = csv.writer(f)
                     csv_writer.writerow([episode_num, total_timesteps, episode_reward, episode_timesteps, success_rate])
 
-                print(f"[{algo_name.upper()}] Episode {episode_num}, Reward: {episode_reward:.2f}, Length: {episode_timesteps}, Success Rate: {success_rate:.2f}, Level: {env.level}, Total Timesteps: {total_timesteps}, Total Successes: {env.success_count}")
+                print(f"[{display_algo_name.upper()}] Episode {episode_num}, Reward: {episode_reward:.2f}, Length: {episode_timesteps}, Success Rate: {success_rate:.2f}, Level: {env.level}, Total Timesteps: {total_timesteps}, Total Successes: {env.success_count}")
                 
                 episode_num += 1
                 episode_reward = 0
@@ -466,7 +470,7 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, ba
                             _raise_if_non_finite(
                                 f"train.{metric_name}",
                                 train_info[metric_name],
-                                f"algo={algo_name}, total_timesteps={total_timesteps}"
+                                f"algo={display_algo_name}, total_timesteps={total_timesteps}"
                             )
                     loss_info_list.append(train_info)
             
