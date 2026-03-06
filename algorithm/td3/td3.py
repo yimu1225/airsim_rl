@@ -13,6 +13,10 @@ class TD3Agent:
         self.device = torch.device(device if device is not None else ("cuda" if torch.cuda.is_available() else "cpu"))
         # RNG for this agent: used for action noise and buffer sampling
         self.rng = np.random.default_rng(seed)
+        
+        # 设置 PyTorch 随机种子以确保网络初始化确定性
+        if seed is not None:
+            torch.manual_seed(seed)
 
         self.base_dim = base_dim
         self.depth_shape = depth_shape  # (C, H, W)
@@ -31,17 +35,16 @@ class TD3Agent:
 
         # Encoder
         C, depth_h, depth_w = depth_shape
-        feature_dim = args.feature_dim
         
         # Split Encoders for Actor and Critic
-        self.actor_encoder = Encoder(input_height=depth_h, input_width=depth_w, feature_dim=feature_dim, input_channels=C).to(self.device)
-        self.critic_encoder = Encoder(input_height=depth_h, input_width=depth_w, feature_dim=feature_dim, input_channels=C).to(self.device)
+        self.actor_encoder = Encoder(input_height=depth_h, input_width=depth_w, input_channels=C).to(self.device)
+        self.critic_encoder = Encoder(input_height=depth_h, input_width=depth_w, input_channels=C).to(self.device)
         
         # Target Encoders (Soft Update)
-        self.actor_encoder_target = Encoder(input_height=depth_h, input_width=depth_w, feature_dim=feature_dim, input_channels=C).to(self.device)
+        self.actor_encoder_target = Encoder(input_height=depth_h, input_width=depth_w, input_channels=C).to(self.device)
         self.actor_encoder_target.load_state_dict(self.actor_encoder.state_dict())
         
-        self.critic_encoder_target = Encoder(input_height=depth_h, input_width=depth_w, feature_dim=feature_dim, input_channels=C).to(self.device)
+        self.critic_encoder_target = Encoder(input_height=depth_h, input_width=depth_w, input_channels=C).to(self.device)
         self.critic_encoder_target.load_state_dict(self.critic_encoder.state_dict())
         
         # State dim = base_dim + encoder.repr_dim

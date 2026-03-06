@@ -22,11 +22,11 @@ class MPPTD3Agent:
         
         # Encoders
         _, depth_h, depth_w = depth_shape
-        self.actor_encoder = Encoder(depth_h, depth_w, args.feature_dim).to(self.device)
-        self.critic_encoder = Encoder(depth_h, depth_w, args.feature_dim).to(self.device)
-        self.actor_encoder_target = Encoder(depth_h, depth_w, args.feature_dim).to(self.device)
+        self.actor_encoder = Encoder(depth_h, depth_w).to(self.device)
+        self.critic_encoder = Encoder(depth_h, depth_w).to(self.device)
+        self.actor_encoder_target = Encoder(depth_h, depth_w).to(self.device)
         self.actor_encoder_target.load_state_dict(self.actor_encoder.state_dict())
-        self.critic_encoder_target = Encoder(depth_h, depth_w, args.feature_dim).to(self.device)
+        self.critic_encoder_target = Encoder(depth_h, depth_w).to(self.device)
         self.critic_encoder_target.load_state_dict(self.critic_encoder.state_dict())
         
         self.state_dim = self.base_dim + self.actor_encoder.repr_dim

@@ -16,13 +16,17 @@ class STVimTD3Agent:
         print(f"ST-Mamba-VimTokens-TD3 Agent using device: {self.device}")
         self.rng = np.random.default_rng(seed)
 
+        # 设置 PyTorch 随机种子以确保网络初始化确定性
+        if seed is not None:
+            torch.manual_seed(seed)
+
         self.args = args
         self.base_dim = base_dim
         self.depth_shape = depth_shape
         if not hasattr(self.args, "depth_shape"):
             self.args.depth_shape = depth_shape
 
-        self.seq_len = getattr(args, "seq_len", 16)
+        self.seq_len = getattr(args, "n_frames", 4)
 
         self.action_dim = action_space.shape[0]
         self.max_action = np.array(action_space.high, dtype=np.float32)

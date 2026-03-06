@@ -127,17 +127,34 @@ class AirSimEnv(gym.Env):
         self.use_curriculum = algorithm_name.startswith("CL-")
         self.curriculum_start_level = getattr(config, "curriculum_start_level", 0)
         
-        if self.use_curriculum:
-            # 使用课程学习：从指定等级开始
-            self.level = self.curriculum_start_level
-        else:
-            # 不使用课程学习：直接使用最高等级（3）
-            self.level = 3
-            # 直接设置为 dynamic_obstacles_dic（最高难度）
-            self.game_config_handler = GameConfigHandler(range_dic_name="settings.dynamic_obstacles_dic")
+        # Level 到配置字典的映射
+        level_config_map = {
+            0: "settings.easy_range_dic",
+            1: "settings.medium_range_dic",
+            2: "settings.hard_range_dic",
+            3: "settings.dynamic_obstacles_dic"
+        }
         
+        # 确定目标 level 并重置 JSON 配置（每个算法初始化时都执行，确保不受之前算法影响）
+        if self.use_curriculum:
+            target_level = self.curriculum_start_level
+        else:
+            target_level = 3
+        
+        self.level = target_level
+        config_name = level_config_map[target_level]
+        self.game_config_handler = GameConfigHandler(range_dic_name=config_name)
+        
+        # 使用训练配置中的 seed 初始化随机数生成器，确保首次环境采样可复现
         self.success_deque = collections.deque(maxlen=100)
-        self.seed()
+         
+        self.seed(int(config.seed))
+        
+        # 立即采样并写入 JSON，覆盖之前算法的配置（使用已初始化的 np_random）
+        if target_level == 3:
+            self.game_config_handler.sample("Seed", "ArenaSize", "NumberOfObjects", "NumberOfDynamicObjects", "End", "Walls1", np_random=self.np_random)
+        else:
+            self.game_config_handler.sample("Seed", "ArenaSize", "NumberOfObjects", "End", "Walls1", np_random=self.np_random)
 
         # Initialize pygame viewer if needed
         self.need_render = need_render

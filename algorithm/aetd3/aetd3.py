@@ -15,6 +15,10 @@ class AETD3Agent:
         self.device = torch.device(device if device is not None else ("cuda" if torch.cuda.is_available() else "cpu"))
         self.rng = np.random.default_rng(seed)
 
+        # 设置 PyTorch 随机种子以确保网络初始化确定性
+        if seed is not None:
+            torch.manual_seed(seed)
+
         self.base_dim = base_dim
         self.depth_shape = depth_shape
         self.action_dim = action_space.shape[0]
@@ -32,16 +36,15 @@ class AETD3Agent:
 
         # Encoder
         C, depth_h, depth_w = depth_shape
-        feature_dim = args.feature_dim
         
         # ACTOR Encoders
-        self.actor_encoder = Encoder(input_height=depth_h, input_width=depth_w, feature_dim=feature_dim, input_channels=C).to(self.device)
-        self.actor_encoder_target = Encoder(input_height=depth_h, input_width=depth_w, feature_dim=feature_dim, input_channels=C).to(self.device)
+        self.actor_encoder = Encoder(input_height=depth_h, input_width=depth_w, input_channels=C).to(self.device)
+        self.actor_encoder_target = Encoder(input_height=depth_h, input_width=depth_w, input_channels=C).to(self.device)
         self.actor_encoder_target.load_state_dict(self.actor_encoder.state_dict())
         
         # CRITIC Encoders
-        self.critic_encoder = Encoder(input_height=depth_h, input_width=depth_w, feature_dim=feature_dim, input_channels=C).to(self.device)
-        self.critic_encoder_target = Encoder(input_height=depth_h, input_width=depth_w, feature_dim=feature_dim, input_channels=C).to(self.device)
+        self.critic_encoder = Encoder(input_height=depth_h, input_width=depth_w, input_channels=C).to(self.device)
+        self.critic_encoder_target = Encoder(input_height=depth_h, input_width=depth_w, input_channels=C).to(self.device)
         self.critic_encoder_target.load_state_dict(self.critic_encoder.state_dict())
 
         self.state_dim = self.base_dim + self.actor_encoder.repr_dim

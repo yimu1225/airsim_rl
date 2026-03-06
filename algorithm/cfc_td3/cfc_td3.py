@@ -21,9 +21,13 @@ class CFCTD3Agent:
         print(f"TD3-CFC Agent using device: {self.device}")
         self.rng = np.random.default_rng(seed)
 
+        # 设置 PyTorch 随机种子以确保网络初始化确定性
+        if seed is not None:
+            torch.manual_seed(seed)
+
         self.base_dim = base_dim
         self.depth_shape = depth_shape # (1, H, W)
-        self.seq_len = args.seq_len    # k
+        self.seq_len = args.n_frames    # k
         
         self.action_dim = action_space.shape[0]
         self.max_action = np.array(action_space.high, dtype=np.float32)
@@ -38,7 +42,6 @@ class CFCTD3Agent:
 
         # Encoders
         C, h, w = depth_shape
-        feature_dim = args.feature_dim
 
         # NCPs Wiring definition
         # cfc_units: total neurons, cfc_motor_units: output neurons
@@ -49,8 +52,8 @@ class CFCTD3Agent:
         self.state_dim = self.cfc_motor_units
 
         # CRITIC Encoders
-        self.critic_visual_encoder = VisualEncoder(input_height=h, input_width=w, feature_dim=feature_dim, input_channels=C).to(self.device)
-        self.critic_visual_encoder_target = VisualEncoder(input_height=h, input_width=w, feature_dim=feature_dim, input_channels=C).to(self.device)
+        self.critic_visual_encoder = VisualEncoder(input_height=h, input_width=w, input_channels=C).to(self.device)
+        self.critic_visual_encoder_target = VisualEncoder(input_height=h, input_width=w, input_channels=C).to(self.device)
         self.critic_visual_encoder_target.load_state_dict(self.critic_visual_encoder.state_dict())
         visual_feature_dim = self.critic_visual_encoder.repr_dim
 
@@ -61,8 +64,8 @@ class CFCTD3Agent:
         self.critic_cfc_target.load_state_dict(self.critic_cfc.state_dict())
         
         # ACTOR Encoders
-        self.actor_visual_encoder = VisualEncoder(input_height=h, input_width=w, feature_dim=feature_dim, input_channels=C).to(self.device)
-        self.actor_visual_encoder_target = VisualEncoder(input_height=h, input_width=w, feature_dim=feature_dim, input_channels=C).to(self.device)
+        self.actor_visual_encoder = VisualEncoder(input_height=h, input_width=w, input_channels=C).to(self.device)
+        self.actor_visual_encoder_target = VisualEncoder(input_height=h, input_width=w, input_channels=C).to(self.device)
         self.actor_visual_encoder_target.load_state_dict(self.actor_visual_encoder.state_dict())
 
         self.actor_wiring = AutoNCP(self.cfc_units, self.cfc_motor_units)

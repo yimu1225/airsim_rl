@@ -1,0 +1,408 @@
+#!/usr/bin/env python3
+"""
+On-Policy Training Main Script for AirSim RL
+Supports PPO and other on-policy algorithms.
+"""
+import os
+
+# Set CUDA memory allocator configuration to reduce fragmentation
+os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'expandable_segments:True'
+os.environ.setdefault('CUBLAS_WORKSPACE_CONFIG', ':4096:8')
+
+import time
+import random
+import numpy as np
+import torch
+import csv
+import cv2
+import gc
+from torch.utils.tensorboard import SummaryWriter
+from tqdm import tqdm
+
+from config import get_config
+from gym_airsim.envs.AirGym import AirSimEnv
+
+# On-Policy Algorithm Imports
+from algorithm.ppo.ppo import PPOAgent
+
+
+def _raise_if_non_finite(name, value, step_info=""):
+    arr = np.asarray(value)
+    finite_mask = np.isfinite(arr)
+    if not finite_mask.all():
+        total = arr.size
+        non_finite = total - int(finite_mask.sum())
+        message = f"[NaNMonitor][{name}] non-finite detected: {non_finite}/{total} elements"
+        if step_info:
+            message = f"{message} | {step_info}"
+        raise FloatingPointError(message)
+
+
+def _configure_reproducibility(seed: int, args):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed(seed)
+        torch.cuda.manual_seed_all(seed)
+
+    deterministic = bool(getattr(args, "cuda_deterministic", True))
+    torch.backends.cudnn.benchmark = not deterministic
+    torch.backends.cudnn.deterministic = deterministic
+    torch.backends.cuda.matmul.allow_tf32 = not deterministic
+    torch.backends.cudnn.allow_tf32 = not deterministic
+
+    if deterministic:
+        torch.use_deterministic_algorithms(True, warn_only=True)
+    else:
+        torch.use_deterministic_algorithms(False)
+
+
+def expand_algorithms(algo_str):
+    """
+    Expand algorithm string to list of individual algorithms.
+    Supports comma-separated lists.
+    """
+    if ',' in algo_str:
+        return [algo.strip() for algo in algo_str.split(',')]
+    return [algo_str]
+
+
+def get_agent_class(algo_name):
+    """Get agent class by algorithm name."""
+    # 去掉 CL- 前缀（如果存在）
+    if algo_name.startswith("CL-"):
+        algo_name = algo_name[3:]
+    
+    agents = {
+        'ppo': PPOAgent,
+    }
+    if algo_name in agents:
+        return agents[algo_name]
+    raise ValueError(f"Unknown on-policy algorithm: {algo_name}")
+
+
+def train_ppo_algorithm(env, agent, args, algo_name, device, base_state, depth_image, n_frames):
+    """
+    Training loop for PPO algorithm.
+    """
+    if args.load_model != "":
+        print(f"Loading model: {args.load_model}")
+        agent.load(args.load_model)
+
+    display_algo_name = algo_name
+    print(f"Start PPO Training {display_algo_name}...")
+
+    # Restart interval for refreshing UE4 memory
+    restart_interval = 200000
+    next_restart = restart_interval
+
+    # Logging
+    if not os.path.exists("./results"): 
+        os.makedirs("./results")
+    if not os.path.exists("./models"): 
+        os.makedirs("./models")
+    
+    run_name = f"{display_algo_name}_seed{args.seed}"
+    log_dir = f"./results/{run_name}"
+    
+    if os.path.exists(log_dir):
+        import shutil
+        shutil.rmtree(log_dir)
+    os.makedirs(log_dir)
+        
+    writer = SummaryWriter(log_dir=log_dir)
+    
+    # Initialize CSV logger
+    csv_filename = os.path.join(log_dir, f"{display_algo_name}_seed{args.seed}_log.csv")
+    with open(csv_filename, mode='w', newline='') as f:
+        csv_writer = csv.writer(f)
+        csv_writer.writerow(['episode', 'total_timesteps', 'reward', 'episode_length', 'success_rate'])
+    
+    print(f"Logging to {csv_filename}")
+
+    # Training parameters
+    max_timesteps = args.max_timesteps
+    
+    total_timesteps = 0
+    episode_num = 0
+    episode_reward = 0
+    episode_timesteps = 0
+    action_hist = []
+
+    state = depth_image
+    base = base_state
+
+    print("Start PPO Training Loop...")
+    print(f"Rollout buffer size: {args.rollout_buffer_size}")
+    print(f"PPO epochs: {args.ppo_epochs}, Batch size: {args.ppo_batch_size}")
+
+    if args.render_window:
+        cv2.namedWindow("Depth View", cv2.WINDOW_NORMAL)
+        cv2.resizeWindow("Depth View", 256, 256)
+
+    while total_timesteps < max_timesteps:
+        # Collect rollout data until buffer is full or episode ends
+        rollout_started = False
+        
+        while not agent.rollout_buffer.is_full() and total_timesteps < max_timesteps:
+            episode_timesteps += 1
+            total_timesteps += 1
+            rollout_started = True
+
+            # Select Action (PPO returns action, value, log_prob)
+            progress_ratio = total_timesteps / max_timesteps
+            action, value, log_prob = agent.select_action(base, state, deterministic=False)
+
+            _raise_if_non_finite(
+                "actor.action",
+                action,
+                f"algo={display_algo_name}, total_timesteps={total_timesteps}, episode={episode_num}, episode_step={episode_timesteps}"
+            )
+
+            action_hist.append(action)
+
+            # Step environment
+            try:
+                next_obs, reward, terminated, truncated, step_info = env.step(action)
+            except Exception as e:
+                print(f"CRITICAL ERROR in env.step: {e}")
+                print("Checking game status and attempting recovery...")
+                
+                if env.check_ue4_status(force_restart=True, reason="env_step_exception"):
+                    obs, _ = env.reset(seed=args.seed)
+                    next_obs = obs
+                    reward = 0.0
+                    terminated = True
+                    truncated = False
+                    step_info = {}
+                else:
+                    reward = 0.0
+                    terminated = True
+                    truncated = False
+                    step_info = {}
+                
+            done = terminated or truncated
+
+            _raise_if_non_finite("env.reward", reward, f"algo={display_algo_name}, total_timesteps={total_timesteps}")
+            
+            next_state = next_obs['depth']
+            next_base = next_obs['base']
+
+            _raise_if_non_finite("env.next_depth", next_state, f"algo={display_algo_name}, total_timesteps={total_timesteps}")
+            _raise_if_non_finite("env.next_base", next_base, f"algo={display_algo_name}, total_timesteps={total_timesteps}")
+
+            # Visualization
+            if args.render_window:
+                vis_imgs = []
+                if len(next_state.shape) == 3:
+                    vis_imgs.extend([next_state[i] for i in range(next_state.shape[0])])
+                else:
+                    vis_imgs.append(next_state)
+
+                processed_imgs = []
+                for img in vis_imgs:
+                    if len(img.shape) == 3:
+                        img = img.squeeze(0)
+                    if img.dtype != np.uint8:
+                        img = img.astype(np.uint8)
+                    processed_imgs.append(img)
+                
+                if processed_imgs:
+                    vis_concat = np.hstack(processed_imgs)
+                    height, width = vis_concat.shape[:2]
+                    cv2.resizeWindow("Depth View", width, height)
+                    cv2.imshow("Depth View", vis_concat)
+                    cv2.waitKey(1)
+
+            episode_reward += reward
+
+            # Store transition in rollout buffer
+            done_bool = float(done)
+            agent.store_transition(base, state, action, reward, value, log_prob, done_bool)
+
+            # State update
+            state = next_state
+            base = next_base
+
+            # Episode end handling
+            if done:
+                # Calculate success rate
+                success_rate = 0.0
+                if len(env.success_deque) > 0:
+                    success_rate = sum(env.success_deque) / len(env.success_deque)
+                
+                # Log to TensorBoard
+                writer.add_scalar('train/episode_reward', episode_reward, total_timesteps)
+                writer.add_scalar('train/episode_length', episode_timesteps, total_timesteps)
+                writer.add_scalar('train/success_rate', success_rate, total_timesteps)
+
+                # Log action distribution
+                if len(action_hist) > 0:
+                    action_arr = np.array(action_hist)
+                    if action_arr.ndim == 1:
+                        writer.add_histogram('train/action_distribution', action_arr, episode_num)
+                    else:
+                        action_dim_names = ['forward_speed', 'vertical_speed', 'yaw_rate'] if action_arr.shape[1] == 3 else [f'action_dim_{i}' for i in range(action_arr.shape[1])]
+                        for dim, name in enumerate(action_dim_names):
+                            writer.add_histogram(f'train/{name}', action_arr[:, dim], episode_num)
+                
+                # Log to CSV
+                with open(csv_filename, mode='a', newline='') as f:
+                    csv_writer = csv.writer(f)
+                    csv_writer.writerow([episode_num, total_timesteps, episode_reward, episode_timesteps, success_rate])
+
+                print(f"[{display_algo_name.upper()}] Episode {episode_num}, Reward: {episode_reward:.2f}, Length: {episode_timesteps}, Success Rate: {success_rate:.2f}, Level: {env.level}, Total Timesteps: {total_timesteps}, Total Successes: {env.success_count}")
+                
+                episode_num += 1
+                episode_reward = 0
+                episode_timesteps = 0
+                action_hist = []
+
+                # Check restart
+                if total_timesteps >= next_restart:
+                    print(f"Restarting game to refresh UE4 memory at total_timesteps {total_timesteps}...")
+                    old_success_count = env.success_count
+                    old_success_deque = env.success_deque
+                    old_level = env.level
+                    old_game_config_handler = env.game_config_handler
+                    
+                    if hasattr(env, 'game_handler') and env.game_handler is not None:
+                        env.game_handler.kill_game_in_editor()
+                        time.sleep(2)
+                    
+                    env = AirSimEnv(need_render=args.need_render, takeoff_height=args.takeoff_height, config=args, stack_frames=n_frames)
+                    env.success_count = old_success_count
+                    env.success_deque = old_success_deque
+                    env.level = old_level
+                    env.game_config_handler = old_game_config_handler
+                    next_restart += restart_interval
+
+                # Reset environment
+                obs, _ = env.reset(seed=args.seed + episode_num)
+                state = obs['depth']
+                base = obs['base']
+
+                # Memory cleanup
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                gc.collect()
+
+        # Training update when buffer is full
+        if rollout_started and agent.rollout_buffer.size() > 0:
+            # Finish trajectory with bootstrap value
+            with torch.no_grad():
+                base_tensor = torch.as_tensor(base, dtype=torch.float32, device=device).view(1, -1)
+                depth_tensor = torch.as_tensor(state, dtype=torch.float32, device=device)
+                # Use agent's method to get last value
+                last_state = agent.get_state_representation(base_tensor, depth_tensor)
+                last_value = agent.critic(last_state).cpu().numpy().flatten()[0]
+            
+            # Compute returns and advantages (stored in buffer)
+            agent.rollout_buffer.compute_returns_and_advantages(last_value, 0.0)
+            
+            # Update policy with progress bar for epochs
+            from tqdm import tqdm
+            epoch_pbar = tqdm(range(args.ppo_epochs), desc=f"Training ({total_timesteps})", leave=False)
+            train_info = agent.update_policy(epoch_pbar=epoch_pbar)
+            epoch_pbar.close()
+            
+            if train_info:
+                # Log training metrics
+                for key, value in train_info.items():
+                    writer.add_scalar(f'loss/{key}', value, total_timesteps)
+                print(f"  Policy Loss: {train_info.get('policy_loss', 0):.4f}, "
+                      f"Value Loss: {train_info.get('value_loss', 0):.4f}, "
+                      f"Entropy: {train_info.get('entropy', 0):.4f}, "
+                      f"Approx KL: {train_info.get('approx_kl', 0):.4f}")
+            
+            # Memory cleanup after training
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            gc.collect()
+
+        # Checkpointing
+        if total_timesteps % 100000 == 0:
+            agent.save(f"./models/{algo_name}_async_{total_timesteps}.pth")
+            print(f"Model saved at timestep {total_timesteps}")
+            
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            gc.collect()
+
+    # Final save
+    agent.save(f"./models/{algo_name}_async_final.pth")
+    print("Training completed.")
+    
+    if args.render_window:
+        cv2.destroyAllWindows()
+        
+    if hasattr(env, 'close'):
+        env.close()
+    writer.close()
+
+    return env
+
+
+def main():
+    args = get_config()
+    seeds = args.seed if isinstance(args.seed, (list, tuple)) else [args.seed]
+
+    # Expand algorithm names
+    algorithms = expand_algorithms(args.algorithm_name)
+    print(f"Training on-policy algorithms: {algorithms}")
+
+    for seed in seeds:
+        args.seed = seed
+        _configure_reproducibility(seed, args)
+
+        for algo_name in algorithms:
+            print(f"\n{'='*50}")
+            print(f"Training algorithm: {algo_name} (seed={seed})")
+            print(f"{'='*50}")
+
+            # Handle curriculum learning prefix
+            if algo_name.startswith("CL-"):
+                actual_algo_name = algo_name[3:]
+                print(f"  [Curriculum Learning Enabled] {actual_algo_name}")
+            else:
+                actual_algo_name = algo_name
+                print(f"  [Curriculum Learning Disabled] {algo_name}")
+
+            # PPO is non-recurrent by default (can be extended later)
+            is_recurrent = False
+            n_frames = args.n_frames
+
+            # Initialize Environment
+            print(f"Initialize AirSimEnv with n_frames={n_frames} for {algo_name} (seed={seed})...")
+            env = AirSimEnv(need_render=args.need_render, takeoff_height=args.takeoff_height, config=args, stack_frames=n_frames)
+            if hasattr(env, "action_space") and hasattr(env.action_space, "seed"):
+                env.action_space.seed(seed)
+
+            # Initial Reset
+            obs, _ = env.reset(seed=seed)
+            
+            depth_image = obs['depth']
+            base_state = obs['base']
+
+            # Dimensions
+            base_dim = base_state.shape[0]
+            depth_shape = depth_image.shape
+            action_space = env.action_space
+
+            print(f"Observation shapes: Depth {depth_shape}, Base {base_dim}")
+            print(f"Action space: {action_space}")
+
+            # Initialize Agent
+            device = torch.device("cuda" if args.cuda and torch.cuda.is_available() else "cpu")
+            AgentClass = get_agent_class(algo_name)
+            
+            agent = AgentClass(base_dim, depth_shape, action_space, args, device=device, seed=seed)
+
+            # Run training
+            env = train_ppo_algorithm(env, agent, args, algo_name, device, base_state, depth_image, n_frames)
+
+
+if __name__ == "__main__":
+    main()

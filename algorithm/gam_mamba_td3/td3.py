@@ -12,6 +12,10 @@ class GAMMambaTD3Agent:
         self.device = torch.device(device if device is not None else ("cuda" if torch.cuda.is_available() else "cpu"))
         self.rng = np.random.default_rng(seed)
 
+        # 设置 PyTorch 随机种子以确保网络初始化确定性
+        if seed is not None:
+            torch.manual_seed(seed)
+
         self.base_dim = base_dim
         self.depth_shape = depth_shape
         self.action_dim = action_space.shape[0]
@@ -28,7 +32,7 @@ class GAMMambaTD3Agent:
         self.grad_clip = getattr(args, "grad_clip", 1.0)
 
         c, depth_h, depth_w = depth_shape
-        feature_dim = args.feature_dim
+        feature_dim = getattr(args, "hidden_dim", 256)
 
         mamba_layers = getattr(args, "gam_mamba_layers", 2)
         mamba_d_state = getattr(args, "gam_mamba_d_state", 16)
