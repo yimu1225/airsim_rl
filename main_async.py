@@ -152,11 +152,11 @@ def main():
             
             is_recurrent = actual_algo_name in recurrent_algos
             
-            stack_frames = args.seq_len if is_recurrent else args.stack_frames
+            n_frames = args.n_frames
 
             # Initialize Environment
-            print(f"Initialize AirSimEnv with stack_frames={stack_frames} for {algo_name} (seed={seed})...")
-            env = AirSimEnv(need_render=args.need_render, takeoff_height=args.takeoff_height, config=args, stack_frames=stack_frames)
+            print(f"Initialize AirSimEnv with n_frames={n_frames} for {algo_name} (seed={seed})...")
+            env = AirSimEnv(need_render=args.need_render, takeoff_height=args.takeoff_height, config=args, stack_frames=n_frames)
             if hasattr(env, "action_space") and hasattr(env.action_space, "seed"):
                 env.action_space.seed(seed)
 
@@ -190,10 +190,10 @@ def main():
             agent = AgentClass(base_dim, model_depth_shape, action_space, args, device=device, seed=seed)
 
             # Run training for this algorithm
-            env = train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, base_state, depth_image, stack_frames)
+            env = train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, base_state, depth_image, n_frames)
 
 
-def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, base_state, depth_image, stack_frames):
+def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, base_state, depth_image, n_frames):
 
     if args.load_model != "":
         print(f"Loading model: {args.load_model}")
@@ -294,7 +294,7 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, ba
                 # Force restart for robust recovery when UE process exists but window/sim is unhealthy
                 if env.check_ue4_status(force_restart=True, reason="env_step_exception"):
                     # Force episode end and reset only after a restart
-                    obs, _ = env.reset(seed=args.seed)
+                    obs, _ = env.reset(seed=args.seed + episode_num)
                     next_obs = obs  # Use fresh observation as 'next_obs' effectively
                     reward = 0.0
                     terminated = True  # End episode
@@ -453,7 +453,7 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, ba
                         env.game_handler.kill_game_in_editor()
                         time.sleep(2)  # Wait for kill
                     # Reinitialize environment
-                    env = AirSimEnv(need_render=args.need_render, takeoff_height=args.takeoff_height, config=args, stack_frames=stack_frames)
+                    env = AirSimEnv(need_render=args.need_render, takeoff_height=args.takeoff_height, config=args, stack_frames=n_frames)
                     # Restore success stats and level
                     env.success_count = old_success_count
                     env.success_deque = old_success_deque
@@ -474,9 +474,13 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, ba
         # Training Update
         
         if agent.replay_buffer.size() >= args.batch_size and total_timesteps >= start_timesteps:
+            # 计算实际的梯度更新次数：收集步数 * gradient_steps 倍数
+            n_updates = int(steps_per_update * args.gradient_steps)
+            n_updates = max(1, n_updates)  # 至少更新1次
+            
             # Show progress bar for the update steps
             loss_info_list = []
-            for _ in tqdm(range(steps_per_update), desc=f"Training ({total_timesteps})", leave=False):
+            for _ in tqdm(range(n_updates), desc=f"Training ({total_timesteps})", leave=False):
                 # Pass progress for schedulers if needed (conceptually)
                 progress_ratio = total_timesteps / max_timesteps
                 train_info = agent.train(progress_ratio=progress_ratio)

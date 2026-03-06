@@ -38,8 +38,8 @@ class Encoder(CNN):
     """
     Encoder that uses the unified CNN from cnn_modules.
     """
-    def __init__(self, input_height, input_width, feature_dim, input_channels=1):
-        super().__init__(input_height, input_width, feature_dim, input_channels)
+    def __init__(self, input_height, input_width, input_channels=1):
+        super().__init__(input_height, input_width, input_channels)
    
 
 class Actor(nn.Module):

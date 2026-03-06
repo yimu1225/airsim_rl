@@ -11,8 +11,8 @@ class VisualEncoder(CNN):
     Processes Depth features only for sequence-based algorithms.
     Depth sequences are processed by CNN and then fed to temporal modules.
     """
-    def __init__(self, input_height, input_width, feature_dim, input_channels=1):
-        super().__init__(input_height, input_width, feature_dim, input_channels=input_channels)
+    def __init__(self, input_height, input_width, input_channels=1):
+        super().__init__(input_height, input_width, input_channels=input_channels)
 
 
 class CFCEncoder(nn.Module):

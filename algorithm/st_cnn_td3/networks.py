@@ -85,7 +85,6 @@ class STE_CNN_Encoder(nn.Module):
     def __init__(self, 
                  img_size, 
                  in_chans=1, 
-                 feature_dim=128,
                  args=None):
         super().__init__()
         
@@ -93,7 +92,6 @@ class STE_CNN_Encoder(nn.Module):
         self.spatial_encoder = CNN(
             input_height=img_size[0],
             input_width=img_size[1], 
-            feature_dim=feature_dim,
             input_channels=in_chans
         )
         

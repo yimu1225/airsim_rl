@@ -35,7 +35,7 @@ class CNN(nn.Module):
     Used by all algorithms for consistent feature extraction.
     Now uses Pooling layers instead of adaptive_avg_pool2d.
     """
-    def __init__(self, input_height, input_width, feature_dim=None, input_channels=1):
+    def __init__(self, input_height, input_width, input_channels=1):
         super().__init__()
 
         # Feature expansion factors

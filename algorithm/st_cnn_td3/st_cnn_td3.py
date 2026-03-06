@@ -19,10 +19,14 @@ class ST_CNN_Agent:
         print(f"ST-CNN-TD3 Agent using device: {self.device}")
         self.rng = np.random.default_rng(seed)
         
+        # 设置 PyTorch 随机种子以确保网络初始化确定性
+        if seed is not None:
+            torch.manual_seed(seed)
+        
         self.args = args
         self.base_dim = base_dim
         self.depth_shape = depth_shape # (C, H, W)
-        self.seq_len = getattr(args, 'seq_len', 3) # Temporal sequence length
+        self.seq_len = getattr(args, 'n_frames', 4) # Temporal sequence length
         
         self.action_dim = action_space.shape[0]
         self.max_action = float(action_space.high[0])
@@ -40,7 +44,6 @@ class ST_CNN_Agent:
         self.actor_visual = STE_CNN_Encoder(
             img_size=(depth_shape[1], depth_shape[2]),
             in_chans=depth_shape[0], # Should be 1 typically for depth
-            feature_dim=getattr(args, 'feature_dim', 128),
             args=args
         ).to(self.device)
         
@@ -62,7 +65,6 @@ class ST_CNN_Agent:
         self.critic_visual = STE_CNN_Encoder(
             img_size=(depth_shape[1], depth_shape[2]),
             in_chans=depth_shape[0],
-            feature_dim=getattr(args, 'feature_dim', 128),
             args=args
         ).to(self.device)
         

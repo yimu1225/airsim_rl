@@ -5,8 +5,8 @@ import torch.nn.functional as F
 from ..cnn_modules import CNN
 
 class Encoder(CNN):
-    def __init__(self, input_height, input_width, feature_dim):
-        super().__init__(input_height, input_width, feature_dim)
+    def __init__(self, input_height, input_width, input_channels=1):
+        super().__init__(input_height, input_width, input_channels)
 
 class Actor(nn.Module):
     def __init__(self, repr_dim, action_shape, hidden_dim):

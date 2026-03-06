@@ -61,7 +61,7 @@ dynamic_obstacles_dic = { "End": ["Mutable"],
                                       "EnvType": ["Indoor"],
                                       "ArenaSize": [[65, 65, 10],[55, 55, 10],[60, 60, 10]],
                                       "PlayerStart": [[0, 0, 0]],
-                                      "NumberOfDynamicObjects": list(range(3, 8)),
+                                      "NumberOfDynamicObjects": list(range(5, 10)),
                                       "Walls1": [[200, 13, 99],[255, 255, 10],[0, 10, 10],[10, 100, 100],[126, 11, 90]],
                                       "Seed": list(range(0, 10000)),
                                       "VelocityRange": [[0, 1]],
@@ -153,7 +153,7 @@ yaw_rate_2_16 = yaw_rate_2_8 * 0.5
 # general params
 # ---------------------------
 nb_max_episodes_steps = 512*3  # pay attention
-success_distance_to_goal = 1
+success_distance_to_goal = 1.5
 slow_down_activation_distance =  2*success_distance_to_goal  # detrmines at which distance we will punish the higher velocities
 
 # ---------------------------

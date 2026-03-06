@@ -4,6 +4,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
+from scipy import stats
 from config import get_config
 
 def smooth_curve(values, window=10):
@@ -24,9 +25,9 @@ def smooth_curve(values, window=10):
     smoothed = series.rolling(window, center=True, min_periods=1).mean().to_numpy()
     return smoothed
 
-def plot_curves(algorithms, save_path="learning_curves.png", smooth_window=10,
-                smooth_method="moving", smooth_alpha=0.6,
-                plot_cl=True, plot_non_cl=True):
+def plot_curves(algorithms, seeds_to_plot=None, save_path="learning_curves.png", 
+                smooth_window=10, smooth_method="moving", smooth_alpha=0.6,
+                plot_cl=True, plot_non_cl=True, n_interpolate_points=1000):
     """
     Plots learning curves for specified algorithms on the same figures.
     Reads CSV logs from 'results' directory.
@@ -34,6 +35,7 @@ def plot_curves(algorithms, save_path="learning_curves.png", smooth_window=10,
     
     Args:
         algorithms: 算法列表
+        seeds_to_plot: 要绘制的随机种子列表（如 ['1', '2', '3']），None 表示绘制所有种子
         save_path: 保存路径
         smooth_window: 平滑窗口大小（仅对 ``moving`` 方法有效）
         smooth_method: 平滑方法，"moving" 或 "ema"。
@@ -42,7 +44,10 @@ def plot_curves(algorithms, save_path="learning_curves.png", smooth_window=10,
             内部会转换成 pandas 所需的 ``alpha = 1 - smooth_alpha``。
         plot_cl: 是否绘制带 CL- 前缀的算法
         plot_non_cl: 是否绘制不带 CL- 前缀的算法
+        n_interpolate_points: 插值点数，用于对齐多个种子的曲线
     """
+    from scipy import interpolate
+    
     results_dir = "./results"
     
     # Set font to Arial
@@ -95,6 +100,11 @@ def plot_curves(algorithms, save_path="learning_curves.png", smooth_window=10,
                     actual_algo = algo
                     seed_part = 'unknown'
                 
+                # 如果指定了种子列表，则只加载指定的种子
+                if seeds_to_plot is not None and seed_part not in seeds_to_plot:
+                    print(f"  Skipped: {file_basename} (seed {seed_part} not in {seeds_to_plot})")
+                    continue
+                
                 df['Algorithm'] = actual_algo
                 df['Seed'] = seed_part
                 all_data.append(df)
@@ -129,40 +139,82 @@ def plot_curves(algorithms, save_path="learning_curves.png", smooth_window=10,
         seeds = algo_df['Seed'].unique()
         print(f"\n{algo_name}: {len(seeds)} seeds")
         
-        # 按 timestep 分组计算均值和标准差
-        grouped = algo_df.groupby('total_timesteps')['reward']
-        mean_reward = grouped.mean()
-        std_reward = grouped.std().fillna(0.0)
+        # 收集每个种子的数据，找到共同的 timestep 范围
+        all_timesteps = []
+        smoothed_curves = []
         
-        # 对均值进行平滑
-        if smooth_method == "moving":
-            mean_smooth = smooth_curve(mean_reward.values, smooth_window)
-        else:  # ema
-            # TensorBoard 平滑参数越大越平滑；pandas 需要传入 alpha=新值
-            tb_val = smooth_alpha
-            alpha = 1.0 - tb_val
-            series = pd.Series(mean_reward.values)
-            mean_smooth = series.ewm(alpha=alpha, adjust=False).mean().to_numpy()
+        for seed in seeds:
+            seed_df = algo_df[algo_df['Seed'] == seed].sort_values('total_timesteps')
+            if len(seed_df) == 0:
+                continue
+            
+            timesteps = seed_df['total_timesteps'].values
+            rewards = seed_df['reward'].values
+            
+            # 对该种子的数据进行平滑
+            if smooth_method == "moving":
+                rewards_smooth = smooth_curve(rewards, smooth_window)
+            else:  # ema
+                tb_val = smooth_alpha
+                alpha = 1.0 - tb_val
+                series = pd.Series(rewards)
+                rewards_smooth = series.ewm(alpha=alpha, adjust=False).mean().to_numpy()
+            
+            all_timesteps.append(timesteps)
+            smoothed_curves.append((timesteps, rewards_smooth))
         
-        # 计算置信区间（均值 ± 标准差）
-        upper = mean_smooth + std_reward.values
-        lower = mean_smooth - std_reward.values
+        if not smoothed_curves:
+            continue
+        
+        # 找到所有种子的共同 timestep 范围
+        min_timestep = max(t[0] for t in all_timesteps)  # 最大的起始点
+        max_timestep = min(t[-1] for t in all_timesteps)  # 最小的结束点
+        
+        if min_timestep >= max_timestep:
+            print(f"  Warning: {algo_name} 的种子时间范围不重叠，跳过")
+            continue
+        
+        # 创建统一的 timestep 网格
+        x_common = np.linspace(min_timestep, max_timestep, n_interpolate_points)
+        
+        # 将每个种子的曲线插值到统一网格上
+        interpolated_curves = []
+        for timesteps, rewards in smoothed_curves:
+            # 使用线性插值
+            f = interpolate.interp1d(timesteps, rewards, kind='linear', 
+                                     bounds_error=False, fill_value='extrapolate')
+            y_interp = f(x_common)
+            interpolated_curves.append(y_interp)
+        
+        interpolated_curves = np.array(interpolated_curves)  # shape: (n_seeds, n_points)
+        
+        # 计算均值和标准差（跨种子）
+        mean_reward = np.mean(interpolated_curves, axis=0)
+        std_reward = np.std(interpolated_curves, axis=0)
+        n_seeds = len(interpolated_curves)
+        
+        # 计算95%置信区间
+        t_value = stats.t.ppf(0.975, df=n_seeds-1)  # 双侧95%置信区间
+        ci = t_value * std_reward / np.sqrt(n_seeds)
+        upper = mean_reward + ci
+        lower = mean_reward - ci
         
         color = color_map[algo_name]
         
         # 绘制均值曲线
-        ax_reward.plot(mean_reward.index, mean_smooth, 
+        ax_reward.plot(x_common, mean_reward, 
                       label=algo_name, linewidth=2.5, color=color)
         
-        # 绘制阴影区域（标准差）
-        ax_reward.fill_between(mean_reward.index, lower, upper,
-                              color=color, alpha=0.15)
+        # 绘制阴影区域（95%置信区间）
+        ax_reward.fill_between(x_common, lower, upper,
+                              color=color, alpha=0.2)
     
-    ax_reward.set_xlabel("Total Timesteps", fontfamily='Arial', fontsize=14)
-    ax_reward.set_ylabel("Reward", fontfamily='Arial', fontsize=14)
-    ax_reward.set_title("Learning Curves - Reward Comparison", fontfamily='Arial', fontsize=16, fontweight='bold')
-    ax_reward.legend(prop={'family': 'Arial', 'size': 12}, loc='best')
+    ax_reward.set_xlabel("Total Timesteps", fontfamily='Arial', fontsize=20)
+    ax_reward.set_ylabel("Reward", fontfamily='Arial', fontsize=20)
+    ax_reward.set_title("Learning Curves - Reward Comparison", fontfamily='Arial', fontsize=20, fontweight='bold')
+    ax_reward.legend(prop={'family': 'Arial', 'size': 20}, loc='best')
     ax_reward.grid(True, alpha=0.3)
+    ax_reward.tick_params(axis='both', labelsize=18)  # 设置坐标轴刻度文字大小
     
     plt.tight_layout()
     reward_save_path = os.path.join(results_dir, "combined_reward_curves.png")
@@ -177,40 +229,84 @@ def plot_curves(algorithms, save_path="learning_curves.png", smooth_window=10,
         if algo_df.empty:
             continue
         
-        # 按 timestep 分组计算均值和标准差
-        grouped = algo_df.groupby('total_timesteps')['success_rate']
-        mean_success = grouped.mean()
-        std_success = grouped.std().fillna(0.0)
+        # 获取该算法的所有种子
+        seeds = algo_df['Seed'].unique()
         
-        # 对均值进行平滑
-        if smooth_method == "moving":
-            mean_smooth = smooth_curve(mean_success.values, smooth_window)
-        else:  # ema
-            tb_val = smooth_alpha
-            alpha = 1.0 - tb_val
-            series = pd.Series(mean_success.values)
-            mean_smooth = series.ewm(alpha=alpha, adjust=False).mean().to_numpy()
+        # 收集每个种子的数据
+        all_timesteps = []
+        smoothed_curves = []
         
-        # 计算置信区间
-        upper = np.clip(mean_smooth + std_success.values, 0, 1)
-        lower = np.clip(mean_smooth - std_success.values, 0, 1)
+        for seed in seeds:
+            seed_df = algo_df[algo_df['Seed'] == seed].sort_values('total_timesteps')
+            if len(seed_df) == 0:
+                continue
+            
+            timesteps = seed_df['total_timesteps'].values
+            success_rates = seed_df['success_rate'].values
+            
+            # 对该种子的数据进行平滑
+            if smooth_method == "moving":
+                success_smooth = smooth_curve(success_rates, smooth_window)
+            else:  # ema
+                tb_val = smooth_alpha
+                alpha = 1.0 - tb_val
+                series = pd.Series(success_rates)
+                success_smooth = series.ewm(alpha=alpha, adjust=False).mean().to_numpy()
+            
+            all_timesteps.append(timesteps)
+            smoothed_curves.append((timesteps, success_smooth))
+        
+        if not smoothed_curves:
+            continue
+        
+        # 找到所有种子的共同 timestep 范围
+        min_timestep = max(t[0] for t in all_timesteps)
+        max_timestep = min(t[-1] for t in all_timesteps)
+        
+        if min_timestep >= max_timestep:
+            continue
+        
+        # 创建统一的 timestep 网格
+        x_common = np.linspace(min_timestep, max_timestep, n_interpolate_points)
+        
+        # 将每个种子的曲线插值到统一网格上
+        interpolated_curves = []
+        for timesteps, success in smoothed_curves:
+            f = interpolate.interp1d(timesteps, success, kind='linear',
+                                     bounds_error=False, fill_value='extrapolate')
+            y_interp = f(x_common)
+            interpolated_curves.append(y_interp)
+        
+        interpolated_curves = np.array(interpolated_curves)
+        
+        # 计算均值和标准差（跨种子）
+        mean_success = np.mean(interpolated_curves, axis=0)
+        std_success = np.std(interpolated_curves, axis=0)
+        n_seeds = len(interpolated_curves)
+        
+        # 计算95%置信区间
+        t_value = stats.t.ppf(0.975, df=n_seeds-1)  # 双侧95%置信区间
+        ci = t_value * std_success / np.sqrt(n_seeds)
+        upper = np.clip(mean_success + ci, 0, 1)
+        lower = np.clip(mean_success - ci, 0, 1)
         
         color = color_map[algo_name]
         
         # 绘制均值曲线
-        ax_success.plot(mean_success.index, mean_smooth, 
+        ax_success.plot(x_common, mean_success, 
                        label=algo_name, linewidth=2.5, color=color)
         
-        # 绘制阴影区域
-        ax_success.fill_between(mean_success.index, lower, upper,
-                               color=color, alpha=0.15)
+        # 绘制阴影区域（95%置信区间）
+        ax_success.fill_between(x_common, lower, upper,
+                               color=color, alpha=0.2)
     
-    ax_success.set_xlabel("Total Timesteps", fontfamily='Arial', fontsize=14)
-    ax_success.set_ylabel("Success Rate", fontfamily='Arial', fontsize=14)
-    # ax_success.set_title("Learning Curves - Success Rate Comparison", fontfamily='Arial', fontsize=16, fontweight='bold')
+    ax_success.set_xlabel("Total Timesteps", fontfamily='Arial', fontsize=20)
+    ax_success.set_ylabel("Success Rate", fontfamily='Arial', fontsize=20)
+    # ax_success.set_title("Learning Curves - Success Rate Comparison", fontfamily='Arial', fontsize=20, fontweight='bold')
     ax_success.set_ylim(0, 1.05)
-    ax_success.legend(prop={'family': 'Arial', 'size': 12}, loc='best')
+    ax_success.legend(prop={'family': 'Arial', 'size': 20}, loc='best')
     ax_success.grid(True, alpha=0.3)
+    ax_success.tick_params(axis='both', labelsize=18)  # 设置坐标轴刻度文字大小
     
     plt.tight_layout()
     success_save_path = os.path.join(results_dir, "combined_success_rate_curves.png")
@@ -245,8 +341,18 @@ def main():
         print("Error: Both --plot_cl and --plot_non_cl are False. Nothing to plot.")
         return
     
+    # 解析要绘制的种子
+    seeds_to_plot = None
+    if hasattr(args, 'seed') and args.seed:
+        if isinstance(args.seed, str):
+            seeds_to_plot = [s.strip() for s in args.seed.split(',')]
+        elif isinstance(args.seed, (list, tuple)):
+            seeds_to_plot = [str(s) for s in args.seed]
+        print(f"Seeds to plot: {seeds_to_plot}")
+    
     plot_curves(
         algos_to_plot,
+        seeds_to_plot=seeds_to_plot,
         smooth_window=args.smooth_window,
         smooth_method=args.smooth_method,
         smooth_alpha=args.smooth_alpha,

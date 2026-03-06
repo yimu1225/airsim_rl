@@ -51,7 +51,7 @@ class STVimEncoder(nn.Module):
 
         depth_shape = args.depth_shape
         in_chans = depth_shape[0]
-        self.seq_len = args.seq_len
+        self.seq_len = args.n_frames
 
         height = depth_shape[1]
         width = depth_shape[2]
