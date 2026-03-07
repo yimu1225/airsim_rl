@@ -28,18 +28,20 @@ def get_config(argv=None):
     parser.add_argument("--env_name", type=str, default='AirSimEnv-v42', help="要训练的环境名称")  # AirSimEnv-v42  CartPole-v0
 
     # 算法选择 (Algorithm Selection)
-    parser.add_argument("--algorithm_name", type=str, default='td3',
+    parser.add_argument("--algorithm_name", type=str, default='ppo',
                         help="要训练的算法。支持: td3, ddpg, aetd3, per_td3, per_aetd3, cfc_td3, st_mamba_td3, ST-VimTD3, ST-VimTD3-Safety, st_cnn_td3, gam_mamba_td3, ppo。可以是单个，多个（逗号分隔），或组名 ('all', 'base', 'seq')")
     parser.add_argument("--smooth_window", type=int, default=100, help="平滑窗口大小，用于平滑学习曲线 (仅对移动平均有效)")
     parser.add_argument("--smooth_method", type=str, default="moving", choices=["moving","ema"], help="曲线平滑方法: moving=滑动平均, ema=指数加权平均")
     parser.add_argument("--smooth_alpha", type=float, default=0.99, help="指数加权平均的平滑系数 (0-1)，与TensorBoard一致：数值越大越平滑。内部将转换为 pandas 所需的 alpha=1-smooth_alpha。")
     parser.add_argument("--plot_cl", action='store_true', default=False, help="绘图时是否检索带 CL- 前缀的算法 (默认: True)")
     parser.add_argument("--plot_non_cl", action='store_true', default=True, help="绘图时是否检索常规算法 (默认: True)")
+    parser.add_argument("--use_percentile", action='store_true', default=False, help="使用四分位范围作为阴影带而不是均值加置信区间")
+    parser.add_argument("--ci_type", type=str, default="std", choices=["std", "sem"], help="阴影区域类型: std=标准差, sem=标准误差")
 
     # 训练设置 (Training Setup)
-    parser.add_argument("--seed", type=str, default="10,11,12", help="随机种子 (支持逗号分隔多个种子)")
+    parser.add_argument("--seed", type=str, default="2,4", help="随机种子 (支持逗号分隔多个种子)")
     parser.add_argument("--curriculum_start_level", type=int, default=0, choices=[0, 1, 2, 3], help="课程学习起始等级 (0-3, 默认: 0)。注意：算法名以 'CL-' 前缀开头时自动启用课程学习")
-    parser.add_argument("--steps_per_update", type=int, default=10, help='每次更新前收集的步数')
+    parser.add_argument("--steps_per_update", type=int, default=100, help='每次更新前收集的步数')
     parser.add_argument("--cuda", action='store_false', default=True, help="是否使用CUDA")
     parser.add_argument("--cuda_deterministic", action='store_false', default=True, help="CUDA是否确定性")
     parser.add_argument("--n_training_threads", type=int, default=1, help="训练线程数")
