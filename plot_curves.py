@@ -4,7 +4,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
-from scipy import stats
+from scipy import interpolate
 from config import get_config
 
 def smooth_curve(values, window=10):
@@ -27,7 +27,7 @@ def smooth_curve(values, window=10):
 
 def plot_curves(algorithms, seeds_to_plot=None, save_path="learning_curves.png", 
                 smooth_window=10, smooth_method="moving", smooth_alpha=0.6,
-                plot_cl=True, plot_non_cl=True, n_interpolate_points=1000):
+                plot_cl=True, plot_non_cl=True, n_interpolate_points=1000, ci_type="std"):
     """
     Plots learning curves for specified algorithms on the same figures.
     Reads CSV logs from 'results' directory.
@@ -193,9 +193,11 @@ def plot_curves(algorithms, seeds_to_plot=None, save_path="learning_curves.png",
         std_reward = np.std(interpolated_curves, axis=0)
         n_seeds = len(interpolated_curves)
         
-        # 计算95%置信区间
-        t_value = stats.t.ppf(0.975, df=n_seeds-1)  # 双侧95%置信区间
-        ci = t_value * std_reward / np.sqrt(n_seeds)
+        # 使用标准差或标准误差
+        if ci_type == "std":
+            ci = std_reward
+        else:  # sem
+            ci = std_reward / np.sqrt(n_seeds)
         upper = mean_reward + ci
         lower = mean_reward - ci
         
@@ -205,7 +207,7 @@ def plot_curves(algorithms, seeds_to_plot=None, save_path="learning_curves.png",
         ax_reward.plot(x_common, mean_reward, 
                       label=algo_name, linewidth=2.5, color=color)
         
-        # 绘制阴影区域（95%置信区间）
+        # 绘制阴影区域（标准差或标准误差）
         ax_reward.fill_between(x_common, lower, upper,
                               color=color, alpha=0.2)
     
@@ -284,9 +286,11 @@ def plot_curves(algorithms, seeds_to_plot=None, save_path="learning_curves.png",
         std_success = np.std(interpolated_curves, axis=0)
         n_seeds = len(interpolated_curves)
         
-        # 计算95%置信区间
-        t_value = stats.t.ppf(0.975, df=n_seeds-1)  # 双侧95%置信区间
-        ci = t_value * std_success / np.sqrt(n_seeds)
+        # 使用标准差或标准误差
+        if ci_type == "std":
+            ci = std_success
+        else:  # sem
+            ci = std_success / np.sqrt(n_seeds)
         upper = np.clip(mean_success + ci, 0, 1)
         lower = np.clip(mean_success - ci, 0, 1)
         
@@ -296,7 +300,7 @@ def plot_curves(algorithms, seeds_to_plot=None, save_path="learning_curves.png",
         ax_success.plot(x_common, mean_success, 
                        label=algo_name, linewidth=2.5, color=color)
         
-        # 绘制阴影区域（95%置信区间）
+        # 绘制阴影区域（标准差或标准误差）
         ax_success.fill_between(x_common, lower, upper,
                                color=color, alpha=0.2)
     
@@ -357,7 +361,8 @@ def main():
         smooth_method=args.smooth_method,
         smooth_alpha=args.smooth_alpha,
         plot_cl=args.plot_cl,
-        plot_non_cl=args.plot_non_cl)
+        plot_non_cl=args.plot_non_cl,
+        ci_type=args.ci_type)
 
 if __name__ == "__main__":
     main()

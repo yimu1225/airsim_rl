@@ -192,6 +192,17 @@ def main():
             # Run training for this algorithm
             env = train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, base_state, depth_image, n_frames)
 
+            # Close AirSim after training this algorithm/seed
+            if hasattr(env, 'game_handler') and env.game_handler is not None:
+                print(f"Closing AirSim for {algo_name} (seed={seed})...")
+                env.game_handler.kill_game_in_editor()
+                time.sleep(2)  # Wait for shutdown
+            # Memory cleanup
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            gc.collect()
+            print(f"Memory cleaned for {algo_name} (seed={seed}).")
+
 
 def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, base_state, depth_image, n_frames):
 

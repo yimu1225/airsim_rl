@@ -403,6 +403,17 @@ def main():
             # Run training
             env = train_ppo_algorithm(env, agent, args, algo_name, device, base_state, depth_image, n_frames)
 
+            # Close AirSim after training this algorithm/seed
+            if hasattr(env, 'game_handler') and env.game_handler is not None:
+                print(f"Closing AirSim for {algo_name} (seed={seed})...")
+                env.game_handler.kill_game_in_editor()
+                time.sleep(2)  # Wait for shutdown
+            # Memory cleanup
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            gc.collect()
+            print(f"Memory cleaned for {algo_name} (seed={seed}).")
+
 
 if __name__ == "__main__":
     main()
