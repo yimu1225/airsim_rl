@@ -32,7 +32,7 @@ from algorithm.per_aetd3.per_aetd3 import PERAETD3Agent
 from algorithm.cfc_td3.cfc_td3 import CFCTD3Agent
 from algorithm.st_mamba_td3.agent import ST_Mamba_Agent
 from algorithm.ST_VimTD3.agent import STVimTD3Agent
-from algorithm.ST_VimTD3_Safety.agent import STVimTD3SafetyAgent
+from algorithm.ST_SVimTD3.agent import STSVimTD3Agent
 from algorithm.st_cnn_td3.st_cnn_td3 import ST_CNN_Agent
 from algorithm.gam_mamba_td3.td3 import GAMMambaTD3Agent
 
@@ -77,9 +77,9 @@ def expand_algorithms(algo_str):
     """
     # Predefined algorithm groups
     groups = {
-        'all': ['td3', 'ddpg', 'aetd3', 'per_td3', 'per_aetd3', 'cfc_td3', 'st_mamba_td3', 'ST-VimTD3', 'ST-VimTD3-Safety', 'st_cnn_td3', 'gam_mamba_td3'],
+        'all': ['td3', 'ddpg', 'aetd3', 'per_td3', 'per_aetd3', 'cfc_td3', 'st_mamba_td3', 'ST-VimTD3', 'ST-SVimTD3', 'st_cnn_td3', 'gam_mamba_td3'],
         'base': ['td3', 'ddpg', 'aetd3', 'per_td3', 'per_aetd3'],
-        'seq': ['cfc_td3', 'st_mamba_td3', 'ST-VimTD3', 'ST-VimTD3-Safety', 'st_cnn_td3']
+        'seq': ['cfc_td3', 'st_mamba_td3', 'ST-VimTD3', 'ST-SVimTD3', 'st_cnn_td3']
     }
     
     # Check if it's a predefined group
@@ -109,7 +109,7 @@ def get_agent_class(algo_name):
         'cfc_td3': CFCTD3Agent,
         'st_mamba_td3': ST_Mamba_Agent,
         'ST-VimTD3': STVimTD3Agent,
-        'ST-VimTD3-Safety': STVimTD3SafetyAgent,
+        'ST-SVimTD3': STSVimTD3Agent,
         'st_cnn_td3': ST_CNN_Agent,
         'gam_mamba_td3': GAMMambaTD3Agent
     }
@@ -147,7 +147,7 @@ def main():
 
             # Determine properties for this algorithm
             recurrent_algos = [
-                'cfc_td3', 'st_cnn_td3', 'st_mamba_td3', 'ST-VimTD3', 'ST-VimTD3-Safety'
+                'cfc_td3', 'st_cnn_td3', 'st_mamba_td3', 'ST-VimTD3', 'ST-SVimTD3'
             ]
             
             is_recurrent = actual_algo_name in recurrent_algos
@@ -385,7 +385,7 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, ba
                 if next_depth_seq.ndim == 3:
                     next_depth_seq = np.expand_dims(next_depth_seq, axis=1)
 
-                if algo_name == 'ST-VimTD3-Safety':
+                if algo_name == 'ST-SVimTD3':
                     has_collided = float(step_info.get("has_collided", False)) if isinstance(step_info, dict) else 0.0
                     agent.replay_buffer.add(
                         base,

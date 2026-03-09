@@ -9,7 +9,7 @@ from .networks import STVimEncoder, Actor, Critic, SafetyConstraintHead, safety_
 from .buffer import ReplayBuffer
 
 
-class STVimTD3SafetyAgent:
+class STSVimTD3Agent:
     def __init__(self, base_dim, depth_shape, action_space, args, device=None, seed=None):
         self.device = torch.device(device if device is not None else ("cuda" if torch.cuda.is_available() else "cpu"))
         print(f"ST-Mamba-VimTokens-Safety-TD3 Agent using device: {self.device}")
@@ -94,9 +94,8 @@ class STVimTD3SafetyAgent:
 
         self.safety_loss_coef = getattr(args, "safety_loss_coef", 1.0)
         self.safety_actor_penalty_coef = getattr(args, "safety_actor_penalty_coef", 0.05)
-        self.safety_collision_reward_threshold = getattr(args, "safety_collision_reward_threshold", -10.0)
         self.safety_warmup_steps = getattr(args, "safety_warmup_steps", 0)
-        self.safety_label_mode = getattr(args, "safety_label_mode", "collision_then_reward")
+        self.safety_label_mode = getattr(args, "safety_label_mode", "collision")
 
         self.batch_size = args.batch_size
         self.replay_buffer = ReplayBuffer(args.buffer_size, self.seq_len, seed=seed)
@@ -203,7 +202,6 @@ class STVimTD3SafetyAgent:
         if collision_flag is not None:
             collision_flag = torch.as_tensor(collision_flag, dtype=torch.float32, device=self.device).view(-1, 1)
 
-    
         with torch.no_grad():
             next_visual = self.actor_encoder_target(next_depth)
             self._assert_finite_tensor("train.next_visual", next_visual)
@@ -261,15 +259,9 @@ class STVimTD3SafetyAgent:
 
             logits = (g * action).sum(dim=-1, keepdim=True) + h
 
-            reward_proxy_target = ((dones > 0.5) & (reward <= self.safety_collision_reward_threshold)).float()
-
-            if self.safety_label_mode == "collision" and collision_flag is not None:
-                collision_target = ((dones > 0.5) & (collision_flag > 0.5)).float()
-            elif self.safety_label_mode == "reward_proxy" or collision_flag is None:
-                collision_target = reward_proxy_target
-            else:
-                real_collision_target = ((dones > 0.5) & (collision_flag > 0.5)).float()
-                collision_target = torch.maximum(real_collision_target, reward_proxy_target)
+            if collision_flag is None:
+                raise ValueError("collision_flag is required for ST-VimTD3-Safety safety supervision.")
+            collision_target = ((dones > 0.5) & (collision_flag > 0.5)).float()
 
             safety_loss = F.binary_cross_entropy_with_logits(logits, collision_target)
             safety_loss = self.safety_loss_coef * safety_loss

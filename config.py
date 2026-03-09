@@ -28,8 +28,8 @@ def get_config(argv=None):
     parser.add_argument("--env_name", type=str, default='AirSimEnv-v42', help="要训练的环境名称")  # AirSimEnv-v42  CartPole-v0
 
     # 算法选择 (Algorithm Selection)
-    parser.add_argument("--algorithm_name", type=str, default='ppo',
-                        help="要训练的算法。支持: td3, ddpg, aetd3, per_td3, per_aetd3, cfc_td3, st_mamba_td3, ST-VimTD3, ST-VimTD3-Safety, st_cnn_td3, gam_mamba_td3, ppo。可以是单个，多个（逗号分隔），或组名 ('all', 'base', 'seq')")
+    parser.add_argument("--algorithm_name", type=str, default='td3,ppo',
+                        help="要训练的算法。支持: td3, ddpg, aetd3, per_td3, per_aetd3, cfc_td3, st_mamba_td3, ST-VimTD3, ST-SVimTD3, st_cnn_td3, gam_mamba_td3, ppo。可以是单个，多个（逗号分隔），或组名 ('all', 'base', 'seq')")
     parser.add_argument("--smooth_window", type=int, default=100, help="平滑窗口大小，用于平滑学习曲线 (仅对移动平均有效)")
     parser.add_argument("--smooth_method", type=str, default="moving", choices=["moving","ema"], help="曲线平滑方法: moving=滑动平均, ema=指数加权平均")
     parser.add_argument("--smooth_alpha", type=float, default=0.99, help="指数加权平均的平滑系数 (0-1)，与TensorBoard一致：数值越大越平滑。内部将转换为 pandas 所需的 alpha=1-smooth_alpha。")
@@ -39,7 +39,7 @@ def get_config(argv=None):
     parser.add_argument("--ci_type", type=str, default="std", choices=["std", "sem"], help="阴影区域类型: std=标准差, sem=标准误差")
 
     # 训练设置 (Training Setup)
-    parser.add_argument("--seed", type=str, default="2,4", help="随机种子 (支持逗号分隔多个种子)")
+    parser.add_argument("--seed", type=str, default="1,2,4", help="随机种子 (支持逗号分隔多个种子)")
     parser.add_argument("--curriculum_start_level", type=int, default=0, choices=[0, 1, 2, 3], help="课程学习起始等级 (0-3, 默认: 0)。注意：算法名以 'CL-' 前缀开头时自动启用课程学习")
     parser.add_argument("--steps_per_update", type=int, default=100, help='每次更新前收集的步数')
     parser.add_argument("--cuda", action='store_false', default=True, help="是否使用CUDA")
@@ -114,10 +114,9 @@ def get_config(argv=None):
     parser.add_argument("--safety_lr", type=float, default=5e-4, help="Safety Constraint Head 学习率")
     parser.add_argument("--safety_loss_coef", type=float, default=1.0, help="安全监督损失系数")
     parser.add_argument("--safety_actor_penalty_coef", type=float, default=0.05, help="Actor 的约束违反惩罚系数")
-    parser.add_argument("--safety_collision_reward_threshold", type=float, default=-20.0, help="将终止步标记为碰撞风险样本的奖励阈值")
     parser.add_argument("--safety_warmup_steps", type=int, default=0, help="开始训练Safety Head前的迭代步数")
     parser.add_argument("--safety_end_to_end", action='store_true', default=False, help="是否让Safety损失回传并更新Vim Encoder")
-    parser.add_argument("--safety_label_mode", type=str, default="collision_then_reward", choices=["collision", "reward_proxy", "collision_then_reward"], help="Safety标签来源：真实碰撞、奖励代理、或二者融合(fallback)")
+    parser.add_argument("--safety_label_mode", type=str, default="collision", choices=["collision"], help="Safety标签来源：真实碰撞标记")
 
 
     # Adaptive Ensemble TD3
