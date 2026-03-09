@@ -127,6 +127,10 @@ def plot_curves(algorithms, seeds_to_plot=None, save_path="learning_curves.png",
     colors = plt.cm.tab10(np.linspace(0, 1, len(unique_algorithms)))
     color_map = {algo: colors[i] for i, algo in enumerate(unique_algorithms)}
     
+    # 为不同算法分配不同的线型
+    line_styles = ['-', '--', '-.', ':', (0, (3, 1, 1, 1)), (0, (5, 1, 1, 1))]
+    line_style_map = {algo: line_styles[i % len(line_styles)] for i, algo in enumerate(unique_algorithms)}
+    
     # === Plot Reward ===
     fig_reward, ax_reward = plt.subplots(figsize=(12, 8))
     
@@ -205,7 +209,8 @@ def plot_curves(algorithms, seeds_to_plot=None, save_path="learning_curves.png",
         
         # 绘制均值曲线
         ax_reward.plot(x_common, mean_reward, 
-                      label=algo_name, linewidth=2.5, color=color)
+                      label=algo_name.upper(), linewidth=2.5, color=color, 
+                      linestyle=line_style_map[algo_name])
         
         # 绘制阴影区域（标准差或标准误差）
         ax_reward.fill_between(x_common, lower, upper,
@@ -298,7 +303,8 @@ def plot_curves(algorithms, seeds_to_plot=None, save_path="learning_curves.png",
         
         # 绘制均值曲线
         ax_success.plot(x_common, mean_success, 
-                       label=algo_name, linewidth=2.5, color=color)
+                       label=algo_name.upper(), linewidth=2.5, color=color,
+                       linestyle=line_style_map[algo_name])
         
         # 绘制阴影区域（标准差或标准误差）
         ax_success.fill_between(x_common, lower, upper,
@@ -329,7 +335,7 @@ def main():
     supported_algos = [
         'td3', 'ddpg', 'aetd3', 'per_td3', 'per_aetd3',
         'gru_td3', 'lstm_td3', 'gru_aetd3', 'lstm_aetd3', 'cfc_td3',
-        'st_mamba_td3', 'ST-VimTD3', 'ST-VimTD3-Safety', 'st_cnn_td3', 'gam_mamba_td3'
+        'st_mamba_td3', 'ST-VimTD3', 'ST-SVimTD3', 'st_cnn_td3', 'gam_mamba_td3'
     ]
     
     if algo_list_input == 'all':
