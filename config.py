@@ -28,7 +28,7 @@ def get_config(argv=None):
     parser.add_argument("--env_name", type=str, default='AirSimEnv-v42', help="要训练的环境名称")  # AirSimEnv-v42  CartPole-v0
 
     # 算法选择 (Algorithm Selection)
-    parser.add_argument("--algorithm_name", type=str, default='td3,ppo',
+    parser.add_argument("--algorithm_name", type=str, default='CL-td3',
                         help="要训练的算法。支持: td3, ddpg, aetd3, per_td3, per_aetd3, cfc_td3, st_mamba_td3, ST-VimTD3, ST-SVimTD3, st_cnn_td3, gam_mamba_td3, ppo。可以是单个，多个（逗号分隔），或组名 ('all', 'base', 'seq')")
     parser.add_argument("--smooth_window", type=int, default=100, help="平滑窗口大小，用于平滑学习曲线 (仅对移动平均有效)")
     parser.add_argument("--smooth_method", type=str, default="moving", choices=["moving","ema"], help="曲线平滑方法: moving=滑动平均, ema=指数加权平均")
@@ -39,9 +39,9 @@ def get_config(argv=None):
     parser.add_argument("--ci_type", type=str, default="std", choices=["std", "sem"], help="阴影区域类型: std=标准差, sem=标准误差")
 
     # 训练设置 (Training Setup)
-    parser.add_argument("--seed", type=str, default="1,2,4", help="随机种子 (支持逗号分隔多个种子)")
+    parser.add_argument("--seed", type=str, default="1", help="随机种子 (支持逗号分隔多个种子)")
     parser.add_argument("--curriculum_start_level", type=int, default=0, choices=[0, 1, 2, 3], help="课程学习起始等级 (0-3, 默认: 0)。注意：算法名以 'CL-' 前缀开头时自动启用课程学习")
-    parser.add_argument("--steps_per_update", type=int, default=100, help='每次更新前收集的步数')
+    parser.add_argument("--steps_per_update", type=int, default=20, help='每次更新前收集的步数')
     parser.add_argument("--cuda", action='store_false', default=True, help="是否使用CUDA")
     parser.add_argument("--cuda_deterministic", action='store_false', default=True, help="CUDA是否确定性")
     parser.add_argument("--n_training_threads", type=int, default=1, help="训练线程数")
@@ -52,7 +52,8 @@ def get_config(argv=None):
     parser.add_argument("--gradient_steps", type=float, default=1.0, help="每次收集数据后的梯度更新倍数")
     parser.add_argument("--episode_length", type=int, default=200, help='每个环境中的最大回合长度')
     parser.add_argument("--eval_freq", type=int, default=5000, help="评估频率")
-    parser.add_argument("--hidden_dim", type=int, default=256, help="隐藏层维度")
+    parser.add_argument("--hidden_dim", type=int, default=128, help="隐藏层维度")
+    parser.add_argument("--base_feature_dim", type=int, default=32, help="基础状态先映射到该维度，再与视觉特征拼接")
     parser.add_argument("--exploration_noise", type=float, default=0.3, help="探索噪声")
     parser.add_argument("--exploration_noise_final", type=float, default=0.05, help="最终探索噪声")
     parser.add_argument("--batch_size", type=int, default=256, help="批次大小")
@@ -62,7 +63,7 @@ def get_config(argv=None):
     parser.add_argument("--critic_lr", type=float, default=5e-4, help="Critic学习率")
     parser.add_argument("--policy_noise", type=float, default=0.1, help="策略噪声")
     parser.add_argument("--noise_clip", type=float, default=0.2, help="噪声裁剪")
-    parser.add_argument("--policy_freq", type=int, default=5, help="策略更新频率")
+    parser.add_argument("--policy_freq", type=int, default=2, help="策略更新频率")
     parser.add_argument("--grad_clip", type=float, default=5.0, help="梯度裁剪")
 
     # 可视化 (Visualization)
@@ -72,7 +73,7 @@ def get_config(argv=None):
     
         
     # 图像帧数参数 (所有算法统一的帧堆叠/序列长度)
-    parser.add_argument("--n_frames", type=int, default=4, help="图像帧数（非时序算法为堆叠帧数，时序算法为序列长度）")
+    parser.add_argument("--n_frames", type=int, default=6, help="图像帧数（非时序算法为堆叠帧数，时序算法为序列长度）")
 
     # TD3 的 OU 噪声 (OU Noise for TD3)
     parser.add_argument("--ou_theta", type=float, default=0.15, help="OU噪声的theta参数")
@@ -98,7 +99,7 @@ def get_config(argv=None):
 
     # ST-Mamba 参数
     parser.add_argument("--st_mamba_embed_dim", type=int, default=256, help="ST-Mamba 嵌入维度")
-    parser.add_argument("--st_mamba_depth", type=int, default=3, help="ST-Mamba Block 数量")
+    parser.add_argument("--st_mamba_depth", type=int, default=2, help="ST-Mamba Block 数量")
     parser.add_argument("--st_mamba_patch_size", type=int, default=32, help="ST-Mamba Patch 大小")
     parser.add_argument("--st_mamba_d_state", type=int, default=16, help="ST-Mamba SSM 状态维度")
     parser.add_argument("--st_mamba_d_conv", type=int, default=4, help="ST-Mamba SSM 卷积宽度")
@@ -145,7 +146,7 @@ def get_config(argv=None):
     
     # 训练循环参数 (Training Loop Parameters)
     
-    parser.add_argument("--step_penalty", type=float, default=0.1, help="每步惩罚，以鼓励更快完成")
+    parser.add_argument("--step_penalty", type=float, default=0.5, help="每步惩罚，以鼓励更快完成")
 
     # 日志 (Logging)
     parser.add_argument("--log_interval", type=int, default=1, help="日志记录间隔")

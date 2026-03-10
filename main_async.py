@@ -278,6 +278,7 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, ba
             # Select Action
             if total_timesteps < start_timesteps and args.load_model == "":
                 action = env.action_space.sample()
+                # print(f"Random action at timestep {total_timesteps}: {action}")
             else:
                 progress_ratio = total_timesteps / max_timesteps
                 if is_recurrent:

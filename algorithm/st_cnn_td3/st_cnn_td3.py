@@ -6,7 +6,8 @@ from torch.optim import Adam
 from collections import deque
 import copy
 
-from .networks import STE_CNN_Encoder, Actor, Critic, StateMLP
+from ..state_adapter import StateAdapter
+from .networks import STE_CNN_Encoder, Actor, Critic
 from .buffer import SequenceReplayBuffer
 
 class ST_CNN_Agent:
@@ -25,6 +26,7 @@ class ST_CNN_Agent:
         
         self.args = args
         self.base_dim = base_dim
+        self.base_feature_dim = getattr(args, 'base_feature_dim', 32)
         self.depth_shape = depth_shape # (C, H, W)
         self.seq_len = getattr(args, 'n_frames', 4) # Temporal sequence length
         
@@ -48,8 +50,8 @@ class ST_CNN_Agent:
         ).to(self.device)
         
         # 2. State Encoder
-        state_hidden_dim = getattr(args, 'state_feature_dim', 64)
-        self.actor_state_net = StateMLP(base_dim, state_hidden_dim).to(self.device)
+        state_hidden_dim = self.base_feature_dim
+        self.actor_state_net = StateAdapter(base_dim, state_hidden_dim).to(self.device)
         
         # Determine feature dim for head
         feature_dim = self.actor_visual.out_dim + state_hidden_dim
@@ -68,7 +70,7 @@ class ST_CNN_Agent:
             args=args
         ).to(self.device)
         
-        self.critic_state_net = StateMLP(base_dim, state_hidden_dim).to(self.device)
+        self.critic_state_net = StateAdapter(base_dim, state_hidden_dim).to(self.device)
         
         self.critic_head = Critic(
             feature_dim=feature_dim,

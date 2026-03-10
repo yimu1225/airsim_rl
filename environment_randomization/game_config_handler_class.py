@@ -4,6 +4,7 @@ from environment_randomization.game_config_class import *
 import copy
 from common import utils
 from common.file_handling import *
+from environment_randomization.deterministic_sampler import DeterministicSampler, get_deterministic_end_point
 
 class GameConfigHandler:
     def __init__(self,
@@ -57,34 +58,65 @@ class GameConfigHandler:
         return self.game_config_range.get_item(key)
 
     # sampling within the entire range
-    def sample(self, *arg, np_random = None):
+    def sample(self, *arg, np_random=None, change_counter=None, base_seed=None):
+        """
+        采样环境参数。
+        
+        如果提供 change_counter 和 base_seed，使用确定性采样，确保：
+        - 相同 (base_seed, change_counter) → 相同环境
+        - 不同 base_seed → 不同环境序列
+        - 第 N 次环境变化总是产生相同的环境（无论什么时候运行）
+        
+        Args:
+            *arg: 要采样的参数名
+            np_random: numpy 随机数生成器（向后兼容）
+            change_counter: 环境变化计数器（第几次环境变化）
+            base_seed: 基础种子（用于确定性采样）
+        """
         all_keys = self.game_config_range.find_all_keys()
-        if (len(arg) == 0):
+        if len(arg) == 0:
             arg = all_keys
+        
+        # 判断是否使用确定性采样
+        use_deterministic = (change_counter is not None and base_seed is not None)
+        if use_deterministic:
+            sampler = DeterministicSampler(base_seed)
 
         for el in arg:
-            assert (el in all_keys), str(el) + " is not a key in the json file"
+            assert el in all_keys, str(el) + " is not a key in the json file"
 
             # corner cases
-            if el in ["Indoor", "GameSetting"]:  # make sure to not touch indoor, cause it'll mess up the keys within it
+            if el in ["Indoor", "GameSetting"]:
                 continue
-            low_bnd = 0
-            up_bnd = len(self.game_config_range.get_item(el))
-
-            random_val = np_random.choice(list(range(low_bnd,up_bnd)))
-            random_val=self.game_config_range.get_item(el)[random_val]
+            
+            param_range = self.game_config_range.get_item(el)
+            
+            if use_deterministic:
+                # 确定性采样：基于 change_counter 和 base_seed
+                random_val = sampler.choice(change_counter, el, param_range)
+            else:
+                # 向后兼容：使用 np_random
+                low_bnd = 0
+                up_bnd = len(param_range)
+                idx = np_random.choice(list(range(low_bnd, up_bnd)))
+                random_val = param_range[idx]
 
             self.cur_game_config.set_item(el, random_val)
 
         # end
         if "End" in arg and self.game_config_range.get_item("End")[0] == "Mutable":
-
-            self.cur_game_config.set_item("End",
-                                          utils.get_random_end_point(
-                                          self.cur_game_config.get_item("ArenaSize"),
-                                          0,
-                                          1,
-                                          np_random))
+            if use_deterministic:
+                # 确定性生成终点
+                end_point = get_deterministic_end_point(
+                    self.cur_game_config.get_item("ArenaSize"),
+                    change_counter,
+                    base_seed)
+            else:
+                # 向后兼容
+                end_point = utils.get_random_end_point(
+                    self.cur_game_config.get_item("ArenaSize"),
+                    0, 1, np_random)
+            self.cur_game_config.set_item("End", end_point)
 
         outputfile = self.input_file_addr
         output_file_handle = open(outputfile, "w")

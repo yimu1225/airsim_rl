@@ -4,6 +4,7 @@ import torch.nn.functional as F
 from torch import nn
 from torch.optim import Adam
 
+from ..state_adapter import StateAdapter
 from .networks import Actor, Critic, Encoder
 from .buffer import RolloutBuffer
 
@@ -34,6 +35,7 @@ class PPOAgent:
             torch.manual_seed(seed)
         
         self.base_dim = base_dim
+        self.base_feature_dim = getattr(args, 'base_feature_dim', 32)
         self.depth_shape = depth_shape  # (C, H, W)
         self.action_dim = action_space.shape[0]
         self.max_action = np.array(action_space.high, dtype=np.float32)
@@ -52,9 +54,11 @@ class PPOAgent:
         
         self.encoder = Encoder(input_height=depth_h, input_width=depth_w, 
                                input_channels=C).to(self.device)
+
+        self.base_encoder = StateAdapter(self.base_dim, self.base_feature_dim).to(self.device)
         
-        # State dimension = base_dim + encoder output
-        self.state_dim = base_dim + self.encoder.repr_dim
+        # State dimension = projected base feature + encoder output
+        self.state_dim = self.base_feature_dim + self.encoder.repr_dim
         
         # Actor and Critic
         hidden_dim = getattr(args, 'hidden_dim', 256)
@@ -64,6 +68,7 @@ class PPOAgent:
         # Optimizers - PPO uses a single learning rate (reuse actor_lr from config)
         lr = getattr(args, 'lr', getattr(args, 'actor_lr', 3e-4))
         self.encoder_optimizer = Adam(self.encoder.parameters(), lr=lr)
+        self.base_encoder_optimizer = Adam(self.base_encoder.parameters(), lr=lr)
         self.actor_optimizer = Adam(self.actor.parameters(), lr=lr)
         self.critic_optimizer = Adam(self.critic.parameters(), lr=lr)
         
@@ -101,9 +106,10 @@ class PPOAgent:
         return self.encoder(depth_batch)
     
     def _concat_state(self, base: torch.Tensor, depth: torch.Tensor) -> torch.Tensor:
-        """Concatenate base state and encoded depth features."""
+        """Concatenate projected base state and encoded depth features."""
+        base_features = self.base_encoder(base)
         depth_features = self._encode(depth)
-        return torch.cat([base, depth_features], dim=1)
+        return torch.cat([base_features, depth_features], dim=1)
     
     def get_state_representation(self, base: torch.Tensor, depth: torch.Tensor) -> torch.Tensor:
         """Public method to get state representation for external use."""
@@ -289,16 +295,19 @@ class PPOAgent:
                 
                 # Optimize
                 self.encoder_optimizer.zero_grad()
+                self.base_encoder_optimizer.zero_grad()
                 self.actor_optimizer.zero_grad()
                 self.critic_optimizer.zero_grad()
                 loss.backward()
                 
                 # Gradient clipping
                 nn.utils.clip_grad_norm_(self.encoder.parameters(), self.max_grad_norm)
+                nn.utils.clip_grad_norm_(self.base_encoder.parameters(), self.max_grad_norm)
                 nn.utils.clip_grad_norm_(self.actor.parameters(), self.max_grad_norm)
                 nn.utils.clip_grad_norm_(self.critic.parameters(), self.max_grad_norm)
                 
                 self.encoder_optimizer.step()
+                self.base_encoder_optimizer.step()
                 self.actor_optimizer.step()
                 self.critic_optimizer.step()
                 
@@ -337,16 +346,19 @@ class PPOAgent:
     
     def _encode_and_concat(self, base_states, depth_states):
         """Helper to encode and concatenate."""
+        base_features = self.base_encoder(base_states)
         depth_features = self.encoder(depth_states)
-        return torch.cat([base_states, depth_features], dim=1)
+        return torch.cat([base_features, depth_features], dim=1)
     
     def save(self, filename: str):
         """Save model checkpoint."""
         torch.save({
             'encoder': self.encoder.state_dict(),
+            'base_encoder': self.base_encoder.state_dict(),
             'actor': self.actor.state_dict(),
             'critic': self.critic.state_dict(),
             'encoder_optimizer': self.encoder_optimizer.state_dict(),
+            'base_encoder_optimizer': self.base_encoder_optimizer.state_dict(),
             'actor_optimizer': self.actor_optimizer.state_dict(),
             'critic_optimizer': self.critic_optimizer.state_dict(),
             'total_it': self.total_it,
@@ -357,9 +369,13 @@ class PPOAgent:
         """Load model checkpoint."""
         checkpoint = torch.load(filename, map_location=self.device)
         self.encoder.load_state_dict(checkpoint['encoder'])
+        if 'base_encoder' in checkpoint:
+            self.base_encoder.load_state_dict(checkpoint['base_encoder'])
         self.actor.load_state_dict(checkpoint['actor'])
         self.critic.load_state_dict(checkpoint['critic'])
         self.encoder_optimizer.load_state_dict(checkpoint['encoder_optimizer'])
+        if 'base_encoder_optimizer' in checkpoint:
+            self.base_encoder_optimizer.load_state_dict(checkpoint['base_encoder_optimizer'])
         self.actor_optimizer.load_state_dict(checkpoint['actor_optimizer'])
         self.critic_optimizer.load_state_dict(checkpoint['critic_optimizer'])
         self.total_it = checkpoint.get('total_it', 0)
