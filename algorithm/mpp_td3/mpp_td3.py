@@ -3,6 +3,7 @@ import torch
 import torch.nn.functional as F
 from torch.optim import Adam
 
+from ..state_adapter import StateAdapter
 from .networks import Actor, Critic, Encoder
 from .buffer import MultiPoolAdaptiveBuffer
 from ..ou_noise import OUNoise
@@ -13,6 +14,7 @@ class MPPTD3Agent:
         self.args = args
         
         self.base_dim = base_dim
+        self.base_feature_dim = getattr(args, "base_feature_dim", 32)
         self.depth_shape = depth_shape
         self.action_dim = action_space.shape[0]
         self.max_action = np.array(action_space.high, dtype=np.float32)
@@ -28,8 +30,15 @@ class MPPTD3Agent:
         self.actor_encoder_target.load_state_dict(self.actor_encoder.state_dict())
         self.critic_encoder_target = Encoder(depth_h, depth_w).to(self.device)
         self.critic_encoder_target.load_state_dict(self.critic_encoder.state_dict())
+
+        self.actor_base_adapter = StateAdapter(self.base_dim, self.base_feature_dim).to(self.device)
+        self.critic_base_adapter = StateAdapter(self.base_dim, self.base_feature_dim).to(self.device)
+        self.actor_base_adapter_target = StateAdapter(self.base_dim, self.base_feature_dim).to(self.device)
+        self.actor_base_adapter_target.load_state_dict(self.actor_base_adapter.state_dict())
+        self.critic_base_adapter_target = StateAdapter(self.base_dim, self.base_feature_dim).to(self.device)
+        self.critic_base_adapter_target.load_state_dict(self.critic_base_adapter.state_dict())
         
-        self.state_dim = self.base_dim + self.actor_encoder.repr_dim
+        self.state_dim = self.base_feature_dim + self.actor_encoder.repr_dim
         
         # Actor & Critic
         self.actor = Actor(self.state_dim, action_space.shape, args.hidden_dim).to(self.device)
@@ -41,8 +50,8 @@ class MPPTD3Agent:
         self.critic_target.load_state_dict(self.critic.state_dict())
         
         # Optimizers
-        self.actor_optimizer = Adam(list(self.actor.parameters()) + list(self.actor_encoder.parameters()), lr=args.actor_lr)
-        self.critic_optimizer = Adam(list(self.critic.parameters()) + list(self.critic_encoder.parameters()), lr=args.critic_lr)
+        self.actor_optimizer = Adam(list(self.actor.parameters()) + list(self.actor_encoder.parameters()) + list(self.actor_base_adapter.parameters()), lr=args.actor_lr)
+        self.critic_optimizer = Adam(list(self.critic.parameters()) + list(self.critic_encoder.parameters()) + list(self.critic_base_adapter.parameters()), lr=args.critic_lr)
         
         self.max_action_tensor = torch.FloatTensor(self.max_action).to(self.device)
         self.min_action_tensor = torch.FloatTensor(self.min_action).to(self.device)
@@ -111,7 +120,8 @@ class MPPTD3Agent:
         
         with torch.no_grad():
             feat = self.actor_encoder(depth_state)
-            full_state = torch.cat([base_state, feat], dim=1)
+            base_feat = self.actor_base_adapter(base_state)
+            full_state = torch.cat([base_feat, feat], dim=1)
             clean_action = self.actor(full_state).cpu().data.numpy().flatten()
             
         noise_type = 'clean'
@@ -161,7 +171,8 @@ class MPPTD3Agent:
         with torch.no_grad():
             # Target action with noise
             next_feat = self.actor_encoder_target(next_state_depth)
-            next_full_state = torch.cat([next_state_base, next_feat], dim=1)
+            next_base_feat = self.actor_base_adapter_target(next_state_base)
+            next_full_state = torch.cat([next_base_feat, next_feat], dim=1)
             next_action = self.actor_target(next_full_state)
             
             noise = (torch.randn_like(next_action) * self.policy_noise).clamp(-self.noise_clip, self.noise_clip)
@@ -173,7 +184,8 @@ class MPPTD3Agent:
 
         # Current Q
         feat = self.critic_encoder(state_depth)
-        full_state = torch.cat([state_base, feat], dim=1)
+        state_base_feat = self.critic_base_adapter(state_base)
+        full_state = torch.cat([state_base_feat, feat], dim=1)
         current_q1, current_q2 = self.critic(full_state, action)
         
         # Critic loss with importance weights
@@ -195,7 +207,8 @@ class MPPTD3Agent:
         # Delayed policy updates
         if self.total_it % self.policy_freq == 0:
             feat_actor = self.actor_encoder(state_depth)
-            full_state_actor = torch.cat([state_base, feat_actor], dim=1)
+            state_base_actor = self.actor_base_adapter(state_base)
+            full_state_actor = torch.cat([state_base_actor, feat_actor], dim=1)
             q1_pi, _ = self.critic(full_state_actor, self.actor(full_state_actor))
             actor_loss = -q1_pi.mean()
             
@@ -213,6 +226,10 @@ class MPPTD3Agent:
                 target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
             for param, target_param in zip(self.actor_encoder.parameters(), self.actor_encoder_target.parameters()):
                 target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
+            for param, target_param in zip(self.critic_base_adapter.parameters(), self.critic_base_adapter_target.parameters()):
+                target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
+            for param, target_param in zip(self.actor_base_adapter.parameters(), self.actor_base_adapter_target.parameters()):
+                target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
                 
             result["actor_loss"] = actor_loss.item()
             
@@ -224,6 +241,8 @@ class MPPTD3Agent:
             'critic': self.critic.state_dict(),
             'actor_encoder': self.actor_encoder.state_dict(),
             'critic_encoder': self.critic_encoder.state_dict(),
+            'actor_base_adapter': self.actor_base_adapter.state_dict(),
+            'critic_base_adapter': self.critic_base_adapter.state_dict(),
             'actor_optimizer': self.actor_optimizer.state_dict(),
             'critic_optimizer': self.critic_optimizer.state_dict(),
         }, filename)
@@ -234,6 +253,10 @@ class MPPTD3Agent:
         self.critic.load_state_dict(checkpoint['critic'])
         self.actor_encoder.load_state_dict(checkpoint['actor_encoder'])
         self.critic_encoder.load_state_dict(checkpoint['critic_encoder'])
+        if 'actor_base_adapter' in checkpoint:
+            self.actor_base_adapter.load_state_dict(checkpoint['actor_base_adapter'])
+        if 'critic_base_adapter' in checkpoint:
+            self.critic_base_adapter.load_state_dict(checkpoint['critic_base_adapter'])
         self.actor_optimizer.load_state_dict(checkpoint['actor_optimizer'])
         self.critic_optimizer.load_state_dict(checkpoint['critic_optimizer'])
         
@@ -241,3 +264,5 @@ class MPPTD3Agent:
         self.critic_target.load_state_dict(self.critic.state_dict())
         self.actor_encoder_target.load_state_dict(self.actor_encoder.state_dict())
         self.critic_encoder_target.load_state_dict(self.critic_encoder.state_dict())
+        self.actor_base_adapter_target.load_state_dict(self.actor_base_adapter.state_dict())
+        self.critic_base_adapter_target.load_state_dict(self.critic_base_adapter.state_dict())

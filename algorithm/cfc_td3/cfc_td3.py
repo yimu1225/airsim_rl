@@ -1,3 +1,4 @@
+import copy
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -5,6 +6,7 @@ from torch import nn
 from torch.optim import Adam
 from ncps.wirings import AutoNCP
 
+from ..state_adapter import StateAdapter
 from .networks import Actor, Critic, VisualEncoder, CFCEncoder
 from .buffer import SequenceReplayBuffer
 
@@ -26,6 +28,7 @@ class CFCTD3Agent:
             torch.manual_seed(seed)
 
         self.base_dim = base_dim
+        self.base_feature_dim = getattr(args, "base_feature_dim", 32)
         self.depth_shape = depth_shape # (1, H, W)
         self.seq_len = args.n_frames    # k
         
@@ -47,6 +50,11 @@ class CFCTD3Agent:
         # cfc_units: total neurons, cfc_motor_units: output neurons
         self.cfc_units = getattr(args, 'cfc_units', 32)
         self.cfc_motor_units = getattr(args, 'cfc_motor_units', 8)
+
+        self.actor_base_adapter = StateAdapter(self.base_dim, self.base_feature_dim).to(self.device)
+        self.critic_base_adapter = StateAdapter(self.base_dim, self.base_feature_dim).to(self.device)
+        self.actor_base_adapter_target = copy.deepcopy(self.actor_base_adapter)
+        self.critic_base_adapter_target = copy.deepcopy(self.critic_base_adapter)
         
         # State dim for Actor/Critic is the number of NCP motor neurons
         self.state_dim = self.cfc_motor_units
@@ -59,8 +67,8 @@ class CFCTD3Agent:
 
         # CFC Encoder with NCP Wiring
         self.critic_wiring = AutoNCP(self.cfc_units, self.cfc_motor_units)
-        self.critic_cfc = CFCEncoder(base_dim=self.base_dim, visual_feature_dim=visual_feature_dim, wiring=self.critic_wiring).to(self.device)
-        self.critic_cfc_target = CFCEncoder(base_dim=self.base_dim, visual_feature_dim=visual_feature_dim, wiring=self.critic_wiring).to(self.device)
+        self.critic_cfc = CFCEncoder(base_dim=self.base_feature_dim, visual_feature_dim=visual_feature_dim, wiring=self.critic_wiring).to(self.device)
+        self.critic_cfc_target = CFCEncoder(base_dim=self.base_feature_dim, visual_feature_dim=visual_feature_dim, wiring=self.critic_wiring).to(self.device)
         self.critic_cfc_target.load_state_dict(self.critic_cfc.state_dict())
         
         # ACTOR Encoders
@@ -69,8 +77,8 @@ class CFCTD3Agent:
         self.actor_visual_encoder_target.load_state_dict(self.actor_visual_encoder.state_dict())
 
         self.actor_wiring = AutoNCP(self.cfc_units, self.cfc_motor_units)
-        self.actor_cfc = CFCEncoder(base_dim=self.base_dim, visual_feature_dim=visual_feature_dim, wiring=self.actor_wiring).to(self.device)
-        self.actor_cfc_target = CFCEncoder(base_dim=self.base_dim, visual_feature_dim=visual_feature_dim, wiring=self.actor_wiring).to(self.device)
+        self.actor_cfc = CFCEncoder(base_dim=self.base_feature_dim, visual_feature_dim=visual_feature_dim, wiring=self.actor_wiring).to(self.device)
+        self.actor_cfc_target = CFCEncoder(base_dim=self.base_feature_dim, visual_feature_dim=visual_feature_dim, wiring=self.actor_wiring).to(self.device)
         self.actor_cfc_target.load_state_dict(self.actor_cfc.state_dict())
 
         # Actor & Critic
@@ -89,18 +97,20 @@ class CFCTD3Agent:
         self.actor_optimizer = Adam([
             {'params': self.actor.parameters(), 'lr': args.actor_lr},
             {'params': self.actor_visual_encoder.parameters(), 'lr': args.actor_lr},
+            {'params': self.actor_base_adapter.parameters(), 'lr': args.actor_lr},
             {'params': self.actor_cfc.parameters(), 'lr': self.cfc_lr}
         ])
         
         self.critic_optimizer = Adam([
             {'params': self.critic.parameters(), 'lr': args.critic_lr},
             {'params': self.critic_visual_encoder.parameters(), 'lr': args.critic_lr},
+            {'params': self.critic_base_adapter.parameters(), 'lr': args.critic_lr},
             {'params': self.critic_cfc.parameters(), 'lr': self.cfc_lr}
         ])
 
         # Collecting all parameters for gradient clipping
-        self.actor_params = list(self.actor.parameters()) + list(self.actor_visual_encoder.parameters()) + list(self.actor_cfc.parameters())
-        self.critic_params = list(self.critic.parameters()) + list(self.critic_visual_encoder.parameters()) + list(self.critic_cfc.parameters())
+        self.actor_params = list(self.actor.parameters()) + list(self.actor_visual_encoder.parameters()) + list(self.actor_base_adapter.parameters()) + list(self.actor_cfc.parameters())
+        self.critic_params = list(self.critic.parameters()) + list(self.critic_visual_encoder.parameters()) + list(self.critic_base_adapter.parameters()) + list(self.critic_cfc.parameters())
 
         self.replay_buffer = SequenceReplayBuffer(args.buffer_size, self.seq_len, seed=seed)
         
@@ -141,6 +151,7 @@ class CFCTD3Agent:
                 base_for_cfc = base.unsqueeze(1).expand(-1, S, -1)
             else:
                 base_for_cfc = base
+            base_for_cfc = self.actor_base_adapter(base_for_cfc.reshape(B * S, -1)).view(B, S, -1)
             depth_reshaped = depth.reshape(B * S, C, H, W)
             depth_features = self.actor_visual_encoder(depth_reshaped)
             depth_features = depth_features.view(B, S, -1)
@@ -197,11 +208,13 @@ class CFCTD3Agent:
                 next_base_for_cfc = next_base.unsqueeze(1).expand(-1, S, -1)
             else:
                 next_base_for_cfc = next_base
+            next_base_for_cfc_actor = self.actor_base_adapter_target(next_base_for_cfc.reshape(B * S, -1)).view(B, S, -1)
+            next_base_for_cfc_critic = self.critic_base_adapter_target(next_base_for_cfc.reshape(B * S, -1)).view(B, S, -1)
             next_depth_reshaped = next_depth.view(B * S, C, H, W)
             next_depth_features = self.actor_visual_encoder_target(next_depth_reshaped)
             next_depth_features = next_depth_features.view(B, S, -1)
             
-            next_state_repr = self.actor_cfc_target(next_base_for_cfc, next_depth_features)
+            next_state_repr = self.actor_cfc_target(next_base_for_cfc_actor, next_depth_features)
             
             # Target Actor
             next_action = (self.actor_target(next_state_repr) + noise).clamp(-1.0, 1.0)
@@ -216,7 +229,7 @@ class CFCTD3Agent:
             
             next_depth_features_c = self.critic_visual_encoder_target(next_depth_reshaped)
             next_depth_features_c = next_depth_features_c.view(B, S, -1)
-            next_state_repr_c = self.critic_cfc_target(next_base_for_cfc, next_depth_features_c)
+            next_state_repr_c = self.critic_cfc_target(next_base_for_cfc_critic, next_depth_features_c)
             
             target_Q1, target_Q2 = self.critic_target(next_state_repr_c, next_action)
             target_Q = torch.min(target_Q1, target_Q2)
@@ -228,12 +241,14 @@ class CFCTD3Agent:
             base_for_cfc = base.unsqueeze(1).expand(-1, S, -1)
         else:
             base_for_cfc = base
+        base_for_cfc_critic = self.critic_base_adapter(base_for_cfc.reshape(B * S, -1)).view(B, S, -1)
+        base_for_cfc_actor = self.actor_base_adapter(base_for_cfc.reshape(B * S, -1)).view(B, S, -1)
         depth_reshaped = depth.view(B * S, C, H, W)
         
         # Critic Update
         depth_features_c = self.critic_visual_encoder(depth_reshaped)
         depth_features_c = depth_features_c.view(B, S, -1)
-        state_repr_c = self.critic_cfc(base_for_cfc, depth_features_c)
+        state_repr_c = self.critic_cfc(base_for_cfc_critic, depth_features_c)
         
         current_Q1, current_Q2 = self.critic(state_repr_c, action)
 
@@ -253,7 +268,7 @@ class CFCTD3Agent:
             # Actor Update
             depth_features_a = self.actor_visual_encoder(depth_reshaped)
             depth_features_a = depth_features_a.view(B, S, -1)
-            state_repr_a = self.actor_cfc(base_for_cfc, depth_features_a)
+            state_repr_a = self.actor_cfc(base_for_cfc_actor, depth_features_a)
             
             q1_pi, _ = self.critic(state_repr_a, self.actor(state_repr_a))
             actor_loss = -q1_pi.mean()
@@ -281,8 +296,14 @@ class CFCTD3Agent:
             for param, target_param in zip(self.actor_visual_encoder.parameters(), self.actor_visual_encoder_target.parameters()):
                 target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
 
+            for param, target_param in zip(self.actor_base_adapter.parameters(), self.actor_base_adapter_target.parameters()):
+                target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
+
             for param, target_param in zip(self.actor_cfc.parameters(), self.actor_cfc_target.parameters()):
                  target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
+
+            for param, target_param in zip(self.critic_base_adapter.parameters(), self.critic_base_adapter_target.parameters()):
+                target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
 
         return {
             "critic_loss": critic_loss.item(),
@@ -297,14 +318,18 @@ class CFCTD3Agent:
                 "actor": self.actor.state_dict(),
                 "actor_optimizer": self.actor_optimizer.state_dict(),
                 "actor_visual_encoder": self.actor_visual_encoder.state_dict(),
+                "actor_base_adapter": self.actor_base_adapter.state_dict(),
                 "actor_cfc": self.actor_cfc.state_dict(),
                 "critic_visual_encoder": self.critic_visual_encoder.state_dict(),
+                "critic_base_adapter": self.critic_base_adapter.state_dict(),
                 "critic_cfc": self.critic_cfc.state_dict(),
                 "critic_target": self.critic_target.state_dict(),
                 "actor_target": self.actor_target.state_dict(),
                 "actor_visual_encoder_target": self.actor_visual_encoder_target.state_dict(),
+                "actor_base_adapter_target": self.actor_base_adapter_target.state_dict(),
                 "actor_cfc_target": self.actor_cfc_target.state_dict(),
                 "critic_visual_encoder_target": self.critic_visual_encoder_target.state_dict(),
+                "critic_base_adapter_target": self.critic_base_adapter_target.state_dict(),
                 "critic_cfc_target": self.critic_cfc_target.state_dict(),
                 "total_it": self.total_it,
             },
@@ -324,16 +349,24 @@ class CFCTD3Agent:
             self.actor_target.load_state_dict(checkpoint["actor_target"])
 
         self.actor_visual_encoder.load_state_dict(checkpoint["actor_visual_encoder"])
+        if "actor_base_adapter" in checkpoint:
+            self.actor_base_adapter.load_state_dict(checkpoint["actor_base_adapter"])
         self.actor_cfc.load_state_dict(checkpoint["actor_cfc"])
         if "actor_visual_encoder_target" in checkpoint:
             self.actor_visual_encoder_target.load_state_dict(checkpoint["actor_visual_encoder_target"])
+        if "actor_base_adapter_target" in checkpoint:
+            self.actor_base_adapter_target.load_state_dict(checkpoint["actor_base_adapter_target"])
         if "actor_cfc_target" in checkpoint:
             self.actor_cfc_target.load_state_dict(checkpoint["actor_cfc_target"])
 
         self.critic_visual_encoder.load_state_dict(checkpoint["critic_visual_encoder"])
+        if "critic_base_adapter" in checkpoint:
+            self.critic_base_adapter.load_state_dict(checkpoint["critic_base_adapter"])
         self.critic_cfc.load_state_dict(checkpoint["critic_cfc"])
         if "critic_visual_encoder_target" in checkpoint:
             self.critic_visual_encoder_target.load_state_dict(checkpoint["critic_visual_encoder_target"])
+        if "critic_base_adapter_target" in checkpoint:
+            self.critic_base_adapter_target.load_state_dict(checkpoint["critic_base_adapter_target"])
         if "critic_cfc_target" in checkpoint:
             self.critic_cfc_target.load_state_dict(checkpoint["critic_cfc_target"])
 

@@ -3,6 +3,7 @@ import torch
 import torch.nn.functional as F
 from torch.optim import Adam
 
+from ..state_adapter import StateAdapter
 from ..aetd3.networks import Actor, Critic, Encoder, MetaNet
 from ..per_buffer import PrioritizedReplayBuffer
 
@@ -17,6 +18,7 @@ class PERAETD3Agent:
             torch.manual_seed(seed)
 
         self.base_dim = base_dim
+        self.base_feature_dim = getattr(args, "base_feature_dim", 32)
         self.depth_shape = depth_shape
         self.action_dim = action_space.shape[0]
         self.max_action = np.array(action_space.high, dtype=np.float32)
@@ -42,7 +44,14 @@ class PERAETD3Agent:
         self.critic_encoder_target = Encoder(input_height=depth_h, input_width=depth_w, input_channels=C).to(self.device)
         self.critic_encoder_target.load_state_dict(self.critic_encoder.state_dict())
 
-        self.state_dim = self.base_dim + self.actor_encoder.repr_dim
+        self.actor_base_adapter = StateAdapter(self.base_dim, self.base_feature_dim).to(self.device)
+        self.actor_base_adapter_target = StateAdapter(self.base_dim, self.base_feature_dim).to(self.device)
+        self.actor_base_adapter_target.load_state_dict(self.actor_base_adapter.state_dict())
+        self.critic_base_adapter = StateAdapter(self.base_dim, self.base_feature_dim).to(self.device)
+        self.critic_base_adapter_target = StateAdapter(self.base_dim, self.base_feature_dim).to(self.device)
+        self.critic_base_adapter_target.load_state_dict(self.critic_base_adapter.state_dict())
+
+        self.state_dim = self.base_feature_dim + self.actor_encoder.repr_dim
 
         self.actor = Actor(self.state_dim, action_space.shape, args.hidden_dim).to(self.device)
         self.actor_target = Actor(self.state_dim, action_space.shape, args.hidden_dim).to(self.device)
@@ -58,10 +67,10 @@ class PERAETD3Agent:
         meta_input_dim = self.state_dim + 2
         self.meta_net = MetaNet(meta_input_dim, self.adaptive_k).to(self.device)
 
-        self.actor_params = list(self.actor.parameters()) + list(self.actor_encoder.parameters())
+        self.actor_params = list(self.actor.parameters()) + list(self.actor_encoder.parameters()) + list(self.actor_base_adapter.parameters())
         self.actor_optimizer = Adam(self.actor_params, lr=args.actor_lr)
         
-        self.critic_params = list(self.critic.parameters()) + list(self.critic_encoder.parameters())
+        self.critic_params = list(self.critic.parameters()) + list(self.critic_encoder.parameters()) + list(self.critic_base_adapter.parameters())
         self.critic_optimizer = Adam(self.critic_params, lr=args.critic_lr)
         
         self.meta_optimizer = Adam(self.meta_net.parameters(), lr=args.adaptive_meta_lr)
@@ -89,7 +98,8 @@ class PERAETD3Agent:
         depth_tensor = torch.as_tensor(depth, dtype=torch.float32, device=self.device)
         with torch.no_grad():
             depth_features = self.actor_encoder(depth_tensor.unsqueeze(0) if depth_tensor.dim()==3 else depth_tensor)
-            state = torch.cat([base_tensor, depth_features], dim=1)
+            base_features = self.actor_base_adapter(base_tensor)
+            state = torch.cat([base_features, depth_features], dim=1)
             action = self.actor(state).cpu().numpy().flatten()
         if noise:
             current_noise = self._get_current_noise(progress_ratio)
@@ -122,10 +132,12 @@ class PERAETD3Agent:
 
         with torch.no_grad():
             next_feat_actor = self.actor_encoder_target(next_depths)
-            next_state_actor = torch.cat([next_base_states, next_feat_actor], dim=1)
+            next_base_actor = self.actor_base_adapter_target(next_base_states)
+            next_state_actor = torch.cat([next_base_actor, next_feat_actor], dim=1)
             
             next_feat_critic = self.critic_encoder_target(next_depths)
-            next_state_critic = torch.cat([next_base_states, next_feat_critic], dim=1)
+            next_base_critic = self.critic_base_adapter_target(next_base_states)
+            next_state_critic = torch.cat([next_base_critic, next_feat_critic], dim=1)
             
             base_next_action = self.actor_target(next_state_actor)
             q_samples = []
@@ -146,7 +158,8 @@ class PERAETD3Agent:
             target_q = rewards + (1 - dones) * self.discount * target_q
 
         feat = self.critic_encoder(depths)
-        state = torch.cat([base_states, feat], dim=1)
+        base_critic = self.critic_base_adapter(base_states)
+        state = torch.cat([base_critic, feat], dim=1)
         current_Q1, current_Q2 = self.critic(state, actions)
         
         td_errors = (torch.abs(current_Q1 - target_q) + torch.abs(current_Q2 - target_q)) / 2.0
@@ -176,11 +189,13 @@ class PERAETD3Agent:
 
         if self.total_it % self.policy_freq == 0:
             feat_actor = self.actor_encoder(depths)
-            state_actor = torch.cat([base_states, feat_actor], dim=1)
+            base_actor = self.actor_base_adapter(base_states)
+            state_actor = torch.cat([base_actor, feat_actor], dim=1)
             
             with torch.no_grad():
                 feat_critic_fixed = self.critic_encoder(depths)
-                state_critic_fixed = torch.cat([base_states, feat_critic_fixed], dim=1)
+                base_critic_fixed = self.critic_base_adapter(base_states)
+                state_critic_fixed = torch.cat([base_critic_fixed, feat_critic_fixed], dim=1)
                 
             q1, _ = self.critic(state_critic_fixed, self.actor(state_actor))
             actor_loss = -q1.mean()
@@ -197,7 +212,11 @@ class PERAETD3Agent:
                 target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
             for param, target_param in zip(self.critic_encoder.parameters(), self.critic_encoder_target.parameters()):
                 target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
+            for param, target_param in zip(self.critic_base_adapter.parameters(), self.critic_base_adapter_target.parameters()):
+                target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
             for param, target_param in zip(self.actor_encoder.parameters(), self.actor_encoder_target.parameters()):
+                target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
+            for param, target_param in zip(self.actor_base_adapter.parameters(), self.actor_base_adapter_target.parameters()):
                 target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
             
             result["actor_loss"] = actor_loss.item()
@@ -211,6 +230,8 @@ class PERAETD3Agent:
             'meta_net': self.meta_net.state_dict(),
             'actor_encoder': self.actor_encoder.state_dict(),
             'critic_encoder': self.critic_encoder.state_dict(),
+            'actor_base_adapter': self.actor_base_adapter.state_dict(),
+            'critic_base_adapter': self.critic_base_adapter.state_dict(),
             'actor_optimizer': self.actor_optimizer.state_dict(),
             'critic_optimizer': self.critic_optimizer.state_dict(),
             'meta_optimizer': self.meta_optimizer.state_dict()
@@ -223,7 +244,13 @@ class PERAETD3Agent:
         self.meta_net.load_state_dict(checkpoint['meta_net'])
         self.actor_encoder.load_state_dict(checkpoint['actor_encoder'])
         self.critic_encoder.load_state_dict(checkpoint['critic_encoder'])
+        if 'actor_base_adapter' in checkpoint:
+            self.actor_base_adapter.load_state_dict(checkpoint['actor_base_adapter'])
+        if 'critic_base_adapter' in checkpoint:
+            self.critic_base_adapter.load_state_dict(checkpoint['critic_base_adapter'])
         self.actor_target.load_state_dict(self.actor.state_dict())
         self.critic_target.load_state_dict(self.critic.state_dict())
         self.actor_encoder_target.load_state_dict(self.actor_encoder.state_dict())
         self.critic_encoder_target.load_state_dict(self.critic_encoder.state_dict())
+        self.actor_base_adapter_target.load_state_dict(self.actor_base_adapter.state_dict())
+        self.critic_base_adapter_target.load_state_dict(self.critic_base_adapter.state_dict())

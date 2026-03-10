@@ -4,11 +4,14 @@ import numpy as np
 class ReplayBuffer:
     """Single-step replay buffer with explicit next-state transition."""
 
-    def __init__(self, max_size: int, sequence_length: int):
+    def __init__(self, max_size: int, sequence_length: int, seed=None):
         self.max_size = int(max_size)
         self.seq_len = int(sequence_length)
         self.ptr = 0
         self.current_size = 0
+
+        # Use a local RNG for reproducible sampling independent of global numpy state.
+        self.rng = np.random.default_rng(seed)
 
         self.base_buf = None
         self.depth_buf = None
@@ -49,7 +52,7 @@ class ReplayBuffer:
     def sample(self, batch_size: int):
         if self.current_size == 0:
             return None
-        ind = np.random.randint(0, self.current_size, size=batch_size)
+        ind = self.rng.integers(0, self.current_size, size=batch_size)
 
         return (
             self.base_buf[ind],

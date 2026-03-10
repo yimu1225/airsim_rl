@@ -87,13 +87,51 @@ class AirSimEnv(gym.Env):
         else:
             self.action_space = spaces.Discrete(8)
 
+        # 课程学习设置（提前判断，因为需要在创建 GameConfigHandler 时使用）
+        # 通过算法名前缀判断是否使用课程学习 (CL-前缀表示启用)
+        algorithm_name = getattr(config, "algorithm_name", "")
+        self.use_curriculum = algorithm_name.startswith("CL-")
+        self.curriculum_start_level = getattr(config, "curriculum_start_level", 0)
+        
+        # Level 到配置字典的映射
+        level_config_map = {
+            0: "settings.easy_range_dic",
+            1: "settings.medium_range_dic",
+            2: "settings.hard_range_dic",
+            3: "settings.dynamic_obstacles_dic"
+        }
+        
+        # 确定目标 level
+        if self.use_curriculum:
+            target_level = self.curriculum_start_level
+        else:
+            target_level = 3
+        self.level = target_level
+        
+        # 关键：先创建 GameConfigHandler 并写入 JSON，确保 UE4 启动时能读取正确的配置
+        # UE4 环境配置（必须在 restart_game 之前，这样 UE4 启动时会读取正确的 JSON）
+        config_name = level_config_map[target_level]
+        self.game_config_handler = GameConfigHandler(range_dic_name=config_name)
+        
+        # 保存基础种子用于确定性环境采样
+        self.base_seed = int(config.seed)
+        self.seed(self.base_seed)
+        
+        # 环境变化计数器（第几次环境变化）
+        self.change_counter = 0
+        
+        # 立即采样并写入 JSON，使用确定性采样（change_counter=0 表示初始环境）
+        # 这必须在 UE4 启动之前完成！
+        sample_vars = ["Seed", "ArenaSize", "NumberOfObjects", "End", "Walls1"]
+        if target_level == 3:
+            sample_vars.append("NumberOfDynamicObjects")
+        self.game_config_handler.sample(*sample_vars, change_counter=0, base_seed=self.base_seed)
+        
+        # 现在启动 UE4，它会读取上面写入的 JSON
         disable_game_restart = getattr(config, "disable_game_restart", False) if config is not None else False
         self.game_handler = None if disable_game_restart else GameHandler()
         if self.game_handler is not None:
             self.game_handler.restart_game()
-
-        # UE4 环境配置
-        self.game_config_handler = GameConfigHandler()
 
         print("Scene initialization complete")
 
@@ -121,40 +159,8 @@ class AirSimEnv(gym.Env):
         self.init_state = self.prev_state
         self.success = False
         
-        # 课程学习设置
-        # 通过算法名前缀判断是否使用课程学习 (CL-前缀表示启用)
-        algorithm_name = getattr(config, "algorithm_name", "")
-        self.use_curriculum = algorithm_name.startswith("CL-")
-        self.curriculum_start_level = getattr(config, "curriculum_start_level", 0)
-        
-        # Level 到配置字典的映射
-        level_config_map = {
-            0: "settings.easy_range_dic",
-            1: "settings.medium_range_dic",
-            2: "settings.hard_range_dic",
-            3: "settings.dynamic_obstacles_dic"
-        }
-        
-        # 确定目标 level 并重置 JSON 配置（每个算法初始化时都执行，确保不受之前算法影响）
-        if self.use_curriculum:
-            target_level = self.curriculum_start_level
-        else:
-            target_level = 3
-        
-        self.level = target_level
-        config_name = level_config_map[target_level]
-        self.game_config_handler = GameConfigHandler(range_dic_name=config_name)
-        
         # 使用训练配置中的 seed 初始化随机数生成器，确保首次环境采样可复现
         self.success_deque = collections.deque(maxlen=100)
-         
-        self.seed(int(config.seed))
-        
-        # 立即采样并写入 JSON，覆盖之前算法的配置（使用已初始化的 np_random）
-        if target_level == 3:
-            self.game_config_handler.sample("Seed", "ArenaSize", "NumberOfObjects", "NumberOfDynamicObjects", "End", "Walls1", np_random=self.np_random)
-        else:
-            self.game_config_handler.sample("Seed", "ArenaSize", "NumberOfObjects", "End", "Walls1", np_random=self.np_random)
 
         # Initialize pygame viewer if needed
         self.need_render = need_render
@@ -417,14 +423,14 @@ class AirSimEnv(gym.Env):
         计算每一步的奖励。
         
         奖励函数组成：
-        1. 距离惩罚：距离目标越远，惩罚越大 (-distance * 0.03)。
+        1. 距离惩罚：距离目标越远，惩罚越大。
         2. 朝向奖励：如果朝向目标飞行 (cos(r_yaw) > 0)，给予速度相关的奖励。
-        3. jerk_penalty：动作变化惩罚。
-        4. curvature_penalty：曲率惩罚，惩罚急转变。
+        3. jerk_penalty：带死区的动作连续性平方惩罚。
+        4. curvature_penalty：带速度门控和角度死区的轨迹曲率平方惩罚。
         5. step_penalty：每步小惩罚。
         
         Args:
-            now (np.array): 当前位置
+            now (np.array): 当前位置·
             action: 当前动作
             velocity_after: 动作执行后的速度 (vx, vy, speed)
             
@@ -438,48 +444,62 @@ class AirSimEnv(gym.Env):
         now_pos = self.airgym.drone_pos()[:2]
         r_yaw = self.airgym.goal_direction(self.goal, now_pos)
 
-        r = -distance_now*0.02#0.02
+        r = -distance_now*0.03#0.02
 
-        if math.cos(r_yaw)>=0:
-            r += 2 * self.speed*math.cos(r_yaw)
+        speed_toward_goal = 0.0
+        if math.cos(r_yaw) >= 0:
+            speed_toward_goal = self.speed * math.cos(r_yaw)
+            r += speed_toward_goal
 
-        # Calculate jerk penalty for smoothness
+        # Jerk penalty with deadzone: suppress exploration noise, punish real action jumps.
         if self.config is not None and hasattr(self.action_space, 'shape') and len(self.action_space.shape) > 0:
-            action_diff = action - self.prev_action
+            action_diff = np.abs(action - self.prev_action)
             action_range = np.array([
                 self.config.max_forward_speed - self.config.min_forward_speed,
                 self.config.max_vertical_speed - (-self.config.max_vertical_speed),  # z velocity range
                 self.config.max_yaw_rate - (-self.config.max_yaw_rate)  # yaw rate range
             ], dtype=np.float32)
-            jerk_penalty = (
-                0.1 * abs(action_diff[1]) / action_range[1] +
-                0.1 * abs(action_diff[0]) / action_range[0] +
-                0.2 * abs(action_diff[2]) / action_range[2]
-            )
+            action_range = np.maximum(action_range, 1e-6)
+            delta_norm = action_diff / action_range
+
+            delta_action = 0.15  # 15% action deadzone
+            delta_excess = np.maximum(delta_norm - delta_action, 0.0)
+
+            # Per-dimension weights: yaw should be more expensive than translational channels.
+            # Order: [forward, z, yaw]
+            jerk_weights = np.array([0.05, 0.10, 0.05], dtype=np.float32)
+            jerk_penalty = float(np.sum(jerk_weights * np.square(delta_excess)))
             jerk_penalty = float(np.clip(jerk_penalty, 0.0, 1.0))
         else:
             jerk_penalty = 0.0
 
-        # Calculate curvature penalty
+        # Curvature penalty with speed gating and angle deadzone.
         curvature_penalty = 0.0
         if velocity_after is not None:
-             v_xy_before = self.prev_velocity[2] # speed is at index 2
-             v_xy_after = velocity_after[2]
-             if v_xy_before > 0.1 and v_xy_after > 0.1:
+             v_xy_before = float(self.prev_velocity[2]) # speed is at index 2
+             v_xy_after = float(velocity_after[2])
+             max_fwd_speed = max(float(self.config.max_forward_speed), 1e-6)
+
+             # Adaptive gate for this project: at most 0.5m/s, but not unrealistically high for low-speed setups.
+            #  v_gate = min(0.5, 0.15 * max_fwd_speed)
+            #  v_gate = max(v_gate, 0.1)
+             v_gate = 0.25
+             if v_xy_before > v_gate and v_xy_after > v_gate:
                  dot_product = np.dot(velocity_after[:2], self.prev_velocity[:2])
                  cos_theta = dot_product / (v_xy_before * v_xy_after + 1e-6)
                  cos_theta = np.clip(cos_theta, -1.0, 1.0)
-                 angle_change = np.arccos(cos_theta)
-                 curvature_penalty = 20 * (angle_change ** 2) * (v_xy_after / self.config.max_forward_speed)
+                 angle_change = float(np.arccos(cos_theta))
+
+                 delta_angle = math.radians(15.0)
+                 angle_excess = max(angle_change - delta_angle, 0.0)
+
+                 curvature_weight = 20.0
+                 curvature_penalty = curvature_weight * (angle_excess ** 2) * (v_xy_after / max_fwd_speed)
                  curvature_penalty = float(np.clip(curvature_penalty, 0.0, 1.0))
 
         # Add penalties to reward
         r -= jerk_penalty + curvature_penalty + self.config.step_penalty
-
-        # Print reward components for debugging
-        # distance_penalty = -distance_now * 0.02
-        # orientation_reward = self.speed * math.cos(r_yaw) if math.cos(r_yaw) >= 0 else 0.0
-        # print(f"距离惩罚: {distance_penalty:.3f}, 朝向奖励: {orientation_reward:.3f}, jerk_penalty: {jerk_penalty:.3f}, curvature_penalty: {curvature_penalty:.3f}, step_penalty: {self.config.step_penalty:.3f}, 总奖励: {r:.3f}")
+        # print(f"Reward breakdown: base={-distance_now*0.01:.3f}, speed_toward_goal={speed_toward_goal:.3f}, jerk_penalty={jerk_penalty:.3f}, curvature_penalty={curvature_penalty:.3f}, step_penalty={self.config.step_penalty:.3f}, total_reward={r:.3f}")
 
         return r
 
@@ -762,8 +782,8 @@ class AirSimEnv(gym.Env):
         while ((-now[2]) < 0.5 or collision_info.has_collided) and retry_count < 3:
              print(f"Takeoff attempt {retry_count+1} failed! Height: {-now[2]:.2f}, Collided: {collision_info.has_collided}")
              
-             # 随机更换种子并重新加载环境
-             self.sampleGameConfig('Seed')
+             # 随机更换种子并重新加载环境（使用负的 retry 计数避免与正常变化冲突）
+             self.game_config_handler.sample('Seed', change_counter=-(retry_count + 1), base_seed=self.base_seed)
              self.airgym.unreal_reset()
              self.airgym.AirSim_reset()
              
@@ -784,6 +804,15 @@ class AirSimEnv(gym.Env):
         self.on_episode_start()
         state = self.init_state_f()
         print(f"Initial state acquisition time: {time.time() - start_time:.2f}s")
+        
+        # # 打印当前 episode 的 JSON 配置
+        # print("="*60)
+        # print(f"Episode {self.episodeN} Configuration (JSON):")
+        # import json
+        # print(json.dumps(self.game_config_handler.cur_game_config.get(), indent=2))
+        # print("="*60)
+
+
         self.prev_state = state
         self.prev_action = np.zeros(self.action_space.shape, dtype=np.float32) if hasattr(self.action_space, 'shape') and self.action_space.shape else 0
         self.prev_velocity = self.airgym.drone_velocity()
@@ -826,7 +855,10 @@ class AirSimEnv(gym.Env):
         return self.game_config_handler.get_range(key)
 
     def sampleGameConfig(self, *arg):
-        self.game_config_handler.sample(*arg, np_random=self.np_random)
+        # 使用确定性采样，传入当前变化计数器和基础种子
+        # 每次调用 sampleGameConfig 表示一次环境变化
+        self.change_counter += 1
+        self.game_config_handler.sample(*arg, change_counter=self.change_counter, base_seed=self.base_seed)
 
     def render(self, mode='human', close=False):
         """

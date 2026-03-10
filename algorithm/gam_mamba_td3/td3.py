@@ -3,6 +3,7 @@ import torch
 import torch.nn.functional as F
 from torch.optim import Adam
 
+from ..state_adapter import StateAdapter
 from .networks import Actor, Critic, Encoder
 from .buffer import ReplayBuffer
 
@@ -17,6 +18,7 @@ class GAMMambaTD3Agent:
             torch.manual_seed(seed)
 
         self.base_dim = base_dim
+        self.base_feature_dim = getattr(args, "base_feature_dim", 32)
         self.depth_shape = depth_shape
         self.action_dim = action_space.shape[0]
         self.max_action = np.array(action_space.high, dtype=np.float32)
@@ -84,7 +86,14 @@ class GAMMambaTD3Agent:
         ).to(self.device)
         self.critic_encoder_target.load_state_dict(self.critic_encoder.state_dict())
 
-        self.state_dim = self.base_dim + self.actor_encoder.repr_dim
+        self.actor_base_adapter = StateAdapter(self.base_dim, self.base_feature_dim).to(self.device)
+        self.critic_base_adapter = StateAdapter(self.base_dim, self.base_feature_dim).to(self.device)
+        self.actor_base_adapter_target = StateAdapter(self.base_dim, self.base_feature_dim).to(self.device)
+        self.actor_base_adapter_target.load_state_dict(self.actor_base_adapter.state_dict())
+        self.critic_base_adapter_target = StateAdapter(self.base_dim, self.base_feature_dim).to(self.device)
+        self.critic_base_adapter_target.load_state_dict(self.critic_base_adapter.state_dict())
+
+        self.state_dim = self.base_feature_dim + self.actor_encoder.repr_dim
 
         self.actor = Actor(self.state_dim, action_space.shape, args.hidden_dim).to(self.device)
         self.actor_target = Actor(self.state_dim, action_space.shape, args.hidden_dim).to(self.device)
@@ -94,10 +103,10 @@ class GAMMambaTD3Agent:
         self.critic_target = Critic(self.state_dim, action_space.shape, args.hidden_dim).to(self.device)
         self.critic_target.load_state_dict(self.critic.state_dict())
 
-        self.actor_params = list(self.actor.parameters()) + list(self.actor_encoder.parameters())
+        self.actor_params = list(self.actor.parameters()) + list(self.actor_encoder.parameters()) + list(self.actor_base_adapter.parameters())
         self.actor_optimizer = Adam(self.actor_params, lr=args.actor_lr)
 
-        self.critic_params = list(self.critic.parameters()) + list(self.critic_encoder.parameters())
+        self.critic_params = list(self.critic.parameters()) + list(self.critic_encoder.parameters()) + list(self.critic_base_adapter.parameters())
         self.critic_optimizer = Adam(self.critic_params, lr=args.critic_lr)
 
         self.replay_buffer = ReplayBuffer(args.buffer_size, seed=seed)
@@ -118,11 +127,12 @@ class GAMMambaTD3Agent:
             depth_batch = depth_batch.unsqueeze(0)
         return encoder_net(depth_batch)
 
-    def _concat_state(self, base: torch.Tensor, depth: torch.Tensor, encoder_net, detach_encoder: bool = False) -> torch.Tensor:
+    def _concat_state(self, base: torch.Tensor, depth: torch.Tensor, encoder_net, base_adapter, detach_encoder: bool = False) -> torch.Tensor:
+        base_features = base_adapter(base)
         depth_features = self._encode(depth, encoder_net)
         if detach_encoder:
             depth_features = depth_features.detach()
-        return torch.cat([base, depth_features], dim=1)
+        return torch.cat([base_features, depth_features], dim=1)
 
     def _get_current_noise(self, progress_ratio: float) -> float:
         current_noise = self.exploration_noise * (1 - progress_ratio) + self.exploration_noise_final * progress_ratio
@@ -132,7 +142,7 @@ class GAMMambaTD3Agent:
         base_tensor = torch.as_tensor(base_state, dtype=torch.float32, device=self.device).view(1, -1)
         depth_tensor = torch.as_tensor(depth, dtype=torch.float32, device=self.device)
         with torch.no_grad():
-            state = self._concat_state(base_tensor, depth_tensor, self.actor_encoder)
+            state = self._concat_state(base_tensor, depth_tensor, self.actor_encoder, self.actor_base_adapter)
             action = self.actor(state).cpu().numpy().flatten()
 
         if noise:
@@ -163,14 +173,17 @@ class GAMMambaTD3Agent:
         dones = torch.as_tensor(dones, dtype=torch.float32, device=self.device).view(-1, 1)
 
         encoded_depths_critic = self._encode(depths, self.critic_encoder)
-        states_critic = torch.cat([base_states, encoded_depths_critic], dim=1)
+        base_critic = self.critic_base_adapter(base_states)
+        states_critic = torch.cat([base_critic, encoded_depths_critic], dim=1)
 
         with torch.no_grad():
             next_encoded_depths_critic = self._encode(next_depths, self.critic_encoder_target)
-            next_states_critic = torch.cat([next_base_states, next_encoded_depths_critic], dim=1)
+            next_base_critic = self.critic_base_adapter_target(next_base_states)
+            next_states_critic = torch.cat([next_base_critic, next_encoded_depths_critic], dim=1)
 
             next_encoded_depths_actor = self._encode(next_depths, self.actor_encoder_target)
-            next_states_actor = torch.cat([next_base_states, next_encoded_depths_actor], dim=1)
+            next_base_actor = self.actor_base_adapter_target(next_base_states)
+            next_states_actor = torch.cat([next_base_actor, next_encoded_depths_actor], dim=1)
 
             noise = (torch.randn_like(actions) * self.policy_noise).clamp(-self.noise_clip, self.noise_clip)
             next_actions = (self.actor_target(next_states_actor) + noise).clamp(-1.0, 1.0)
@@ -190,11 +203,13 @@ class GAMMambaTD3Agent:
         actor_loss = 0.0
         if self.total_it % self.policy_freq == 0:
             encoded_depths_actor = self._encode(depths, self.actor_encoder)
-            states_actor = torch.cat([base_states, encoded_depths_actor], dim=1)
+            base_actor = self.actor_base_adapter(base_states)
+            states_actor = torch.cat([base_actor, encoded_depths_actor], dim=1)
 
             with torch.no_grad():
                 encoded_depths_critic_fixed = self.critic_encoder(depths)
-                states_critic_fixed = torch.cat([base_states, encoded_depths_critic_fixed], dim=1)
+                base_critic_fixed = self.critic_base_adapter(base_states)
+                states_critic_fixed = torch.cat([base_critic_fixed, encoded_depths_critic_fixed], dim=1)
 
             q1, _ = self.critic(states_critic_fixed, self.actor(states_actor))
             actor_loss = -q1.mean()
@@ -208,10 +223,14 @@ class GAMMambaTD3Agent:
                 target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
             for param, target_param in zip(self.actor_encoder.parameters(), self.actor_encoder_target.parameters()):
                 target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
+            for param, target_param in zip(self.actor_base_adapter.parameters(), self.actor_base_adapter_target.parameters()):
+                target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
 
             for param, target_param in zip(self.critic.parameters(), self.critic_target.parameters()):
                 target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
             for param, target_param in zip(self.critic_encoder.parameters(), self.critic_encoder_target.parameters()):
+                target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
+            for param, target_param in zip(self.critic_base_adapter.parameters(), self.critic_base_adapter_target.parameters()):
                 target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
 
         return {
@@ -229,9 +248,13 @@ class GAMMambaTD3Agent:
                 "actor_optimizer": self.actor_optimizer.state_dict(),
                 "critic_optimizer": self.critic_optimizer.state_dict(),
                 "actor_encoder": self.actor_encoder.state_dict(),
+                "actor_base_adapter": self.actor_base_adapter.state_dict(),
                 "critic_encoder": self.critic_encoder.state_dict(),
+                "critic_base_adapter": self.critic_base_adapter.state_dict(),
                 "actor_encoder_target": self.actor_encoder_target.state_dict(),
+                "actor_base_adapter_target": self.actor_base_adapter_target.state_dict(),
                 "critic_encoder_target": self.critic_encoder_target.state_dict(),
+                "critic_base_adapter_target": self.critic_base_adapter_target.state_dict(),
                 "total_it": self.total_it,
             },
             filename,
@@ -254,6 +277,14 @@ class GAMMambaTD3Agent:
             self.critic_encoder.load_state_dict(checkpoint["critic_encoder"])
             self.actor_encoder_target.load_state_dict(checkpoint["actor_encoder_target"])
             self.critic_encoder_target.load_state_dict(checkpoint["critic_encoder_target"])
+            if "actor_base_adapter" in checkpoint:
+                self.actor_base_adapter.load_state_dict(checkpoint["actor_base_adapter"])
+            if "critic_base_adapter" in checkpoint:
+                self.critic_base_adapter.load_state_dict(checkpoint["critic_base_adapter"])
+            if "actor_base_adapter_target" in checkpoint:
+                self.actor_base_adapter_target.load_state_dict(checkpoint["actor_base_adapter_target"])
+            if "critic_base_adapter_target" in checkpoint:
+                self.critic_base_adapter_target.load_state_dict(checkpoint["critic_base_adapter_target"])
         elif "encoder" in checkpoint:
             self.actor_encoder.load_state_dict(checkpoint["encoder"])
             self.critic_encoder.load_state_dict(checkpoint["encoder"])
