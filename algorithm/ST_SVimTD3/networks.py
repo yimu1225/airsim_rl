@@ -140,7 +140,18 @@ class Critic(nn.Module):
     def __init__(self, feature_dim, action_dim, hidden_dim=256):
         super().__init__()
         self.input_norm = nn.LayerNorm(feature_dim + action_dim)
-        self.net = nn.Sequential(
+        
+        self.Q1 = nn.Sequential(
+            nn.Linear(feature_dim + action_dim, hidden_dim),
+            nn.LayerNorm(hidden_dim),
+            nn.ReLU(inplace=True),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.LayerNorm(hidden_dim),
+            nn.ReLU(inplace=True),
+            nn.Linear(hidden_dim, 1)
+        )
+
+        self.Q2 = nn.Sequential(
             nn.Linear(feature_dim + action_dim, hidden_dim),
             nn.LayerNorm(hidden_dim),
             nn.ReLU(inplace=True),
@@ -158,9 +169,11 @@ class Critic(nn.Module):
                 nn.init.constant_(m.bias, 0)
 
     def forward(self, x, action):
-        xu = torch.cat([x, action], dim=-1)
-        xu = self.input_norm(xu)
-        return self.net(xu)
+        h_action = torch.cat([x, action], dim=-1)
+        h_action = self.input_norm(h_action)
+        q1 = self.Q1(h_action)
+        q2 = self.Q2(h_action)
+        return q1, q2
 
 
 class SafetyConstraintHead(nn.Module):
