@@ -33,7 +33,7 @@ class CNN(nn.Module):
     Unified CNN for processing single input channel.
     Can be used for depth, motion, or any single-channel input.
     Used by all algorithms for consistent feature extraction.
-    Now uses Pooling layers instead of adaptive_avg_pool2d.
+    Ends with Global Average Pooling (GAP).
     """
     def __init__(self, input_height, input_width, input_channels=1):
         super().__init__()
@@ -42,7 +42,7 @@ class CNN(nn.Module):
         f1 = 8
         f2 = 16
         f3 = 32
-        f4 = 16
+        f4 = 48
         # f5 = 48
         f5 = 8
 
@@ -66,6 +66,9 @@ class CNN(nn.Module):
             nn.Conv2d(f3, f4, kernel_size=4, stride=2, padding=1),
             # nn.BatchNorm2d(f4),
             nn.ReLU(inplace=True),
+
+            # Global Average Pooling: HxW -> 1x1
+            nn.AdaptiveAvgPool2d((1, 1)),
             
             # # 第五层 1x1 conv (保持空间维度)
             # nn.Conv2d(f4, f5, kernel_size=1),
