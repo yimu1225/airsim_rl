@@ -69,7 +69,7 @@ class PERTD3Agent:
         self.critic_optimizer = Adam(self.critic_params, lr=args.critic_lr)
 
         # Buffer with PER (pass along seed for independent RNG)
-        self.replay_buffer = PrioritizedReplayBuffer(args.buffer_size, seed=seed)
+        self.replay_buffer = PrioritizedReplayBuffer(args.buffer_size, n_frames=getattr(args, 'n_frames', 4), seed=seed)
 
         self.gamma = args.gamma
         self.tau = args.tau

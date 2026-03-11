@@ -92,7 +92,7 @@ class AETD3Agent:
         self.exploration_noise = args.exploration_noise
         self.exploration_noise_final = getattr(args, "exploration_noise_final", 0.05)
         
-        self.replay_buffer = ReplayBuffer(args.buffer_size, seed=seed)
+        self.replay_buffer = ReplayBuffer(args.buffer_size, n_frames=getattr(args, 'n_frames', 4), seed=seed)
         self.total_it = 0
 
     def _encode(self, depth_batch: torch.Tensor, encoder) -> torch.Tensor:

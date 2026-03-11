@@ -68,7 +68,7 @@ class DDPGAgent:
         self.critic_params = list(self.critic.parameters()) + list(self.critic_encoder.parameters())
         self.critic_optimizer = Adam(self.critic_params, lr=args.critic_lr)
 
-        self.replay_buffer = ReplayBuffer(args.buffer_size, seed=seed)
+        self.replay_buffer = ReplayBuffer(args.buffer_size, n_frames=getattr(args, 'n_frames', 4), seed=seed)
 
         self.gamma = args.gamma
         self.tau = args.tau

@@ -86,7 +86,7 @@ class PERAETD3Agent:
         self.exploration_noise_final = getattr(args, "exploration_noise_final", 0.05)
 
 
-        self.replay_buffer = PrioritizedReplayBuffer(args.buffer_size, seed=seed)
+        self.replay_buffer = PrioritizedReplayBuffer(args.buffer_size, n_frames=getattr(args, 'n_frames', 4), seed=seed)
         self.total_it = 0
 
     def _get_current_noise(self, progress_ratio: float) -> float:
