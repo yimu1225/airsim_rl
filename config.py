@@ -28,18 +28,18 @@ def get_config(argv=None):
     parser.add_argument("--env_name", type=str, default='AirSimEnv-v42', help="要训练的环境名称")  # AirSimEnv-v42  CartPole-v0
 
     # 算法选择 (Algorithm Selection)
-    parser.add_argument("--algorithm_name", type=str, default='CL-ST-VimTD3,CL-td3',
-                        help="要训练的算法。支持: td3, ddpg, aetd3, per_td3, per_aetd3, cfc_td3, st_mamba_td3, ST-VimTD3, ST-SVimTD3, st_cnn_td3, gam_mamba_td3, ppo。可以是单个，多个（逗号分隔），或组名 ('all', 'base', 'seq')")
+    parser.add_argument("--algorithm_name", type=str, default='CL-ST_3DVimTD3',
+                        help="要训练的算法。支持: td3, ddpg, aetd3, per_td3, per_aetd3, cfc_td3, st_mamba_td3, ST-VimTD3, ST-SVimTD3, ST_3DVimTD3, st_cnn_td3, gam_mamba_td3, ppo。可以是单个，多个（逗号分隔），或组名 ('all', 'base', 'seq')")
     parser.add_argument("--smooth_window", type=int, default=100, help="平滑窗口大小，用于平滑学习曲线 (仅对移动平均有效)")
     parser.add_argument("--smooth_method", type=str, default="moving", choices=["moving","ema"], help="曲线平滑方法: moving=滑动平均, ema=指数加权平均")
-    parser.add_argument("--smooth_alpha", type=float, default=0.99, help="指数加权平均的平滑系数 (0-1)，与TensorBoard一致：数值越大越平滑。内部将转换为 pandas 所需的 alpha=1-smooth_alpha。")
+    parser.add_argument("--smooth_alpha", type=float, default=0.99, help="指数加权平均的平滑系数 (0-1)，与TensorBoard一致：数值越大越平滑。内部将转换为 pandas 所需的 alpha=1-smooth_alpha")
     parser.add_argument("--plot_cl", action='store_true', default=False, help="绘图时是否检索带 CL- 前缀的算法 (默认: True)")
     parser.add_argument("--plot_non_cl", action='store_true', default=True, help="绘图时是否检索常规算法 (默认: True)")
     parser.add_argument("--use_percentile", action='store_true', default=False, help="使用四分位范围作为阴影带而不是均值加置信区间")
     parser.add_argument("--ci_type", type=str, default="std", choices=["std", "sem"], help="阴影区域类型: std=标准差, sem=标准误差")
 
     # 训练设置 (Training Setup)
-    parser.add_argument("--seed", type=str, default="31", help="随机种子 (支持逗号分隔多个种子)")
+    parser.add_argument("--seed", type=str, default="31,32,33", help="随机种子 (支持逗号分隔多个种子)")
     parser.add_argument("--curriculum_start_level", type=int, default=0, choices=[0, 1, 2, 3], help="课程学习起始等级 (0-3, 默认: 0)。注意：算法名以 'CL-' 前缀开头时自动启用课程学习")
     parser.add_argument("--steps_per_update", type=int, default=20, help='每次更新前收集的步数')
     parser.add_argument("--cuda", action='store_false', default=True, help="是否使用CUDA")
@@ -55,7 +55,7 @@ def get_config(argv=None):
     parser.add_argument("--hidden_dim", type=int, default=128, help="隐藏层维度")
     parser.add_argument("--base_feature_dim", type=int, default=32, help="基础状态先映射到该维度，再与视觉特征拼接")
     parser.add_argument("--exploration_noise", type=float, default=0.3, help="探索噪声")
-    parser.add_argument("--exploration_noise_final", type=float, default=0.05, help="最终探索噪声")
+    parser.add_argument("--exploration_noise_final", type=float, default=0.01, help="最终探索噪声")
     parser.add_argument("--batch_size", type=int, default=256, help="批次大小")
     parser.add_argument("--gamma", type=float, default=0.98, help="折扣因子") 
     parser.add_argument("--tau", type=float, default=0.003, help="软更新参数")
@@ -99,16 +99,20 @@ def get_config(argv=None):
 
     # ST-Mamba 参数
     parser.add_argument("--st_mamba_embed_dim", type=int, default=48, help="ST-Mamba 嵌入维度")
-    parser.add_argument("--st_mamba_depth", type=int, default=4, help="ST-Mamba Block 数量")
-    parser.add_argument("--st_mamba_patch_size", type=int, default=32, help="ST-Mamba Patch 大小")
+    parser.add_argument("--st_mamba_depth", type=int, default=1, help="ST-Mamba Block 数量")
+    parser.add_argument("--st_mamba_patch_size", type=int, default=8, help="ST-Mamba Patch 大小")
     parser.add_argument("--st_mamba_d_state", type=int, default=16, help="ST-Mamba SSM 状态维度")
     parser.add_argument("--st_mamba_d_conv", type=int, default=4, help="ST-Mamba SSM 卷积宽度")
     parser.add_argument("--st_mamba_expand", type=int, default=2, help="ST-Mamba Block 扩展因子")
     parser.add_argument("--st_mamba_drop_rate", type=float, default=0.1, help="ST-Mamba Dropout 率 (pos_drop)")
     parser.add_argument("--st_mamba_drop_path_rate", type=float, default=0.1, help="ST-Mamba Drop Path 率 (stochastic depth)")
-    parser.add_argument("--st_mamba_temporal_depth", type=int, default=2, help="ST-Mamba-VimTokens 时序 Mamba Block 数量")
+    parser.add_argument("--st_mamba_temporal_depth", type=int, default=1, help="ST-Mamba-VimTokens 时序 Mamba Block 数量")
+
+    # ST-3DVimTD3 参数 (ST-3DVimTD3 Parameters)
+    parser.add_argument("--st_3d_patch_size", type=str, default="2,8,8", help="ST-3DVimTD3 3D Patch 大小 (时间,高度,宽度)，用逗号分隔，如 '2,4,4'")
 
     # ST-VimTD3 Safety Layer 参数
+
     parser.add_argument("--use_vim_safety_layer", dest="use_vim_safety_layer", action='store_true', help="启用基于Vim隐空间的Safety Layer")
     parser.add_argument("--no_vim_safety_layer", dest="use_vim_safety_layer", action='store_false', help="禁用基于Vim隐空间的Safety Layer")
     parser.set_defaults(use_vim_safety_layer=True)
