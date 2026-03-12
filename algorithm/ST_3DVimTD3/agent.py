@@ -35,6 +35,10 @@ class ST3DVimTD3Agent:
             self.args.depth_shape = depth_shape
 
         self.seq_len = getattr(args, "n_frames", 4)
+        
+        # 解析 st_3d_patch_size 字符串为元组
+        st_3d_patch_size_str = getattr(args, "st_3d_patch_size", "2,4,4")
+        self.st_3d_patch_size = tuple(map(int, st_3d_patch_size_str.split(',')))
 
         self.action_dim = action_space.shape[0]
         self.max_action = np.array(action_space.high, dtype=np.float32)
@@ -47,7 +51,7 @@ class ST3DVimTD3Agent:
         # 3D VisionMamba Encoder - Unified spatiotemporal processing
         self.actor_encoder = VisionMamba3D(
             img_size=(depth_shape[1], depth_shape[2]),
-            patch_size=getattr(args, "st_3d_patch_size", (2, 4, 4)),
+            patch_size=self.st_3d_patch_size,
             in_chans=depth_shape[0],
             seq_len=self.seq_len,
             embed_dim=args.st_mamba_embed_dim,
@@ -55,11 +59,12 @@ class ST3DVimTD3Agent:
             d_state=args.st_mamba_d_state,
             d_conv=args.st_mamba_d_conv,
             expand=args.st_mamba_expand,
+            temporal_depth=getattr(args, "st_mamba_temporal_depth", 1),
             drop_rate=args.st_mamba_drop_rate,
             drop_path_rate=getattr(args, "st_mamba_drop_path_rate", 0.0),
-            use_cls_token=getattr(args, "st_3d_use_cls_token", True),
-            pool_type=getattr(args, "st_3d_pool_type", "mean")
+            use_cls_token=True
         ).to(self.device)
+
         
         self.actor_base_net = StateAdapter(self.base_dim, self.base_feature_dim).to(self.device)
         self.actor = Actor(
@@ -70,7 +75,7 @@ class ST3DVimTD3Agent:
 
         self.critic_encoder = VisionMamba3D(
             img_size=(depth_shape[1], depth_shape[2]),
-            patch_size=getattr(args, "st_3d_patch_size", (2, 4, 4)),
+            patch_size=self.st_3d_patch_size,
             in_chans=depth_shape[0],
             seq_len=self.seq_len,
             embed_dim=args.st_mamba_embed_dim,
@@ -78,11 +83,12 @@ class ST3DVimTD3Agent:
             d_state=args.st_mamba_d_state,
             d_conv=args.st_mamba_d_conv,
             expand=args.st_mamba_expand,
+            temporal_depth=getattr(args, "st_mamba_temporal_depth", 1),
             drop_rate=args.st_mamba_drop_rate,
             drop_path_rate=getattr(args, "st_mamba_drop_path_rate", 0.0),
-            use_cls_token=getattr(args, "st_3d_use_cls_token", True),
-            pool_type=getattr(args, "st_3d_pool_type", "mean")
+            use_cls_token=True
         ).to(self.device)
+
         
         self.critic_base_net = StateAdapter(self.base_dim, self.base_feature_dim).to(self.device)
         self.critic_1 = Critic(

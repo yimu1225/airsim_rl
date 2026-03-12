@@ -43,6 +43,6 @@ pip install torch==2.7.0 torchvision==0.22.0 torchaudio==2.7.0 --index-url https
 conda install -c "nvidia/label/cuda-12.8.0" cuda-toolkit -y
 conda install -c "nvidia/label/cuda-12.8.0" cuda-nvcc -y
 
-tensorboard --logdir=./results 
+tensorboard --logdir=./results --port=6007
 
 python3 main_async.py

@@ -16,7 +16,8 @@ class MambaBlock(nn.Module):
         self.mamba = Mamba(d_model=dim, d_state=d_state, d_conv=d_conv, expand=expand)
 
     def forward(self, x):
-        return x + self.mamba(self.norm(x))
+        # return x + self.mamba(self.norm(x))
+        return self.mamba(x)
 
 
 class TemporalMambaStack(nn.Module):

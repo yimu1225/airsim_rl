@@ -715,9 +715,9 @@ class AirSimEnv(gym.Env):
             elif succes_rate > 0.7 and self.level == 1 and self.success_count>600:
                 self.level = 2
                 self.game_config_handler = GameConfigHandler(range_dic_name="settings.hard_range_dic")
-            elif succes_rate > 0.8 and self.level == 2 and self.success_count > 900:
-                self.level = 3
-                self.game_config_handler = GameConfigHandler(range_dic_name="settings.dynamic_obstacles_dic")
+            # elif succes_rate > 0.8 and self.level == 2 and self.success_count > 900:
+            #     self.level = 3
+            #     self.game_config_handler = GameConfigHandler(range_dic_name="settings.dynamic_obstacles_dic")
             
 
         # Clear renderer if available

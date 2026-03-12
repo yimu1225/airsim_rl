@@ -35,6 +35,8 @@ from algorithm.ST_VimTD3.agent import STVimTD3Agent
 from algorithm.ST_SVimTD3.agent import STSVimTD3Agent
 from algorithm.st_cnn_td3.st_cnn_td3 import ST_CNN_Agent
 from algorithm.gam_mamba_td3.td3 import GAMMambaTD3Agent
+from algorithm.ST_3DVimTD3.agent import ST3DVimTD3Agent
+
 
 
 def _raise_if_non_finite(name, value, step_info=""):
@@ -77,9 +79,9 @@ def expand_algorithms(algo_str):
     """
     # Predefined algorithm groups
     groups = {
-        'all': ['td3', 'ddpg', 'aetd3', 'per_td3', 'per_aetd3', 'cfc_td3', 'st_mamba_td3', 'ST-VimTD3', 'ST-SVimTD3', 'st_cnn_td3', 'gam_mamba_td3'],
+        'all': ['td3', 'ddpg', 'aetd3', 'per_td3', 'per_aetd3', 'cfc_td3', 'st_mamba_td3', 'ST-VimTD3', 'ST-SVimTD3', 'st_cnn_td3', 'gam_mamba_td3', 'ST_3DVimTD3'],
         'base': ['td3', 'ddpg', 'aetd3', 'per_td3', 'per_aetd3'],
-        'seq': ['cfc_td3', 'st_mamba_td3', 'ST-VimTD3', 'ST-SVimTD3', 'st_cnn_td3']
+        'seq': ['cfc_td3', 'st_mamba_td3', 'ST-VimTD3', 'ST-SVimTD3', 'st_cnn_td3', 'ST_3DVimTD3']
     }
     
     # Check if it's a predefined group
@@ -105,13 +107,13 @@ def get_agent_class(algo_name):
         'aetd3': AETD3Agent,
         'per_td3': PERTD3Agent,
         'per_aetd3': PERAETD3Agent,
-
         'cfc_td3': CFCTD3Agent,
         'st_mamba_td3': ST_Mamba_Agent,
         'ST-VimTD3': STVimTD3Agent,
         'ST-SVimTD3': STSVimTD3Agent,
         'st_cnn_td3': ST_CNN_Agent,
-        'gam_mamba_td3': GAMMambaTD3Agent
+        'gam_mamba_td3': GAMMambaTD3Agent,
+        'ST_3DVimTD3': ST3DVimTD3Agent
     }
     if algo_name in agents:
         return agents[algo_name]
@@ -147,7 +149,7 @@ def main():
 
             # Determine properties for this algorithm
             recurrent_algos = [
-                'cfc_td3', 'st_cnn_td3', 'st_mamba_td3', 'ST-VimTD3', 'ST-SVimTD3'
+                'cfc_td3', 'st_cnn_td3', 'st_mamba_td3', 'ST-VimTD3', 'ST-SVimTD3', 'ST_3DVimTD3'
             ]
             
             is_recurrent = actual_algo_name in recurrent_algos
