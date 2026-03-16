@@ -117,3 +117,22 @@ class MetaNet(nn.Module):
 
     def forward(self, x):
         return self.net(x)
+
+
+class MetaFusion(nn.Module):
+    """Encode Q statistics into state-aligned context features."""
+
+    def __init__(self, state_dim, q_stats_dim=2, q_hidden_dim=64):
+        super().__init__()
+        self.q_stats_encoder = nn.Sequential(
+            nn.Linear(q_stats_dim, q_hidden_dim),
+            nn.LayerNorm(q_hidden_dim),
+            nn.ReLU(inplace=True),
+            nn.Linear(q_hidden_dim, state_dim),
+            nn.LayerNorm(state_dim),
+            nn.ReLU(inplace=True),
+        )
+
+    def forward(self, q_mean, q_std):
+        q_stats = torch.cat([q_mean, q_std], dim=1)
+        return self.q_stats_encoder(q_stats)

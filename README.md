@@ -59,7 +59,7 @@
 observation_space = {
     "depth": (seq_len, 128, 128),    # 深度图像序列
     "gray": (seq_len, 128, 128),     # 灰度图像序列  
-    "base": (10,)                     # 状态向量
+    "base": (8,)                     # 状态向量
 }
 ```
 
@@ -67,7 +67,7 @@ observation_space = {
 - `[dx, dy]`: 相对目标位置
 - `[altitude]`: 当前高度
 - `[forward_speed, z_velocity, yaw_rate]`: 速度信息
-- `[pitch, roll, yaw]`: 姿态角度
+- `[yaw]`: 偏航角
 - `[relative_angle_to_target]`: 朝向目标角度
 
 ### 动作空间

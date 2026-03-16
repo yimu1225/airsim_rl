@@ -126,10 +126,18 @@ class ConvGAMMambaEncoder(nn.Module):
 
         # self.gam = GAMAttention(f5)  # Removed, now embedded in conv_backbone
 
+        # Infer token dimension from real conv output to avoid shape mismatch
+        # when backbone channels differ from hardcoded assumptions.
+        with torch.no_grad():
+            dummy = torch.zeros(1, input_channels, input_height, input_width)
+            feat = self.conv_backbone(dummy)
+            self.token_h, self.token_w = feat.shape[-2], feat.shape[-1]
+            token_dim = feat.shape[1]
+
         self.mamba_stack = nn.ModuleList(
             [
                 MambaBlock(
-                    dim=f5,
+                    dim=token_dim,
                     d_state=mamba_d_state,
                     d_conv=mamba_d_conv,
                     expand=mamba_expand,
@@ -138,15 +146,9 @@ class ConvGAMMambaEncoder(nn.Module):
             ]
         )
 
-        self.proj = nn.Linear(f5, feature_dim)
+        self.proj = nn.Linear(token_dim, feature_dim)
         self.norm = nn.LayerNorm(feature_dim)
-
         self.repr_dim = feature_dim
-
-        with torch.no_grad():
-            dummy = torch.zeros(1, input_channels, input_height, input_width)
-            feat = self.conv_backbone(dummy)
-            self.token_h, self.token_w = feat.shape[-2], feat.shape[-1]
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         if x.dim() == 3:

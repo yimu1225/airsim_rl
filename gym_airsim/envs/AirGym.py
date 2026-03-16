@@ -55,7 +55,7 @@ class AirSimEnv(gym.Env):
         self.stack_frames = stack_frames
         self.episode_reward = 0
 
-        self.base_dim = 10
+        self.base_dim = 8
         self.depth_shape = (self.stack_frames, STATE_DEPTH_H, STATE_DEPTH_W)
 
         self.observation_space = spaces.Dict({
@@ -92,6 +92,7 @@ class AirSimEnv(gym.Env):
         algorithm_name = getattr(config, "algorithm_name", "")
         self.use_curriculum = algorithm_name.startswith("CL-")
         self.curriculum_start_level = getattr(config, "curriculum_start_level", 0)
+        self.non_curriculum_level = getattr(config, "non_curriculum_level", 3)
         
         # Level 到配置字典的映射
         level_config_map = {
@@ -105,7 +106,7 @@ class AirSimEnv(gym.Env):
         if self.use_curriculum:
             target_level = self.curriculum_start_level
         else:
-            target_level = 3
+            target_level = self.non_curriculum_level
         self.level = target_level
         
         # 关键：先创建 GameConfigHandler 并写入 JSON，确保 UE4 启动时能读取正确的配置
@@ -123,8 +124,9 @@ class AirSimEnv(gym.Env):
         # 立即采样并写入 JSON，使用确定性采样（change_counter=0 表示初始环境）
         # 这必须在 UE4 启动之前完成！
         sample_vars = ["Seed", "ArenaSize", "NumberOfObjects", "End", "Walls1"]
-        if target_level == 3:
-            sample_vars.append("NumberOfDynamicObjects")
+        # Always sample dynamic object count to avoid carrying stale values from previous runs.
+        # For non-dynamic levels, the configured range is [0], so this deterministically clears dynamics.
+        sample_vars.append("NumberOfDynamicObjects")
         self.game_config_handler.sample(*sample_vars, change_counter=0, base_seed=self.base_seed)
         
         # 现在启动 UE4，它会读取上面写入的 JSON
@@ -372,13 +374,13 @@ class AirSimEnv(gym.Env):
         (注意：此方法仅返回 inform 向量，不处理图像堆叠，图像堆叠在 step 方法中维护)。
         
         Returns:
-            np.array: inform 向量 [相对距离xy, 高度, 前向速度, z速度, 偏航角速度, 姿态角, 朝向目标角度]
+            np.array: inform 向量 [相对距离xy, 高度, 前向速度, z速度, 偏航角速度, 偏航角, 朝向目标角度]
         """
         drone_pos = self.airgym.drone_pos()
         now = drone_pos[:2]
         altitude = -drone_pos[2]  # NED coordinate system, negative z is altitude
         
-        pry = self.airgym.get_ryp()
+        yaw = self.airgym.get_ryp()[2]
         
         # 新的状态向量组成
         self.r_yaw = self.airgym.goal_direction(self.goal, now)
@@ -391,14 +393,14 @@ class AirSimEnv(gym.Env):
         self.velocity = np.array([forward_speed, z_velocity, yaw_rate])  # 用新的速度信息
         self.speed = forward_speed  # 前向速度作为主要速度指标
         
-        # 组合新的状态向量: [相对距离xy(2), 高度(1), 前向速度(1), z速度(1), 偏航角速度(1), 姿态角(3), 朝向目标角度(1)]
+        # 组合新的状态向量: [相对距离xy(2), 高度(1), 前向速度(1), z速度(1), 偏航角速度(1), 偏航角(1), 朝向目标角度(1)]
         inform = np.concatenate((
             self.relative_position,  # [x_dist, y_dist] 
             [altitude],              # [altitude]
             [forward_speed],         # 前向速度
             [z_velocity],           # z轴速度
             [yaw_rate],             # 偏航角速度
-            pry,                    # [pitch, roll, yaw]
+            [yaw],                  # [yaw]
             self.r_yaw              # [relative_angle_to_target]
         ))
         
@@ -410,10 +412,10 @@ class AirSimEnv(gym.Env):
         基于当前环境的实际参数（从 config 和 game_config_handler 获取）
         
         Args:
-            inform: 10维状态向量 [rel_x, rel_y, altitude, fwd_speed, z_vel, yaw_rate, pitch, roll, yaw, angle_to_goal]
+            inform: 8维状态向量 [rel_x, rel_y, altitude, fwd_speed, z_vel, yaw_rate, yaw, angle_to_goal]
         
         Returns:
-            归一化后的10维向量，每个值在[0, 1]范围内
+            归一化后的8维向量，每个值在[0, 1]范围内
         """
         return inform
 
@@ -607,18 +609,18 @@ class AirSimEnv(gym.Env):
             self.print_msg_of_inspiration()
             self.success = True
             msgs.success = True
-            reward = 20.0
+            reward = 100.0
 
         elif collided == True:
             done = True
-            reward = -20.0
+            reward = -100.0
             self.success = False
             # if altitude_violation:
             #     print(f"[终止] 高度越界导致episode终止")
 
         elif self.stepN >= self.config.episode_length:
             done = True
-            reward = -30.0
+            reward = -120.0
             self.success = False
             
         else:

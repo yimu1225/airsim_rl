@@ -35,7 +35,7 @@ easy_range_dic = { "End": ["Mutable"],
                                       "Name": ["Name"],
                                       "NumberOfObjects": list(range(5, 15))}
 medium_range_dic = { "End": ["Mutable"],
-                                      "MinimumDistance": [5,10],
+                                      "MinimumDistance": [4,8],
                                       "EnvType": ["Indoor"],
                                       "ArenaSize": [[40, 40, 10],[45, 45, 10],[55, 55, 10],[50, 50, 10]],
                                       "PlayerStart": [[0, 0, 0]],
@@ -44,9 +44,9 @@ medium_range_dic = { "End": ["Mutable"],
                                       "Seed": list(range(0, 10000)),
                                       "VelocityRange": [[0, 4]],
                                       "Name": ["Name"],
-                                      "NumberOfObjects": list(range(15, 25))}
+                                      "NumberOfObjects": list(range(25, 35))}
 hard_range_dic = { "End": ["Mutable"],
-                                      "MinimumDistance": [5,10],
+                                      "MinimumDistance": [3,5],
                                       "EnvType": ["Indoor"],
                                       "ArenaSize": [[65, 65, 10],[55, 55, 10],[60, 60, 10]],
                                       "PlayerStart": [[0, 0, 0]],
@@ -55,7 +55,7 @@ hard_range_dic = { "End": ["Mutable"],
                                       "Seed": list(range(0, 10000)),
                                       "VelocityRange": [[0, 5]],
                                       "Name": ["Name"],
-                                      "NumberOfObjects": list(range(25, 35))}
+                                      "NumberOfObjects": list(range(40, 60))}
 dynamic_obstacles_dic = { "End": ["Mutable"],
                                       "MinimumDistance": [8,12],
                                       "EnvType": ["Indoor"],
@@ -121,7 +121,7 @@ restart_game_on_param_change = False
 #                               -Drone related-
 ## ------------------------------------------------------------
 #ip = '10.243.49.243'
-ip = '172.20.176.1'
+ip = '127.0.0.1'
 port = 41451  # AirSim API server port
 
 # ---------------------------
@@ -148,12 +148,21 @@ yaw_rate_2_4 = yaw_rate_2_2 * 0.5
 yaw_rate_2_8 = yaw_rate_2_4 * 0.5
 yaw_rate_2_16 = yaw_rate_2_8 * 0.5
 
+# ---------------------------
+# depth image noise (mild)
+# ---------------------------
+# Apply lightweight sensor noise augmentation on depth images (0-255 range).
+enable_depth_noise = True
+depth_gaussian_sigma = 3.0     # std of Gaussian noise (pixel intensity)
+depth_salt_prob = 0.002        # probability of salt pixels
+depth_pepper_prob = 0.002      # probability of pepper pixels
+
 
 # ---------------------------
 # general params
 # ---------------------------
 nb_max_episodes_steps = 512*3  # pay attention
-success_distance_to_goal = 1.5
+success_distance_to_goal = 2
 slow_down_activation_distance =  2*success_distance_to_goal  # detrmines at which distance we will punish the higher velocities
 
 # ---------------------------
