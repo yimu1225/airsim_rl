@@ -1,11 +1,10 @@
 import numpy as np
 import torch
 import torch.nn.functional as F
-from torch import nn
 from torch.optim import Adam
 
 from ..state_adapter import StateAdapter
-from .networks import Actor, Critic, Encoder, MetaNet
+from .networks import Actor, Critic, Encoder, MetaFusion, MetaNet
 from .buffer import ReplayBuffer
 
 
@@ -69,9 +68,10 @@ class AETD3Agent:
 
         # Adaptive ensemble
         self.adaptive_k = int(args.adaptive_k)
-        self.adaptive_reg = args.adaptive_reg
-        meta_input_dim = self.state_dim + 2  # state + Q_mean + Q_std
-        self.meta_net = MetaNet(meta_input_dim, self.adaptive_k).to(self.device)
+        self.adaptive_reg_initial = float(args.adaptive_reg)
+        self.adaptive_reg_final = float(getattr(args, "adaptive_reg_final", self.adaptive_reg_initial))
+        self.meta_fusion = MetaFusion(self.state_dim, q_stats_dim=2, q_hidden_dim=64).to(self.device)
+        self.meta_net = MetaNet(self.state_dim * 2, self.adaptive_k).to(self.device)
 
         # Optimizers (Merged params)
         self.actor_params = list(self.actor.parameters()) + list(self.actor_encoder.parameters()) + list(self.actor_base_adapter.parameters())
@@ -80,7 +80,11 @@ class AETD3Agent:
         self.critic_params = list(self.critic.parameters()) + list(self.critic_encoder.parameters()) + list(self.critic_base_adapter.parameters())
         self.critic_optimizer = Adam(self.critic_params, lr=args.critic_lr)
         
-        self.meta_optimizer = Adam(self.meta_net.parameters(), lr=args.adaptive_meta_lr)
+        self.meta_optimizer = Adam(
+            list(self.meta_net.parameters())
+            + list(self.meta_fusion.parameters()),
+            lr=args.adaptive_meta_lr,
+        )
 
         self.discount = args.gamma
         self.tau = args.tau
@@ -94,6 +98,10 @@ class AETD3Agent:
         
         self.replay_buffer = ReplayBuffer(args.buffer_size, n_frames=getattr(args, 'n_frames', 4), seed=seed)
         self.total_it = 0
+
+    def _get_current_adaptive_reg(self, progress_ratio: float) -> float:
+        clamped_progress = float(np.clip(progress_ratio, 0.0, 1.0))
+        return self.adaptive_reg_initial * (1.0 - clamped_progress) + self.adaptive_reg_final * clamped_progress
 
     def _encode(self, depth_batch: torch.Tensor, encoder) -> torch.Tensor:
         if depth_batch.dim() == 3:
@@ -186,9 +194,9 @@ class AETD3Agent:
 
         q_mean = q_samples.mean(dim=1)
         q_std = q_samples.std(dim=1)
-        
-        # MetaNet input needs next_states (from critic encoder)
-        meta_input = torch.cat([next_states, q_mean, q_std], dim=1)
+
+        q_context = self.meta_fusion(q_mean, q_std)
+        meta_input = torch.cat([next_states, q_context], dim=1)
         weights = F.softmax(self.meta_net(meta_input), dim=1)  # (batch, K)
         weighted_q = torch.sum(weights.unsqueeze(-1) * q_samples, dim=1)  # (batch, 1)
         target_Q = rewards + (1 - dones) * self.discount * weighted_q
@@ -197,7 +205,8 @@ class AETD3Agent:
         critic_loss = F.mse_loss(current_Q1, target_Q) + F.mse_loss(current_Q2, target_Q)
 
         weight_entropy = -(weights * torch.log(weights + 1e-8)).sum(dim=1).mean()
-        adaptive_loss = -self.adaptive_reg * weight_entropy
+        current_adaptive_reg = self._get_current_adaptive_reg(progress_ratio)
+        adaptive_loss = -current_adaptive_reg * weight_entropy
         total_critic_loss = critic_loss + adaptive_loss
 
         self.critic_optimizer.zero_grad()
@@ -206,6 +215,7 @@ class AETD3Agent:
         torch.nn.utils.clip_grad_norm_(self.critic.parameters(), max_norm=self.grad_clip)
         torch.nn.utils.clip_grad_norm_(self.critic_encoder.parameters(), max_norm=self.grad_clip)
         torch.nn.utils.clip_grad_norm_(self.meta_net.parameters(), max_norm=self.grad_clip)
+        torch.nn.utils.clip_grad_norm_(self.meta_fusion.parameters(), max_norm=self.grad_clip)
         self.critic_optimizer.step()
         self.meta_optimizer.step()
 
@@ -251,6 +261,9 @@ class AETD3Agent:
         return {
             'actor_loss': actor_loss.item() if isinstance(actor_loss, torch.Tensor) else actor_loss,
             'critic_loss': critic_loss.item(),
+            'meta_weight_entropy': weight_entropy.item(),
+            'meta_weight_max': weights.max(dim=1).values.mean().item(),
+            'adaptive_reg': current_adaptive_reg,
         }
 
     def save(self, filename: str):
@@ -268,6 +281,7 @@ class AETD3Agent:
                 "critic_encoder_target": self.critic_encoder_target.state_dict(),
                 "critic_base_adapter": self.critic_base_adapter.state_dict(),
                 "critic_base_adapter_target": self.critic_base_adapter_target.state_dict(),
+                "meta_fusion": self.meta_fusion.state_dict(),
                 "meta_net": self.meta_net.state_dict(),
                 "actor_optimizer": self.actor_optimizer.state_dict(),
                 "critic_optimizer": self.critic_optimizer.state_dict(),
@@ -303,7 +317,13 @@ class AETD3Agent:
             self.critic_encoder.load_state_dict(checkpoint["encoder"])
             self.critic_encoder_target.load_state_dict(checkpoint["encoder"])
             
-        self.meta_net.load_state_dict(checkpoint["meta_net"])
+        if "meta_fusion" in checkpoint:
+            self.meta_fusion.load_state_dict(checkpoint["meta_fusion"])
+        if "meta_net" in checkpoint:
+            try:
+                self.meta_net.load_state_dict(checkpoint["meta_net"])
+            except RuntimeError:
+                print("[AETD3] Skip loading meta_net due to shape mismatch (likely old checkpoint format).")
         
         self.actor_optimizer.load_state_dict(checkpoint["actor_optimizer"])
         self.critic_optimizer.load_state_dict(checkpoint["critic_optimizer"])

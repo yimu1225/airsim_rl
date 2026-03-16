@@ -4,7 +4,7 @@ import torch.nn.functional as F
 from torch.optim import Adam
 
 from ..state_adapter import StateAdapter
-from ..aetd3.networks import Actor, Critic, Encoder, MetaNet
+from ..aetd3.networks import Actor, Critic, Encoder, MetaFusion, MetaNet
 from ..per_buffer import PrioritizedReplayBuffer
 
 
@@ -63,9 +63,10 @@ class PERAETD3Agent:
 
         # Adaptive ensemble
         self.adaptive_k = int(args.adaptive_k)
-        self.adaptive_reg = args.adaptive_reg
-        meta_input_dim = self.state_dim + 2
-        self.meta_net = MetaNet(meta_input_dim, self.adaptive_k).to(self.device)
+        self.adaptive_reg_initial = float(args.adaptive_reg)
+        self.adaptive_reg_final = float(getattr(args, "adaptive_reg_final", self.adaptive_reg_initial))
+        self.meta_fusion = MetaFusion(self.state_dim, q_stats_dim=2, q_hidden_dim=64).to(self.device)
+        self.meta_net = MetaNet(self.state_dim * 2, self.adaptive_k).to(self.device)
 
         self.actor_params = list(self.actor.parameters()) + list(self.actor_encoder.parameters()) + list(self.actor_base_adapter.parameters())
         self.actor_optimizer = Adam(self.actor_params, lr=args.actor_lr)
@@ -73,7 +74,11 @@ class PERAETD3Agent:
         self.critic_params = list(self.critic.parameters()) + list(self.critic_encoder.parameters()) + list(self.critic_base_adapter.parameters())
         self.critic_optimizer = Adam(self.critic_params, lr=args.critic_lr)
         
-        self.meta_optimizer = Adam(self.meta_net.parameters(), lr=args.adaptive_meta_lr)
+        self.meta_optimizer = Adam(
+            list(self.meta_net.parameters())
+            + list(self.meta_fusion.parameters()),
+            lr=args.adaptive_meta_lr,
+        )
 
         self.discount = args.gamma
         self.tau = args.tau
@@ -88,6 +93,10 @@ class PERAETD3Agent:
 
         self.replay_buffer = PrioritizedReplayBuffer(args.buffer_size, n_frames=getattr(args, 'n_frames', 4), seed=seed)
         self.total_it = 0
+
+    def _get_current_adaptive_reg(self, progress_ratio: float) -> float:
+        clamped_progress = float(np.clip(progress_ratio, 0.0, 1.0))
+        return self.adaptive_reg_initial * (1.0 - clamped_progress) + self.adaptive_reg_final * clamped_progress
 
     def _get_current_noise(self, progress_ratio: float) -> float:
         current_noise = self.exploration_noise * (1 - progress_ratio) + self.exploration_noise_final * progress_ratio
@@ -150,8 +159,9 @@ class PERAETD3Agent:
             q_samples = torch.stack(q_samples, dim=1)
             q_mean = q_samples.mean(dim=1)
             q_std = q_samples.std(dim=1)
-            
-            meta_input = torch.cat([next_state_critic, q_mean, q_std], dim=1)
+
+            q_context = self.meta_fusion(q_mean, q_std)
+            meta_input = torch.cat([next_state_critic, q_context], dim=1)
             adaptive_weights = F.softmax(self.meta_net(meta_input), dim=1)
             
             target_q = torch.sum(adaptive_weights.unsqueeze(-1) * q_samples, dim=1)
@@ -167,10 +177,13 @@ class PERAETD3Agent:
         critic_loss = (weights * (F.mse_loss(current_Q1, target_q, reduction='none') + 
                                   F.mse_loss(current_Q2, target_q, reduction='none'))).mean()
         
-        if self.adaptive_reg > 0:
+        current_adaptive_reg = self._get_current_adaptive_reg(progress_ratio)
+        if current_adaptive_reg > 0:
             # Add entropy regularization for meta-weights
             entropy = -(adaptive_weights * torch.log(adaptive_weights + 1e-8)).sum(dim=1).mean()
-            critic_loss -= self.adaptive_reg * entropy
+            critic_loss -= current_adaptive_reg * entropy
+        else:
+            entropy = torch.zeros((), device=self.device)
 
         self.critic_optimizer.zero_grad()
         self.meta_optimizer.zero_grad()
@@ -178,6 +191,7 @@ class PERAETD3Agent:
         if self.grad_clip > 0:
             torch.nn.utils.clip_grad_norm_(self.critic_params, self.grad_clip)
             torch.nn.utils.clip_grad_norm_(self.meta_net.parameters(), self.grad_clip)
+            torch.nn.utils.clip_grad_norm_(self.meta_fusion.parameters(), self.grad_clip)
         self.critic_optimizer.step()
         self.meta_optimizer.step()
 
@@ -185,7 +199,12 @@ class PERAETD3Agent:
         new_priorities = td_errors.detach().cpu().numpy().flatten()
         self.replay_buffer.update_priorities(indices, new_priorities)
 
-        result = {"critic_loss": critic_loss.item()}
+        result = {
+            "critic_loss": critic_loss.item(),
+            "meta_weight_entropy": entropy.item(),
+            "meta_weight_max": adaptive_weights.max(dim=1).values.mean().item(),
+            "adaptive_reg": current_adaptive_reg,
+        }
 
         if self.total_it % self.policy_freq == 0:
             feat_actor = self.actor_encoder(depths)
@@ -232,6 +251,7 @@ class PERAETD3Agent:
             'critic_encoder': self.critic_encoder.state_dict(),
             'actor_base_adapter': self.actor_base_adapter.state_dict(),
             'critic_base_adapter': self.critic_base_adapter.state_dict(),
+            'meta_fusion': self.meta_fusion.state_dict(),
             'actor_optimizer': self.actor_optimizer.state_dict(),
             'critic_optimizer': self.critic_optimizer.state_dict(),
             'meta_optimizer': self.meta_optimizer.state_dict()
@@ -241,9 +261,15 @@ class PERAETD3Agent:
         checkpoint = torch.load(filename, map_location=self.device)
         self.actor.load_state_dict(checkpoint['actor'])
         self.critic.load_state_dict(checkpoint['critic'])
-        self.meta_net.load_state_dict(checkpoint['meta_net'])
+        if 'meta_net' in checkpoint:
+            try:
+                self.meta_net.load_state_dict(checkpoint['meta_net'])
+            except RuntimeError:
+                print("[PER-AETD3] Skip loading meta_net due to shape mismatch (likely old checkpoint format).")
         self.actor_encoder.load_state_dict(checkpoint['actor_encoder'])
         self.critic_encoder.load_state_dict(checkpoint['critic_encoder'])
+        if 'meta_fusion' in checkpoint:
+            self.meta_fusion.load_state_dict(checkpoint['meta_fusion'])
         if 'actor_base_adapter' in checkpoint:
             self.actor_base_adapter.load_state_dict(checkpoint['actor_base_adapter'])
         if 'critic_base_adapter' in checkpoint:

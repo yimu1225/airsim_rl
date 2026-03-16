@@ -16,6 +16,7 @@ import torch
 import csv
 import cv2  # Added for visualization
 import gc  # Added for memory management
+import inspect
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 
@@ -412,7 +413,19 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, ba
                     )
             else:
                 # Non-recurrent buffer
-                agent.replay_buffer.add(base, state, action, reward, next_base, next_state, done_bool)
+                add_fn = getattr(agent.replay_buffer, "add", None)
+                supports_success_flag = False
+                if callable(add_fn):
+                    try:
+                        supports_success_flag = "is_success" in inspect.signature(add_fn).parameters
+                    except (TypeError, ValueError):
+                        supports_success_flag = False
+
+                if supports_success_flag:
+                    is_success = float(step_info.get("is_success", False)) if isinstance(step_info, dict) else 0.0
+                    agent.replay_buffer.add(base, state, action, reward, next_base, next_state, done_bool, is_success)
+                else:
+                    agent.replay_buffer.add(base, state, action, reward, next_base, next_state, done_bool)
 
             # State Update
             state = next_state
@@ -515,6 +528,40 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, ba
                 
                 writer.add_scalar('loss/actor_loss', avg_actor_loss, total_timesteps)
                 writer.add_scalar('loss/critic_loss', avg_critic_loss, total_timesteps)
+
+                meta_metric_map = {
+                    'adaptive/meta_weight_entropy': 'meta_weight_entropy',
+                    'adaptive/meta_weight_max': 'meta_weight_max',
+                    'adaptive/reg': 'adaptive_reg',
+                }
+                for tb_tag, key in meta_metric_map.items():
+                    values = [info[key] for info in loss_info_list if key in info]
+                    if values:
+                        mean_value = float(np.mean(values))
+                        _raise_if_non_finite(
+                            f"train.{key}",
+                            mean_value,
+                            f"algo={display_algo_name}, total_timesteps={total_timesteps}"
+                        )
+                        writer.add_scalar(tb_tag, mean_value, total_timesteps)
+
+                per_metric_map = {
+                    'per/beta': 'per_beta',
+                    'per/success_sample_ratio_target': 'replay/success_sample_ratio_target',
+                    'per/success_batch_fraction': 'replay/success_batch_fraction',
+                    'per/success_size': 'replay/success_size',
+                    'per/regular_size': 'replay/regular_size',
+                }
+                for tb_tag, key in per_metric_map.items():
+                    values = [info[key] for info in loss_info_list if key in info]
+                    if values:
+                        mean_value = float(np.mean(values))
+                        _raise_if_non_finite(
+                            f"train.{key}",
+                            mean_value,
+                            f"algo={display_algo_name}, total_timesteps={total_timesteps}"
+                        )
+                        writer.add_scalar(tb_tag, mean_value, total_timesteps)
             
             # Memory cleanup after training updates
             if torch.cuda.is_available():

@@ -39,8 +39,9 @@ def get_config(argv=None):
     parser.add_argument("--ci_type", type=str, default="std", choices=["std", "sem"], help="阴影区域类型: std=标准差, sem=标准误差")
 
     # 训练设置 (Training Setup)
-    parser.add_argument("--seed", type=str, default="31,32,33", help="随机种子 (支持逗号分隔多个种子)")
+    parser.add_argument("--seed", type=str, default="32,33", help="随机种子 (支持逗号分隔多个种子)")
     parser.add_argument("--curriculum_start_level", type=int, default=0, choices=[0, 1, 2, 3], help="课程学习起始等级 (0-3, 默认: 0)。注意：算法名以 'CL-' 前缀开头时自动启用课程学习")
+    parser.add_argument("--non_curriculum_level", type=int, default=2, choices=[0, 1, 2, 3], help="非课程学习时的固定难度等级 (0-3, 默认: 3)")
     parser.add_argument("--steps_per_update", type=int, default=20, help='每次更新前收集的步数')
     parser.add_argument("--cuda", action='store_false', default=True, help="是否使用CUDA")
     parser.add_argument("--cuda_deterministic", action='store_false', default=True, help="CUDA是否确定性")
@@ -127,7 +128,20 @@ def get_config(argv=None):
     # Adaptive Ensemble TD3
     parser.add_argument("--adaptive_k", type=int, default=5, help="Ensemble critics 的数量")
     parser.add_argument("--adaptive_reg", type=float, default=0.001, help="Adaptive ensemble 的正则化系数")
+    parser.add_argument("--adaptive_reg_final", type=float, default=0.0001, help="Adaptive ensemble 正则化系数的最终值 (用于线性衰减)")
     parser.add_argument("--adaptive_meta_lr", type=float, default=1e-3, help="元网络 (Meta network) 学习率")
+
+    # PER-TD3 双经验池参数 (Dual-Buffer PER-TD3)
+    parser.add_argument("--per_td3_success_capacity_ratio", type=float, default=0.3, help="成功经验池容量占总buffer比例")
+    parser.add_argument("--per_td3_alpha", type=float, default=0.6, help="PER 优先级指数 alpha")
+    parser.add_argument("--per_td3_priority_eps", type=float, default=1e-6, help="PER 优先级最小平滑项 eps")
+    parser.add_argument("--per_td3_beta_start", type=float, default=0.4, help="PER 重要性采样权重 beta 初始值")
+    parser.add_argument("--per_td3_beta_final", type=float, default=1.0, help="PER 重要性采样权重 beta 最终值")
+    parser.add_argument("--per_td3_mu_low", type=float, default=0.15, help="成功经验优先采样比例 mu 的早期值")
+    parser.add_argument("--per_td3_mu_mid", type=float, default=0.30, help="成功经验优先采样比例 mu 的中期值")
+    parser.add_argument("--per_td3_mu_high", type=float, default=0.45, help="成功经验优先采样比例 mu 的后期值 (不宜过高)")
+    parser.add_argument("--per_td3_mu_step1", type=float, default=0.25, help="mu 阶梯函数第一阈值 (训练进度比例)")
+    parser.add_argument("--per_td3_mu_step2", type=float, default=0.65, help="mu 阶梯函数第二阈值 (训练进度比例)")
     # 连续控制参数 (Continuous Control Parameters)
     parser.add_argument("--min_forward_speed", type=float, default=0.0, help="最小前进速度 (m/s)")
     parser.add_argument("--max_forward_speed", type=float, default=2.0, help="最大前进速度 (m/s)")
@@ -167,7 +181,7 @@ def get_config(argv=None):
 
     
     # AIRSIM 连接参数 (AIRSIM CONNECTION PARAMETERS) 
-    parser.add_argument("--airsim_ip", type=str, default="172.20.176.1", help="AirSim 服务器 IP 地址")
+    parser.add_argument("--airsim_ip", type=str, default="127.0.0.1", help="AirSim 服务器 IP 地址")
     parser.add_argument("--airsim_port", type=int, default=41451, help="AirSim 服务器端口")
     parser.add_argument("--ue4_rpc_fail_threshold", type=int, default=2, help="UE4健康检测中，连续RPC失败达到该次数后触发强制重启")
     parser.add_argument("--ue4_health_check_interval", type=float, default=10.0, help="UE4健康检查最小间隔秒数，降低对训练速度的影响")

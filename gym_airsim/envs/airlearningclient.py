@@ -89,6 +89,12 @@ class AirLearningClient(object):
         self.last_img = np.zeros((1, 128, 128))
         self.width, self.height=128,128 ## 统一使用128x128分辨率
 
+        # Depth noise settings (mild by default, configurable in settings.py).
+        self.enable_depth_noise = getattr(settings, "enable_depth_noise", True)
+        self.depth_gaussian_sigma = float(getattr(settings, "depth_gaussian_sigma", 3.0))
+        self.depth_salt_prob = float(getattr(settings, "depth_salt_prob", 0.002))
+        self.depth_pepper_prob = float(getattr(settings, "depth_pepper_prob", 0.002))
+
         # 使用传入的ip和port，如果为None则使用settings中的默认值
         client_ip = ip if ip is not None else settings.ip
         client_port = port if port is not None else getattr(settings, 'port', 41451)
@@ -104,6 +110,30 @@ class AirLearningClient(object):
 
         #self.z=-3
         # self.z = -0.9 # Now initialized in __init__ arguments
+
+    def _add_depth_noise(self, img):
+        """
+        Add mild Gaussian + salt-and-pepper noise on depth image (0-255 scale).
+        Supports 2D (H, W) and 3D (N, H, W) inputs.
+        """
+        if (not self.enable_depth_noise) or img is None:
+            return img
+
+        noisy = np.array(img, dtype=np.float32, copy=True)
+
+        # Gaussian noise.
+        if self.depth_gaussian_sigma > 0.0:
+            gaussian = np.random.normal(0.0, self.depth_gaussian_sigma, size=noisy.shape).astype(np.float32)
+            noisy += gaussian
+
+        # Salt-and-pepper noise.
+        if self.depth_salt_prob > 0.0 or self.depth_pepper_prob > 0.0:
+            salt_mask = np.random.random(size=noisy.shape) < self.depth_salt_prob
+            pepper_mask = np.random.random(size=noisy.shape) < self.depth_pepper_prob
+            noisy[salt_mask] = 255.0
+            noisy[pepper_mask] = 0.0
+
+        return np.clip(noisy, 0.0, 255.0).astype(np.float32)
 
     def goal_direction(self, goal, pos):
         """
@@ -185,9 +215,11 @@ class AirLearningClient(object):
                  img2d_resized.append(im)
             
             if len(img2d_resized) > 1:
-                return np.stack(img2d_resized, axis=0)
+                depth = np.stack(img2d_resized, axis=0).astype(np.float32)
+                return self._add_depth_noise(depth)
             else:
-                return img2d_resized[0]
+                depth = img2d_resized[0].astype(np.float32)
+                return self._add_depth_noise(depth)
 
 
     def get_ryp(self):
@@ -359,7 +391,7 @@ class AirLearningClient(object):
         """
         # 调用自定义RPC从JSON重载环境
         self.client.client.call('resetUnreal')
-        time.sleep(2.0)  # 给UE引擎时间重建环境 - 1.0s太短会导致连接断开，回调至2.0s
+        time.sleep(3.0)  # 给UE引擎时间重建环境 - 1.0s太短会导致连接断开，回调至2.0s
         return True
 
 
