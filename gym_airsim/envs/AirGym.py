@@ -612,18 +612,18 @@ class AirSimEnv(gym.Env):
             self.print_msg_of_inspiration()
             self.success = True
             msgs.success = True
-            reward = 100.0
+            reward = 20.0
 
         elif collided == True:
             done = True
-            reward = -100.0
+            reward = -20.0
             self.success = False
             # if altitude_violation:
             #     print(f"[终止] 高度越界导致episode终止")
 
         elif self.stepN >= self.config.episode_length:
             done = True
-            reward = -120.0
+            reward = -30.0
             self.success = False
             
         else:
