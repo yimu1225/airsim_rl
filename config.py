@@ -28,8 +28,8 @@ def get_config(argv=None):
     parser.add_argument("--env_name", type=str, default='AirSimEnv-v42', help="要训练的环境名称")  # AirSimEnv-v42  CartPole-v0
 
     # 算法选择 (Algorithm Selection)
-    parser.add_argument("--algorithm_name", type=str, default='CL-ST_3DVimTD3',
-                        help="要训练的算法。支持: td3, ddpg, aetd3, per_td3, per_aetd3, cfc_td3, st_mamba_td3, ST-VimTD3, ST-SVimTD3, ST_3DVimTD3, st_cnn_td3, gam_mamba_td3, ppo。可以是单个，多个（逗号分隔），或组名 ('all', 'base', 'seq')")
+    parser.add_argument("--algorithm_name", type=str, default='CL-ST-DualVimTD3,CL-ST_3DVimTD3',
+                        help="要训练的算法。支持: td3, ddpg, aetd3, per_td3, per_aetd3, cfc_td3, st_mamba_td3, ST-VimTD3, ST-SVimTD3, ST_3DVimTD3, st_cnn_td3, gam_mamba_td3, ST-DualVimTD3 (推荐), dual_videomamba_td3 (兼容旧名), ppo。可以是单个，多个（逗号分隔），或组名 ('all', 'base', 'seq')")
     parser.add_argument("--smooth_window", type=int, default=100, help="平滑窗口大小，用于平滑学习曲线 (仅对移动平均有效)")
     parser.add_argument("--smooth_method", type=str, default="moving", choices=["moving","ema"], help="曲线平滑方法: moving=滑动平均, ema=指数加权平均")
     parser.add_argument("--smooth_alpha", type=float, default=0.99, help="指数加权平均的平滑系数 (0-1)，与TensorBoard一致：数值越大越平滑。内部将转换为 pandas 所需的 alpha=1-smooth_alpha")
@@ -99,9 +99,9 @@ def get_config(argv=None):
     parser.add_argument("--gam_mamba_expand", type=int, default=2, help="GAM-Mamba-TD3中Mamba扩展因子")
 
     # ST-Mamba 参数
-    parser.add_argument("--st_mamba_embed_dim", type=int, default=48, help="ST-Mamba 嵌入维度")
+    parser.add_argument("--st_mamba_embed_dim", type=int, default=64, help="ST-Mamba 嵌入维度")
     parser.add_argument("--st_mamba_depth", type=int, default=1, help="ST-Mamba Block 数量")
-    parser.add_argument("--st_mamba_patch_size", type=int, default=8, help="ST-Mamba Patch 大小")
+    parser.add_argument("--st_mamba_patch_size", type=int, default=16, help="ST-Mamba Patch 大小")
     parser.add_argument("--st_mamba_d_state", type=int, default=16, help="ST-Mamba SSM 状态维度")
     parser.add_argument("--st_mamba_d_conv", type=int, default=4, help="ST-Mamba SSM 卷积宽度")
     parser.add_argument("--st_mamba_expand", type=int, default=2, help="ST-Mamba Block 扩展因子")

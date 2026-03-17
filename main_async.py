@@ -37,6 +37,7 @@ from algorithm.ST_SVimTD3.agent import STSVimTD3Agent
 from algorithm.st_cnn_td3.st_cnn_td3 import ST_CNN_Agent
 from algorithm.gam_mamba_td3.td3 import GAMMambaTD3Agent
 from algorithm.ST_3DVimTD3.agent import ST3DVimTD3Agent
+from algorithm.st_dualvim_td3.agent import DualBranchVideoMambaTD3Agent
 
 
 
@@ -80,9 +81,9 @@ def expand_algorithms(algo_str):
     """
     # Predefined algorithm groups
     groups = {
-        'all': ['td3', 'ddpg', 'aetd3', 'per_td3', 'per_aetd3', 'cfc_td3', 'st_mamba_td3', 'ST-VimTD3', 'ST-SVimTD3', 'st_cnn_td3', 'gam_mamba_td3', 'ST_3DVimTD3'],
+        'all': ['td3', 'ddpg', 'aetd3', 'per_td3', 'per_aetd3', 'cfc_td3', 'st_mamba_td3', 'ST-VimTD3', 'ST-SVimTD3', 'st_cnn_td3', 'gam_mamba_td3', 'ST_3DVimTD3', 'ST-DualVimTD3'],
         'base': ['td3', 'ddpg', 'aetd3', 'per_td3', 'per_aetd3'],
-        'seq': ['cfc_td3', 'st_mamba_td3', 'ST-VimTD3', 'ST-SVimTD3', 'st_cnn_td3', 'ST_3DVimTD3']
+        'seq': ['cfc_td3', 'st_mamba_td3', 'ST-VimTD3', 'ST-SVimTD3', 'st_cnn_td3', 'ST_3DVimTD3', 'ST-DualVimTD3']
     }
     
     # Check if it's a predefined group
@@ -114,7 +115,10 @@ def get_agent_class(algo_name):
         'ST-SVimTD3': STSVimTD3Agent,
         'st_cnn_td3': ST_CNN_Agent,
         'gam_mamba_td3': GAMMambaTD3Agent,
-        'ST_3DVimTD3': ST3DVimTD3Agent
+        'ST_3DVimTD3': ST3DVimTD3Agent,
+        'ST-DualVimTD3': DualBranchVideoMambaTD3Agent,
+        # Backward-compatible alias
+        'dual_videomamba_td3': DualBranchVideoMambaTD3Agent,
     }
     if algo_name in agents:
         return agents[algo_name]
