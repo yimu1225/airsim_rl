@@ -55,7 +55,7 @@ class AirSimEnv(gym.Env):
         self.stack_frames = stack_frames
         self.episode_reward = 0
 
-        self.base_dim = 8
+        self.base_dim = 10
         self.depth_shape = (self.stack_frames, STATE_DEPTH_H, STATE_DEPTH_W)
 
         self.observation_space = spaces.Dict({
@@ -374,13 +374,14 @@ class AirSimEnv(gym.Env):
         (注意：此方法仅返回 inform 向量，不处理图像堆叠，图像堆叠在 step 方法中维护)。
         
         Returns:
-            np.array: inform 向量 [相对距离xy, 高度, 前向速度, z速度, 偏航角速度, 偏航角, 朝向目标角度]
+            np.array: inform 向量 [相对距离xy, 高度, 前向速度, z速度, 偏航角速度, 俯仰角, 横滚角, 偏航角, 朝向目标角度]
         """
         drone_pos = self.airgym.drone_pos()
         now = drone_pos[:2]
         altitude = -drone_pos[2]  # NED coordinate system, negative z is altitude
         
-        yaw = self.airgym.get_ryp()[2]
+        # 获取完整姿态角: [pitch, roll, yaw]
+        pitch, roll, yaw = self.airgym.get_ryp()
         
         # 新的状态向量组成
         self.r_yaw = self.airgym.goal_direction(self.goal, now)
@@ -393,14 +394,16 @@ class AirSimEnv(gym.Env):
         self.velocity = np.array([forward_speed, z_velocity, yaw_rate])  # 用新的速度信息
         self.speed = forward_speed  # 前向速度作为主要速度指标
         
-        # 组合新的状态向量: [相对距离xy(2), 高度(1), 前向速度(1), z速度(1), 偏航角速度(1), 偏航角(1), 朝向目标角度(1)]
+        # 组合新的状态向量: [相对距离xy(2), 高度(1), 前向速度(1), z速度(1), 偏航角速度(1), 俯仰角(1), 横滚角(1), 偏航角(1), 朝向目标角度(1)]
         inform = np.concatenate((
             self.relative_position,  # [x_dist, y_dist] 
             [altitude],              # [altitude]
             [forward_speed],         # 前向速度
             [z_velocity],           # z轴速度
             [yaw_rate],             # 偏航角速度
-            [yaw],                  # [yaw]
+            [pitch],                # [pitch] 俯仰角
+            [roll],                 # [roll] 横滚角
+            [yaw],                  # [yaw] 偏航角
             self.r_yaw              # [relative_angle_to_target]
         ))
         
@@ -412,10 +415,10 @@ class AirSimEnv(gym.Env):
         基于当前环境的实际参数（从 config 和 game_config_handler 获取）
         
         Args:
-            inform: 8维状态向量 [rel_x, rel_y, altitude, fwd_speed, z_vel, yaw_rate, yaw, angle_to_goal]
+            inform: 10维状态向量 [rel_x, rel_y, altitude, fwd_speed, z_vel, yaw_rate, pitch, roll, yaw, angle_to_goal]
         
         Returns:
-            归一化后的8维向量，每个值在[0, 1]范围内
+            归一化后的10维向量，每个值在[0, 1]范围内
         """
         return inform
 

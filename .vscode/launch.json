@@ -1,0 +1,13 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Python: main_async.py (AirSim)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/main_async.py",
+            "console": "integratedTerminal",
+            "justMyCode": true
+        }
+    ]
+}
