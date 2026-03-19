@@ -42,7 +42,7 @@ class CNN(nn.Module):
         f1 = 8
         f2 = 16
         f3 = 32
-        f4 = 48
+        f4 = 32
         # f5 = 48
         f5 = 8
 

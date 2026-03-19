@@ -503,7 +503,8 @@ class AirSimEnv(gym.Env):
                  curvature_penalty = float(np.clip(curvature_penalty, 0.0, 1.0))
 
         # Add penalties to reward
-        r -= jerk_penalty + curvature_penalty + self.config.step_penalty
+        # r -= jerk_penalty + curvature_penalty + self.config.step_penalty
+        r -= self.config.step_penalty
         # print(f"Reward breakdown: base={-distance_now*0.01:.3f}, speed_toward_goal={speed_toward_goal:.3f}, jerk_penalty={jerk_penalty:.3f}, curvature_penalty={curvature_penalty:.3f}, step_penalty={self.config.step_penalty:.3f}, total_reward={r:.3f}")
 
         return r
@@ -784,13 +785,22 @@ class AirSimEnv(gym.Env):
                  collision_info = self.airgym.client.simGetCollisionInfo()
 
         retry_count = 0
-        while ((-now[2]) < 0.5 or collision_info.has_collided) and retry_count < 3:
+        while ((-now[2]) < 0.5 or collision_info.has_collided) and retry_count <= 3:
              print(f"Takeoff attempt {retry_count+1} failed! Height: {-now[2]:.2f}, Collided: {collision_info.has_collided}")
              
              # 随机更换种子并重新加载环境（使用负的 retry 计数避免与正常变化冲突）
              self.game_config_handler.sample('Seed', change_counter=-(retry_count + 1), base_seed=self.base_seed)
-             self.airgym.unreal_reset()
-             self.airgym.AirSim_reset()
+             
+             # 第一次重试使用 unreal_reset，第二次开始重启整个游戏进程
+             if retry_count >= 3 and self.game_handler is not None:
+                 print(f"Takeoff failed {retry_count+1} times, restarting UE4 game process...")
+                 self.game_handler.restart_game()
+                 time.sleep(10)  # 等待游戏完全重启
+                 # 重新初始化 AirSim 客户端
+                 self.airgym = AirLearningClient(z=self.airgym.z, ip=self.config.airsim_ip if self.config else None, port=self.config.airsim_port if self.config else None)
+             else:
+                 self.airgym.unreal_reset()
+                 self.airgym.AirSim_reset()
              
              now = self.airgym.drone_pos()
              collision_info = self.airgym.client.simGetCollisionInfo()

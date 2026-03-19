@@ -28,8 +28,8 @@ def get_config(argv=None):
     parser.add_argument("--env_name", type=str, default='AirSimEnv-v42', help="要训练的环境名称")  # AirSimEnv-v42  CartPole-v0
 
     # 算法选择 (Algorithm Selection)
-    parser.add_argument("--algorithm_name", type=str, default='CL-ST-DualVimTD3,CL-td3',
-                        help="要训练的算法。支持: td3, ddpg, aetd3, per_td3, per_aetd3, cfc_td3, st_mamba_td3, ST-VimTD3, ST-SVimTD3, ST_3DVimTD3, st_cnn_td3, gam_mamba_td3, ST-DualVimTD3 (推荐), dual_videomamba_td3 (兼容旧名), ppo。可以是单个，多个（逗号分隔），或组名 ('all', 'base', 'seq')")
+    parser.add_argument("--algorithm_name", type=str, default='CL-td3,CL-ST-DualVimTD3',
+                        help="要训练的算法。支持: td3, ddpg, aetd3, per_td3, per_aetd3, cfc_td3, st_mamba_td3, ST-VimTD3, ST-SVimTD3, ST_3DVimTD3, st_cnn_td3, gam_mamba_td3, ST-DualVimTD3 (推荐), ppo。可以是单个，多个（逗号分隔），或组名 ('all', 'base', 'seq')")
     parser.add_argument("--smooth_window", type=int, default=100, help="平滑窗口大小，用于平滑学习曲线 (仅对移动平均有效)")
     parser.add_argument("--smooth_method", type=str, default="moving", choices=["moving","ema"], help="曲线平滑方法: moving=滑动平均, ema=指数加权平均")
     parser.add_argument("--smooth_alpha", type=float, default=0.99, help="指数加权平均的平滑系数 (0-1)，与TensorBoard一致：数值越大越平滑。内部将转换为 pandas 所需的 alpha=1-smooth_alpha")
@@ -39,10 +39,10 @@ def get_config(argv=None):
     parser.add_argument("--ci_type", type=str, default="std", choices=["std", "sem"], help="阴影区域类型: std=标准差, sem=标准误差")
 
     # 训练设置 (Training Setup)
-    parser.add_argument("--seed", type=str, default="32,33", help="随机种子 (支持逗号分隔多个种子)")
+    parser.add_argument("--seed", type=str, default="11,12,13", help="随机种子 (支持逗号分隔多个种子)")
     parser.add_argument("--curriculum_start_level", type=int, default=0, choices=[0, 1, 2, 3], help="课程学习起始等级 (0-3, 默认: 0)。注意：算法名以 'CL-' 前缀开头时自动启用课程学习")
     parser.add_argument("--non_curriculum_level", type=int, default=2, choices=[0, 1, 2, 3], help="非课程学习时的固定难度等级 (0-3, 默认: 3)")
-    parser.add_argument("--steps_per_update", type=int, default=20, help='每次更新前收集的步数')
+    parser.add_argument("--steps_per_update", type=int, default=100, help='每次更新前收集的步数')
     parser.add_argument("--cuda", action='store_false', default=True, help="是否使用CUDA")
     parser.add_argument("--cuda_deterministic", action='store_false', default=True, help="CUDA是否确定性")
     parser.add_argument("--n_training_threads", type=int, default=1, help="训练线程数")
@@ -56,14 +56,14 @@ def get_config(argv=None):
     parser.add_argument("--hidden_dim", type=int, default=128, help="隐藏层维度")
     parser.add_argument("--base_feature_dim", type=int, default=32, help="基础状态先映射到该维度，再与视觉特征拼接")
     parser.add_argument("--exploration_noise", type=float, default=0.3, help="探索噪声")
-    parser.add_argument("--exploration_noise_final", type=float, default=0.01, help="最终探索噪声")
+    parser.add_argument("--exploration_noise_final", type=float, default=0.05, help="最终探索噪声")
     parser.add_argument("--batch_size", type=int, default=256, help="批次大小")
-    parser.add_argument("--gamma", type=float, default=0.98, help="折扣因子") 
-    parser.add_argument("--tau", type=float, default=0.003, help="软更新参数")
-    parser.add_argument("--actor_lr", type=float, default=7e-4, help="Actor学习率")
-    parser.add_argument("--critic_lr", type=float, default=7e-4, help="Critic学习率")
-    parser.add_argument("--policy_noise", type=float, default=0.1, help="策略噪声")
-    parser.add_argument("--noise_clip", type=float, default=0.2, help="噪声裁剪")
+    parser.add_argument("--gamma", type=float, default=0.97, help="折扣因子") 
+    parser.add_argument("--tau", type=float, default=0.004, help="软更新参数")
+    parser.add_argument("--actor_lr", type=float, default=5e-4, help="Actor学习率")
+    parser.add_argument("--critic_lr", type=float, default=5e-4, help="Critic学习率")
+    parser.add_argument("--policy_noise", type=float, default=0.2, help="策略噪声")
+    parser.add_argument("--noise_clip", type=float, default=0.3, help="噪声裁剪")
     parser.add_argument("--policy_freq", type=int, default=2, help="策略更新频率")
     parser.add_argument("--grad_clip", type=float, default=10.0, help="梯度裁剪")
 

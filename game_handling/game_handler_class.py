@@ -82,7 +82,7 @@ class GameHandler:
         connection_established = False
         connection_ctr = 0  # counting the number of time tried to connect
         # wait till connected to the multi rotor
-        time.sleep(1)
+        time.sleep(5)
         while not (connection_established):
             try:
                 #os.system(self.press_play_file)
