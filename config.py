@@ -183,6 +183,7 @@ def get_config(argv=None):
     # AIRSIM 连接参数 (AIRSIM CONNECTION PARAMETERS) 
     parser.add_argument("--airsim_ip", type=str, default="127.0.0.1", help="AirSim 服务器 IP 地址")
     parser.add_argument("--airsim_port", type=int, default=41451, help="AirSim 服务器端口")
+    parser.add_argument("--enable_ue4_health_monitor", action="store_true", default=False, help="启用UE4运行时健康监测（Ubuntu直跑默认关闭）")
     parser.add_argument("--ue4_rpc_fail_threshold", type=int, default=2, help="UE4健康检测中，连续RPC失败达到该次数后触发强制重启")
     parser.add_argument("--ue4_health_check_interval", type=float, default=10.0, help="UE4健康检查最小间隔秒数，降低对训练速度的影响")
     parser.add_argument("--ue4_window_check_interval", type=float, default=10.0, help="窗口状态检测间隔秒数（较慢但开销更大，建议大于健康检查间隔）")

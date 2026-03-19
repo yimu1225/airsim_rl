@@ -169,6 +169,7 @@ class AirSimEnv(gym.Env):
         self.screen = None
         self.clock = None
 
+        self.enable_ue4_health_monitor = bool(getattr(config, "enable_ue4_health_monitor", False))
         self.ue4_rpc_fail_count = 0
         self.ue4_rpc_fail_threshold = getattr(config, "ue4_rpc_fail_threshold", 2) 
         self.ue4_health_check_interval = getattr(config, "ue4_health_check_interval", 1.0) 
@@ -262,6 +263,11 @@ class AirSimEnv(gym.Env):
         Check if UE process/RPC is healthy. If not, force restart and reconnect client.
         Returns True if restart/recovery happened.
         """
+        # Ubuntu direct-run default: disable periodic health monitoring overhead.
+        # Keep explicit forced recovery path for exceptional failures.
+        if (not self.enable_ue4_health_monitor) and (not force_restart):
+            return False
+
         now_ts = time.monotonic()
         elapsed = now_ts - self._last_ue4_health_check_ts
         if (not force_restart) and (elapsed < self.ue4_health_check_interval):
@@ -534,7 +540,7 @@ class AirSimEnv(gym.Env):
 
         self.stepN += 1
 
-        if self.check_ue4_status():
+        if self.enable_ue4_health_monitor and self.check_ue4_status():
             state = self.get_obs()
             self.success = False
             info = {
@@ -707,7 +713,8 @@ class AirSimEnv(gym.Env):
         if seed is not None:
             self.seed(seed)
 
-        self.check_ue4_status()
+        if self.enable_ue4_health_monitor:
+            self.check_ue4_status()
         
         # 取消暂停，确保重置和起飞命令可以执行
         self.airgym.client.simPause(False)

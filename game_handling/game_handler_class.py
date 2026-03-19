@@ -1,14 +1,12 @@
 import subprocess
 import os
 import time
-import io
-import csv
+import shutil
 from settings_folder import settings
 from common import utils
 import airsim
 import msgs
 import psutil
-import platform
 
 class GameHandler:
     def __init__(self):
@@ -21,23 +19,29 @@ class GameHandler:
         #self.press_play_file = press_play_dir +"\\press_play\\Debug\\press_play.exe"
         self.ue4_exe_path = settings.unreal_exec
 
-        # WSL2 Compat: Convert game file path to Windows format if we are launching a Windows .exe from Linux
+        # Ubuntu direct-run mode: use native Linux path directly.
         self.game_file_arg = self.game_file
-        if platform.system() == "Linux" and "microsoft" in platform.uname().release.lower() and self.ue4_exe_path.endswith(".exe"):
-            try:
-                self.game_file_arg = subprocess.check_output(["wslpath", "-w", self.game_file]).decode().strip()
-                print(f"WSL2 Mode: Converted game file path to {self.game_file_arg}")
-            except Exception as e:
-                print(f"Warning: Failed to convert path using wslpath: {e}")
 
         # -game: Run in game mode, -WINDOWED: Windowed mode, -VRMode: disable VR
         # -AutomationTest or use PIE (Play In Editor) - but we want standalone game
         self.ue4_params = " -game"+" -ResX="+str(settings.game_resX)+ " -ResY="+str(settings.game_resY)+ \
                           " -WinX="+str(settings.ue4_winX)+ " -WinY="+str(settings.ue4_winY)+ " -Windowed -NOPAUSE"
         self.cmd = str('"'+ self.ue4_exe_path+ '"')+" "+str('"'+ self.game_file_arg+ '"')+ str(self.ue4_params)
-        assert(os.path.exists(self.ue4_exe_path)), "Unreal Editor executable:" + self.ue4_exe_path + "doesn't exist"
+        ue4_exists = os.path.exists(self.ue4_exe_path) or (shutil.which(self.ue4_exe_path) is not None)
+        assert ue4_exists, "Unreal Editor executable:" + self.ue4_exe_path + "doesn't exist"
         assert(os.path.exists(self.game_file)), "game_file: " + self.game_file +  " doesn't exist"
         #assert(os.path.exists(self.press_play_file)), "press_play file: " + self.press_play_file +  " doesn't exist"
+
+    def _editor_process_names(self):
+        if os.name == "nt":
+            return ("UE4Editor.exe", "UnrealEditor.exe")
+        return ("UE4Editor", "UnrealEditor")
+
+    def _find_editor_pids(self):
+        pids = []
+        for name in self._editor_process_names():
+            pids.extend(utils.find_process_id_by_name(name))
+        return sorted(set(pids))
 
 
     def start_game_in_editor(self):
@@ -50,15 +54,13 @@ class GameHandler:
         time.sleep(2)
 
         if(os.name=="nt"):
-            unreal_pids_before_launch = utils.find_process_id_by_name("UE4Editor.exe")
+            unreal_pids_before_launch = self._find_editor_pids()
             # Ensure game_file is quoted in case of spaces
             self.cmd = str('"'+ self.ue4_exe_path+ '"')+" "+str('"'+ self.game_file+ '"')+ str(self.ue4_params)
             subprocess.Popen(self.cmd, shell=True)
             time.sleep(2)
         else:
-            unreal_pids_before_launch = utils.find_process_id_by_name("UE4Editor")
-            if not unreal_pids_before_launch and self.ue4_exe_path.endswith(".exe"):
-                 unreal_pids_before_launch = utils.find_process_id_by_name("UE4Editor.exe")
+            unreal_pids_before_launch = self._find_editor_pids()
 
             # Ensure game_file is quoted in case of spaces
             arg = getattr(self, "game_file_arg", self.game_file)
@@ -72,9 +74,10 @@ class GameHandler:
         # wait till there is a UE4Editor process
         while not (len(diff_proc) == 1):
             time.sleep(3)
-            target_name = "UE4Editor.exe" if (os.name == "nt" or self.ue4_exe_path.endswith(".exe")) else "UE4Editor"
-            current_pids = utils.find_process_id_by_name(target_name)
+            current_pids = self._find_editor_pids()
             diff_proc = (utils.list_diff(current_pids, unreal_pids_before_launch))
+            if len(diff_proc) >= 1:
+                break
 
         settings.game_proc_pid = diff_proc[0]
         #time.sleep(30)
@@ -124,50 +127,38 @@ class GameHandler:
                 pass
 
         for el in tasklist:
-            if "UE4Editor" in el:
+            if ("UE4Editor" in el) or ("UnrealEditor" in el):
                 process1_exist = True
             if "CrashReportClient" in el:
                 process2_exist = True
             if process1_exist and process2_exist:
                 break
 
-        # WSL2 Special Check: psutil cannot see Windows processes, so we must assume they might exist
-        # or rely on the kill command's own error handling.
-        wsl_windows_mode = (os.name == "posix" and self.ue4_exe_path.endswith(".exe"))
-
         if (settings.game_proc_pid == ''):  # if proc not provided, find any Unreal and kill
-            if (process1_exist or wsl_windows_mode):
+            if process1_exist:
                 if(os.name=="nt"):
                     os.system("taskkill /f /im  " + "UE4Editor.exe")
+                    os.system("taskkill /f /im  " + "UnrealEditor.exe")
                 elif(os.name=="posix"):
-                    if self.ue4_exe_path.endswith(".exe"):
-                        # Only run taskkill if in WSL/Win mode
-                        os.system("taskkill.exe /f /im UE4Editor.exe > /dev/null 2>&1")
-                    elif process1_exist: 
-                        # Only run killall if process was actually found in Linux
-                        os.system("killall "+ "UE4Editor")
+                    # Only run killall if process was actually found in Linux
+                    os.system("killall UE4Editor > /dev/null 2>&1")
+                    os.system("killall UnrealEditor > /dev/null 2>&1")
         else:
             if(os.name=="nt"):
                 os.system("taskkill /f /pid  " + str(settings.game_proc_pid))
                 time.sleep(2)
                 settings.game_proc_pid = ''
             elif(os.name=="posix"):
-                if self.ue4_exe_path.endswith(".exe"):
-                    os.system("taskkill.exe /f /pid " + str(settings.game_proc_pid) + " > /dev/null 2>&1")
-                else:
-                    if str(settings.game_proc_pid).strip():
-                        os.system("kill " + str(settings.game_proc_pid))
+                if str(settings.game_proc_pid).strip():
+                    os.system("kill " + str(settings.game_proc_pid))
                 time.sleep(2)
                 settings.game_proc_pid = ''
 
-        if (process2_exist or wsl_windows_mode):
+        if process2_exist:
             if(os.name=="nt"):
                 os.system("taskkill /f /im  " + "CrashReportClient.exe")
             elif(os.name=="posix"):
-                if self.ue4_exe_path.endswith(".exe"):
-                    os.system("taskkill.exe /f /im CrashReportClient.exe > /dev/null 2>&1")
-                elif process2_exist:
-                    os.system("killall " + "CrashReportClient")
+                os.system("killall " + "CrashReportClient")
 
 
 
@@ -187,48 +178,6 @@ class GameHandler:
         if not target_name:
             return False
 
-        # WSL2: psutil cannot see Windows processes reliably, use tasklist.exe.
-        wsl_windows_mode = (os.name == "posix" and self.ue4_exe_path.endswith(".exe"))
-        if wsl_windows_mode:
-            valid_editor_images = {"ue4editor.exe", "unrealeditor.exe"}
-
-            # Prefer known PID check when available.
-            pid_str = str(getattr(settings, "game_proc_pid", "")).strip()
-            if pid_str.isdigit():
-                try:
-                    output = subprocess.check_output(
-                        ["tasklist.exe", "/fi", f"PID eq {pid_str}", "/fo", "csv", "/nh"],
-                        stderr=subprocess.DEVNULL,
-                    ).decode(errors="ignore")
-                    if "No tasks are running" not in output:
-                        rows = list(csv.reader(io.StringIO(output)))
-                        for row in rows:
-                            if len(row) >= 2 and row[1].strip() == pid_str:
-                                image_name = row[0].strip().lower() if len(row) >= 1 else ""
-                                if image_name in valid_editor_images:
-                                    return True
-
-                    # PID no longer belongs to UE process, clear stale cached pid.
-                    settings.game_proc_pid = ''
-                except Exception:
-                    pass
-
-            # Fallback: check by exact image name.
-            try:
-                output = subprocess.check_output(
-                    ["tasklist.exe", "/fi", f"IMAGENAME eq {target_name}", "/fo", "csv", "/nh"],
-                    stderr=subprocess.DEVNULL,
-                ).decode(errors="ignore")
-                if "No tasks are running" in output:
-                    return False
-                rows = list(csv.reader(io.StringIO(output)))
-                for row in rows:
-                    if len(row) >= 1 and row[0].strip().lower() == target_name.lower():
-                        return True
-            except Exception:
-                pass
-            return False
-
         raw_pids = utils.find_process_id_by_name(target_name)
         if not raw_pids:
             return False
@@ -246,7 +195,7 @@ class GameHandler:
         """
         Check whether UE editor process is alive (UE4/UE5 compatible names).
         """
-        target_names = ["UE4Editor.exe", "UnrealEditor.exe"] if (os.name == "nt" or self.ue4_exe_path.endswith(".exe")) else ["UE4Editor", "UnrealEditor"]
+        target_names = ["UE4Editor.exe", "UnrealEditor.exe"] if os.name == "nt" else ["UE4Editor", "UnrealEditor"]
         for target_name in target_names:
             if self._is_target_process_alive(target_name):
                 return True
@@ -254,46 +203,9 @@ class GameHandler:
 
     def is_game_window_alive(self):
         """
-        Check whether UE editor has a visible main window.
-        Returns:
-            True  -> at least one UE process has a visible window
-            False -> UE process exists but no visible window
-            None  -> unsupported platform/mode (cannot determine)
+        Ubuntu direct-run mode does not use window-health probing.
+        Returns None to indicate "not checked".
         """
-        # This check is mainly for Windows/WSL with .exe runtime.
-        if not (os.name == "nt" or self.ue4_exe_path.endswith(".exe")):
-            return None
-
-        process_names = ["UE4Editor.exe", "UnrealEditor.exe"]
-        for process_name in process_names:
-            try:
-                output = subprocess.check_output(
-                    ["tasklist.exe", "/v", "/fi", f"IMAGENAME eq {process_name}", "/fo", "csv", "/nh"],
-                    stderr=subprocess.DEVNULL,
-                ).decode(errors="ignore").strip()
-                if "No tasks are running" in output:
-                    continue
-
-                rows = list(csv.reader(io.StringIO(output)))
-                for row in rows:
-                    # tasklist /v /fo csv columns:
-                    # Image Name, PID, Session Name, Session#, Mem Usage, Status, User Name, CPU Time, Window Title
-                    if len(row) < 9:
-                        continue
-                    image_name = row[0].strip().lower()
-                    window_title = row[8].strip()
-                    if image_name == process_name.lower() and window_title and window_title.upper() != "N/A":
-                        return True
-
-                # Matching process exists but no visible title -> treat as window gone.
-                if any(len(r) >= 1 and r[0].strip().lower() == process_name.lower() for r in rows):
-                    return False
-            except Exception:
-                continue
-
-        # If process is alive but no window detected, treat as unhealthy.
-        if self.is_game_process_alive():
-            return False
         return None
 
     def probe_game_health(self, check_window=True):
