@@ -358,7 +358,7 @@ exit
 # 重新进入容器（宿主机执行）
 docker start airsim_rl
 docker exec -it airsim_rl bash
-
+exit
 # 以 yimu 用户进入
 docker exec -it -u yimu airsim_rl bash
 ```
