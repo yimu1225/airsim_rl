@@ -348,9 +348,7 @@ SDL_VIDEODRIVER=x11 SDL_AUDIODRIVER=dummy \
   ./Engine/Binaries/Linux/UE4Editor /workspace/airlearning-ue4/AirLearning.uproject \
   -opengl4 -nosplash -windowed -ResX=1280 -ResY=720 -log
 ```
-./UnrealEngine-staging-4.18/Engine/Build/BatchFiles/Linux/Build.sh JsonParsing18VersionEditor Linux Development /home/admin/DRL_Project/airlearning-ue4/AirLearning.uproject -waitmutex
-
-export DISPLAY=:1 && SDL_VIDEODRIVER=x11 SDL_AUDIODRIVER=dummy ./UnrealEngine-staging-4.18/Engine/Binaries/Linux/UE4Editor /home/admin/DRL_Project/airlearning-ue4/AirLearning.uproject -opengl4 -nosplash -windowed -ResX=1280 -ResY=720 -log
+export DISPLAY=:1 && SDL_VIDEODRIVER=x11 SDL_AUDIODRIVER=dummy ./UnrealEngine-staging-4.18/Engine/Binaries/Linux/UE4Editor /home/admin/DRL_Project/airlearning-ue4/AirLearning.uproject -game -windowed -ResX=640 -ResY=480 -nosound -noaudio
 ---
 
 ## 11. 容器常用操作
@@ -432,3 +430,11 @@ Incompatible or missing module: libUE4Editor-JsonParsing18Version.so
 ```
 
 解决：执行工程编译命令（见第 9.3 节）。
+
+
+
+
+在 Engine/Build/BatchFiles/Linux/Setup.sh 中找到了 mono-dmcs，直接将其修改为 mono-mcs，然后保存并退出
+确保已经安装了 mono-mcs，可以手动执行以下命令：
+
+sudo apt-get install mono-mcs

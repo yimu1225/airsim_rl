@@ -36,6 +36,7 @@ conda install -c "nvidia/label/cuda-12.8.0" cuda-toolkit=12.8 cuda-nvcc=12.8 nin
 ```bash
 # 请根据实际情况调整 index-url，这里假设使用官方源或镜像源
 pip install torch==2.7.0 torchvision==0.22.0 torchaudio==2.7.0 --index-url https://download.pytorch.org/whl/cu128
+
 ```
 
 ## 4. 编译安装 Causal Conv1d
@@ -56,7 +57,7 @@ unset CXX
 
 ```bash
 # 确保 CUDA 架构列表包含你的 GPU 算力 (例如 RTX 30/40 系列通常包含 8.6, 8.9, 9.0)
-export TORCH_CUDA_ARCH_LIST="8.0 8.6 9.0"
+export TORCH_CUDA_ARCH_LIST="7.5 8.0 8.6 9.0"
 
 pip install causal-conv1d>=1.4.0 --no-build-isolation --verbose
 ```

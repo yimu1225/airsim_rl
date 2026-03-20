@@ -768,33 +768,39 @@ class AirSimEnv(gym.Env):
         collision_info = None
 
         # Robust check for drone position and collision info
-        try:
-             now = self.airgym.drone_pos()
-             collision_info = self.airgym.client.simGetCollisionInfo()
-        except Exception as e:
-             # If getting status fails, try to reconnect heavily
-             print(f"Status check failed after reset: {e}. Retrying with hard reset...")
-             if self.game_handler:
-                 self.game_handler.restart_game()
-                 # Wait for game restart
-                 time.sleep(10)
-                 # Reconnect
-                 self.airgym = AirLearningClient(z=self.airgym.z, ip=self.config.airsim_ip, port=self.config.airsim_port)
-                 now = self.airgym.drone_pos()
-                 collision_info = self.airgym.client.simGetCollisionInfo()
+        def _get_takeoff_status():
+            return self.airgym.drone_pos(), self.airgym.client.simGetCollisionInfo()
 
+        try:
+            now, collision_info = _get_takeoff_status()
+        except Exception as e:
+            # If getting status fails, try to reconnect heavily
+            print(f"Status check failed after reset: {e}. Retrying with hard reset...")
+            self.check_ue4_status(force_restart=True, reason="takeoff_status_query_failed")
+            self.airgym.AirSim_reset()
+            now, collision_info = _get_takeoff_status()
+
+        max_takeoff_retries = 3
         retry_count = 0
-        while ((-now[2]) < 0.5 or collision_info.has_collided) and retry_count < 3:
-             print(f"Takeoff attempt {retry_count+1} failed! Height: {-now[2]:.2f}, Collided: {collision_info.has_collided}")
-             
-             # 随机更换种子并重新加载环境（使用负的 retry 计数避免与正常变化冲突）
-             self.game_config_handler.sample('Seed', change_counter=-(retry_count + 1), base_seed=self.base_seed)
-             self.airgym.unreal_reset()
-             self.airgym.AirSim_reset()
-             
-             now = self.airgym.drone_pos()
-             collision_info = self.airgym.client.simGetCollisionInfo()
-             retry_count += 1
+        while ((-now[2]) < 0.5 or collision_info.has_collided) and retry_count < max_takeoff_retries:
+            print(f"Takeoff attempt {retry_count+1} failed! Height: {-now[2]:.2f}, Collided: {collision_info.has_collided}")
+
+            # 多次失败直接重启游戏（最简单兜底）
+            if retry_count == max_takeoff_retries - 1:
+                print("Takeoff failed multiple times. Restarting game...")
+                self.check_ue4_status(force_restart=True, reason="takeoff_failed_max_retry")
+                self.airgym.AirSim_reset()
+                now, collision_info = _get_takeoff_status()
+                retry_count += 1
+                break
+
+            # 失败次数尚未达到阈值，先尝试软重置
+            self.game_config_handler.sample('Seed', change_counter=-(retry_count + 1), base_seed=self.base_seed)
+            self.airgym.unreal_reset()
+            self.airgym.AirSim_reset()
+
+            now, collision_info = _get_takeoff_status()
+            retry_count += 1
 
         print(f"Takeoff check completed. Total time: {time.time() - start_time:.2f}s, Retries: {retry_count}")
 
