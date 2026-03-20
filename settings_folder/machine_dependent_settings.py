@@ -6,7 +6,7 @@ import os
 #   AIRLEARNING_JSON_FILE
 #   AIRLEARNING_UPROJECT
 #   UNREAL_EDITOR_PATH
-_default_root = os.environ.get("AIRLEARNING_UE4_ROOT", "/home/winter/airlearning-ue4")
+_default_root = os.environ.get("AIRLEARNING_UE4_ROOT", "/home/admin/DRL_Project/airlearning-ue4")
 
 # Valid path to a json file for game configuration
 json_file_addr = os.environ.get(
@@ -26,5 +26,5 @@ unreal_host_shared_dir = ""
 # Path to the Unreal Engine executable (Linux UE editor path).
 unreal_exe_path = os.environ.get(
     "UNREAL_EDITOR_PATH",
-    "/home/winter/UnrealEngine/Engine/Binaries/Linux/UE4Editor",
+    "/home/admin/DRL_Project/UnrealEngine-staging-4.18/Engine/Binaries/Linux/UE4Editor",
 )

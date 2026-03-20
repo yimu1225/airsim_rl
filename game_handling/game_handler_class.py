@@ -25,7 +25,7 @@ class GameHandler:
         # -game: Run in game mode, -WINDOWED: Windowed mode, -VRMode: disable VR
         # -AutomationTest or use PIE (Play In Editor) - but we want standalone game
         self.ue4_params = " -game"+" -ResX="+str(settings.game_resX)+ " -ResY="+str(settings.game_resY)+ \
-                          " -WinX="+str(settings.ue4_winX)+ " -WinY="+str(settings.ue4_winY)+ " -Windowed -NOPAUSE"
+                          " -WinX="+str(settings.ue4_winX)+ " -WinY="+str(settings.ue4_winY)+ " -Windowed -NOPAUSE -nosound -noaudio -RenderOffScreen"
         self.cmd = str('"'+ self.ue4_exe_path+ '"')+" "+str('"'+ self.game_file_arg+ '"')+ str(self.ue4_params)
         ue4_exists = os.path.exists(self.ue4_exe_path) or (shutil.which(self.ue4_exe_path) is not None)
         assert ue4_exists, "Unreal Editor executable:" + self.ue4_exe_path + "doesn't exist"
@@ -57,7 +57,7 @@ class GameHandler:
             unreal_pids_before_launch = self._find_editor_pids()
             # Ensure game_file is quoted in case of spaces
             self.cmd = str('"'+ self.ue4_exe_path+ '"')+" "+str('"'+ self.game_file+ '"')+ str(self.ue4_params)
-            subprocess.Popen(self.cmd, shell=True)
+            subprocess.Popen(self.cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             time.sleep(2)
         else:
             unreal_pids_before_launch = self._find_editor_pids()
@@ -65,7 +65,7 @@ class GameHandler:
             # Ensure game_file is quoted in case of spaces
             arg = getattr(self, "game_file_arg", self.game_file)
             self.cmd = str('"'+ self.ue4_exe_path+ '"')+" "+str('"'+ arg + '"')+ str(self.ue4_params)
-            subprocess.Popen(self.cmd, shell=True)
+            subprocess.Popen(self.cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             time.sleep(2)
 
         diff_proc = []  # a list containing the difference between the previous UE4 processes

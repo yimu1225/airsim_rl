@@ -328,39 +328,16 @@ class AirLearningClient(object):
         """
         重置 AirSim 客户端连接和无人机状态。
         """
-        # 暂停仿真
-        
-        # self.client.simPause(True)
-       
-            
-        # Fast path: reuse existing client to avoid expensive reconnect each episode.
-        # Fallback to reconnect only when these commands fail.
-        try:
-            self.client.reset()
-            self.client.enableApiControl(True)
-            self.client.armDisarm(True)
-        except Exception:
-            current_ip = self.client._client._ip if hasattr(self.client, '_client') and hasattr(self.client._client, '_ip') else settings.ip
-            current_port = self.client._client._port if hasattr(self.client, '_client') and hasattr(self.client._client, '_port') else getattr(settings, 'port', 41451)
+        # 直接暴力抛弃旧连接，创建新连接，跳过 try..except 里的 5 秒超时等待
+        current_ip = self.client._client._ip if hasattr(self.client, '_client') and hasattr(self.client._client, '_ip') else settings.ip
+        current_port = self.client._client._port if hasattr(self.client, '_client') and hasattr(self.client._client, '_port') else getattr(settings, 'port', 41451)
 
-            reconnect_ok = False
-            last_error = None
-            for _ in range(3):
-                try:
-                    self.client = airsim.MultirotorClient(ip=current_ip, port=current_port, timeout_value=5)
-                    self._apply_client_patches()
-                    self.client.confirmConnection()
-                    self.client.reset()
-                    self.client.enableApiControl(True)
-                    self.client.armDisarm(True)
-                    reconnect_ok = True
-                    break
-                except Exception as e:
-                    last_error = e
-                    time.sleep(0.5)
-
-            if not reconnect_ok:
-                raise RuntimeError(f"AirSim_reset confirmConnection failed: {last_error}")
+        self.client = airsim.MultirotorClient(ip=current_ip, port=current_port, timeout_value=5)
+        self._apply_client_patches()
+        self.client.confirmConnection()
+        self.client.reset()
+        self.client.enableApiControl(True)
+        self.client.armDisarm(True)
         
         # 使用 takeoff（移除超时参数以避免兼容性问题）
         # self.client.takeoffAsync().join()

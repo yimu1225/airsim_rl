@@ -1,6 +1,5 @@
 from settings_folder import settings
 import msgs
-import pygame
 import numpy as np
 import math
 import time
@@ -164,12 +163,10 @@ class AirSimEnv(gym.Env):
         # 使用训练配置中的 seed 初始化随机数生成器，确保首次环境采样可复现
         self.success_deque = collections.deque(maxlen=100)
 
-        # Initialize pygame viewer if needed
         self.need_render = need_render
-        self.screen = None
-        self.clock = None
 
-        self.enable_ue4_health_monitor = bool(getattr(config, "enable_ue4_health_monitor", False))
+        # Health Monitor configurations
+        self.enable_ue4_health_monitor = True  # Forced enable
         self.ue4_rpc_fail_count = 0
         self.ue4_rpc_fail_threshold = getattr(config, "ue4_rpc_fail_threshold", 2) 
         self.ue4_health_check_interval = getattr(config, "ue4_health_check_interval", 1.0) 
@@ -180,25 +177,6 @@ class AirSimEnv(gym.Env):
         self._last_window_check_ts = 0.0
         self._cached_process_alive = True
         self._cached_window_alive = None
-        
-        if self.need_render:
-            try:
-                pygame.init()
-                # Set SDL to use X11 on Linux if available
-                import os
-                if os.environ.get('DISPLAY') is None:
-                    os.environ['SDL_VIDEODRIVER'] = 'dummy'
-                self.screen = pygame.display.set_mode((1000, 1000))
-                pygame.display.set_caption("AirSim RL 2D Visualization")
-                self.clock = pygame.time.Clock()
-                print("Initializing 2D rendering viewer with pygame...")
-                # Initial display to show the window
-                pygame.display.flip()
-            except Exception as e:
-                print(f"Failed to initialize pygame rendering: {e}")
-                self.need_render = False
-                self.screen = None
-                self.clock = None
 
         # Initialize previous action for jerk penalty calculation
         if hasattr(self.action_space, 'shape') and self.action_space.shape:
@@ -228,9 +206,7 @@ class AirSimEnv(gym.Env):
                 self.ue4_rpc_fail_count = 0
                 return True
             except Exception as e:
-                if attempt == max_retry - 1:
-                    print(f"WARNING: AirSim reconnect failed after UE recovery ({reason or 'unknown reason'}): {e}")
-                time.sleep(1.5)
+                pass
         return False
 
     def _is_airsim_rpc_alive(self):
@@ -263,8 +239,6 @@ class AirSimEnv(gym.Env):
         Check if UE process/RPC is healthy. If not, force restart and reconnect client.
         Returns True if restart/recovery happened.
         """
-        # Ubuntu direct-run default: disable periodic health monitoring overhead.
-        # Keep explicit forced recovery path for exceptional failures.
         if (not self.enable_ue4_health_monitor) and (not force_restart):
             return False
 
@@ -275,7 +249,7 @@ class AirSimEnv(gym.Env):
         self._last_ue4_health_check_ts = now_ts
 
         # Fast path: process check first (cheap)
-        if self.game_handler:
+        if hasattr(self, 'game_handler') and self.game_handler:
             if (now_ts - self._last_process_check_ts) >= self.ue4_process_check_interval:
                 self._last_process_check_ts = now_ts
                 self._cached_process_alive = self.game_handler.is_game_process_alive()
@@ -322,7 +296,7 @@ class AirSimEnv(gym.Env):
             force_restart = True
             reason = f"rpc_unhealthy_{self.ue4_rpc_fail_count}_times"
 
-        if self.game_handler and force_restart:
+        if hasattr(self, 'game_handler') and self.game_handler and force_restart:
             restarted = self.game_handler.check_and_recover_game(
                 force_restart=force_restart,
                 reason=reason,
@@ -539,7 +513,7 @@ class AirSimEnv(gym.Env):
         """
 
         self.stepN += 1
-
+        
         if self.enable_ue4_health_monitor and self.check_ue4_status():
             state = self.get_obs()
             self.success = False
@@ -550,7 +524,7 @@ class AirSimEnv(gym.Env):
                 "ue4_restarted": True
             }
             return state, 0.0, True, False, info
-        
+
         self.airgym.client.simPause(False)
         if (settings.control_mode == "moveByVelocity"):
 
@@ -712,10 +686,10 @@ class AirSimEnv(gym.Env):
         # 设置种子
         if seed is not None:
             self.seed(seed)
-
+        
         if self.enable_ue4_health_monitor:
             self.check_ue4_status()
-        
+            
         # 取消暂停，确保重置和起飞命令可以执行
         self.airgym.client.simPause(False)
 
@@ -732,18 +706,12 @@ class AirSimEnv(gym.Env):
             #     self.level = 3
             #     self.game_config_handler = GameConfigHandler(range_dic_name="settings.dynamic_obstacles_dic")
             
-
-        # Clear renderer if available
-        if self.need_render and self.screen is not None:
-            self.screen.fill((255, 255, 255))
-            pygame.display.flip()
-        
         print("--- Resetting Episode ---")
         
         # 1. 环境随机化
         env_changed = self.randomize_env()
         
-        # 2. 如果环境变化了，重置 Unreal (障碍物等)
+        # 2. 只有在环境发生变化时才强制重建环境
         if env_changed:
             try:
                 start_time = time.time()
@@ -752,22 +720,28 @@ class AirSimEnv(gym.Env):
             except Exception as e:
                 print(f"Unreal reset failed: {e}")
                 self.check_ue4_status(force_restart=True, reason="unreal_reset_failed")
-        
-        # 3. 重置无人机状态 (不管环境变没变，无人机都得重置)
-        max_retries = 3
-        for attempt in range(max_retries):
+            
+            # 环境发了改变，必定存在连接断开，强制抛弃重建
+            reconnect_start = time.time()
+            self.airgym.AirSim_reset()
+            print(f"AirSim drone reset done (Hard Reconnect). Time: {time.time() - reconnect_start:.2f}s")
+        else:
+            # 环境没有改变时，可以采用软重置 (复用客户端以极速完成)
             try:
-                start_time = time.time()
-                self.airgym.AirSim_reset()
-                print(f"AirSim drone reset done. Time: {time.time() - start_time:.2f}s")
-                break
-            except Exception as e:
-                print(f"AirSim reset failed (attempt {attempt+1}/{max_retries}): {e}")
+                soft_start = time.time()
+                self.airgym.client.reset()
+                self.airgym.client.enableApiControl(True)
+                self.airgym.client.armDisarm(True)
+                self.airgym.client.moveToZAsync(float(self.airgym.z), 1.0)
+                time.sleep(1.0)
+                self.airgym.client.hoverAsync().join()
+                print(f"AirSim drone soft reset done. Time: {time.time() - soft_start:.2f}s")
+            except Exception:
+                # 软复位失败兜底保底
+                fallback_start = time.time()
                 self.check_ue4_status(force_restart=True, reason="airsim_reset_exception")
-                time.sleep(2)
-                if attempt == max_retries - 1:
-                    print("Critical error: Unable to reset AirSim after multiple attempts. Restarting game...")
-                    self.check_ue4_status(force_restart=True, reason="airsim_reset_failed_max_retry")
+                self.airgym.AirSim_reset()
+                print(f"AirSim drone fallback hard reset done. Time: {time.time() - fallback_start:.2f}s")
 
         # 4. 检查起飞结果并自旋重试 (如果失败)
         # Check takeoff status and retry if failed
@@ -884,87 +858,10 @@ class AirSimEnv(gym.Env):
 
     def render(self, mode='human', close=False):
         """
-        渲染环境的 2D debug 视图。
-        
-        绘制目标点(绿色圆)、无人机(紫色圆)和竞技场边界(线条)。
-        
-        Args:
-            mode (str): 'human' 显示窗口, 'rgb_array' 返回图像数组
-            close (bool): 是否关闭窗口
-            
-        Returns:
-            np.array or None
+        渲染环境的 2D debug 视图 (已禁用)。
         """
-        # Return early if rendering is not available
-        if not self.need_render or self.screen is None:
-            return None
-        
-        # Handle pygame events to prevent window from freezing
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                pygame.quit()
-                self.screen = None
-                self.need_render = False
-                return None
-        
-        # Clear screen with white background
-        self.screen.fill((255, 255, 255))
-        
-        # Draw goal (green circle)
-        goal_pos = (int(self.goal[0]*10 + 500), int(self.goal[1]*10 + 500))
-        pygame.draw.circle(self.screen, (64, 200, 26), goal_pos, 30)  # Green color
-        
-        # Draw UAV (purple circle)
-        try:
-            now = self.airgym.drone_pos()
-            uav_pos = (int(now[0]*10 + 500), int(now[1]*10 + 500))
-            pygame.draw.circle(self.screen, (200, 95, 170), uav_pos, 10)  # Purple color
-        except Exception as e:
-            print(f"Error getting drone position for rendering: {e}")
-        
-        # Draw arena boundaries
-        try:
-            size = self.game_config_handler.get_cur_item("ArenaSize")
-            h = int(size[0] * 10)
-            w = int(size[1] * 10)
-            
-            # Calculate boundary positions
-            left = (1000 - h) // 2
-            right = (1000 + h) // 2
-            top = (1000 - w) // 2
-            bottom = (1000 + w) // 2
-            
-            # Draw boundary lines (black)
-            pygame.draw.line(self.screen, (0, 0, 0), (left, top), (right, top), 2)
-            pygame.draw.line(self.screen, (0, 0, 0), (left, top), (left, bottom), 2)
-            pygame.draw.line(self.screen, (0, 0, 0), (right, top), (right, bottom), 2)
-            pygame.draw.line(self.screen, (0, 0, 0), (left, bottom), (right, bottom), 2)
-        except Exception as e:
-            print(f"Error drawing arena boundaries: {e}")
-        
-        # Update display
-        if mode == 'human':
-            pygame.display.flip()
-            if self.clock is not None:
-                self.clock.tick(60)  # 60 FPS
-        
-        # Return RGB array if requested
-        if mode == 'rgb_array':
-            # Convert pygame surface to RGB array
-            try:
-                rgb_array = pygame.surfarray.array3d(self.screen)
-                # Pygame uses RGB order, transpose to get (height, width, channels)
-                rgb_array = rgb_array.transpose([1, 0, 2])
-                return rgb_array
-            except Exception as e:
-                print(f"Error converting screen to RGB array: {e}")
-                return None
-        
         return None
 
     def close(self):
         """Close the environment and clean up resources."""
-        if self.screen is not None:
-            pygame.quit()
-            self.screen = None
-            self.clock = None
+        pass

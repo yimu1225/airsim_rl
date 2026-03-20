@@ -346,7 +346,7 @@ SDL_VIDEODRIVER=x11 SDL_AUDIODRIVER=dummy \
   ./Engine/Binaries/Linux/UE4Editor /workspace/airlearning-ue4/AirLearning.uproject \
   -opengl4 -nosplash -windowed -ResX=1280 -ResY=720 -log
 ```
-
+export DISPLAY=:1 && SDL_VIDEODRIVER=x11 SDL_AUDIODRIVER=dummy ./UnrealEngine-staging-4.18/Engine/Binaries/Linux/UE4Editor /home/admin/DRL_Project/airlearning-ue4/AirLearning.uproject -game -windowed -ResX=640 -ResY=480 -nosound -noaudio
 ---
 
 ## 11. 容器常用操作
