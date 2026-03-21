@@ -163,7 +163,7 @@ USE_CUDA = torch.cuda.is_available()
 Variable = lambda *args, **kwargs: autograd.Variable(*args, **kwargs).cuda() \
                     if USE_CUDA else autograd.Variable(*args, **kwargs)
 
-env = AirSimEnv(need_render=False)
+env = AirSimEnv()
 model_dir = Path('./results') / 'AirSimEnv-v42'/ 'dqn'
 if not model_dir.exists():
     curr_run = 'run1'

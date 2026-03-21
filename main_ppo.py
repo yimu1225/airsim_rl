@@ -272,7 +272,7 @@ def train_ppo_algorithm(env, agent, args, algo_name, device, base_state, depth_i
                         env.game_handler.kill_game_in_editor()
                         time.sleep(2)
                     
-                    env = AirSimEnv(need_render=args.need_render, takeoff_height=args.takeoff_height, config=args, stack_frames=n_frames)
+                    env = AirSimEnv(takeoff_height=args.takeoff_height, config=args, stack_frames=n_frames)
                     env.success_count = old_success_count
                     env.success_deque = old_success_deque
                     env.level = old_level
@@ -376,7 +376,7 @@ def main():
 
             # Initialize Environment
             print(f"Initialize AirSimEnv with n_frames={n_frames} for {algo_name} (seed={seed})...")
-            env = AirSimEnv(need_render=args.need_render, takeoff_height=args.takeoff_height, config=args, stack_frames=n_frames)
+            env = AirSimEnv(takeoff_height=args.takeoff_height, config=args, stack_frames=n_frames)
             if hasattr(env, "action_space") and hasattr(env.action_space, "seed"):
                 env.action_space.seed(seed)
 

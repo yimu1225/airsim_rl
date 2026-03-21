@@ -403,7 +403,7 @@ def sac(device, seed=1, total_steps=int(510000), replay_size=int(150000), gamma=
     torch.manual_seed(seed)
     np.random.seed(seed)
 
-    env = AirSimEnv(need_render=False)
+    env = AirSimEnv()
     #env = gym.make("HalfCheetah-v2")
     env.seed(seed)
 

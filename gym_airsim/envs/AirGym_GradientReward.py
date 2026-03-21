@@ -13,7 +13,7 @@ from gym_airsim.envs.airlearningclient import *
 from common.utils import *
 
 
-class AirSimEnv(gym.Env):
+class AirSimEnvGradientReward(gym.Env):
     """
     AirSim 强化学习环境。
     该类根据 OpenAI Gym 的接口标准实现了 AirSim 环境的包装。
@@ -172,11 +172,32 @@ class AirSimEnv(gym.Env):
         self._cached_process_alive = True
         self._cached_window_alive = None
         
-        # Initialize previous action for jerk penalty calculation
+        # Gradient-map reward hyperparameters (all可通过config覆盖)
+        self.grad_goal_weight = float(getattr(config, "grad_goal_weight", 1.0))
+        self.grad_obstacle_weight = float(getattr(config, "grad_obstacle_weight", 0.35))
+        self.grad_altitude_weight = float(getattr(config, "grad_altitude_weight", 0.25))
+        self.grad_progress_weight = float(getattr(config, "grad_progress_weight", 7.0))
+        self.grad_alignment_weight = float(getattr(config, "grad_alignment_weight", 0.5))
+        self.grad_clearance_weight = float(getattr(config, "grad_clearance_weight", 0.6))
+        self.grad_step_penalty = float(getattr(config, "grad_step_penalty", 0.02))
+        self.grad_reward_clip = float(getattr(config, "grad_reward_clip", 8.0))
+        self.grad_safe_depth_m = float(getattr(config, "grad_safe_depth_m", 1.2))
+        self.grad_depth_floor_m = float(getattr(config, "grad_depth_floor_m", 0.2))
+        self.grad_target_altitude = float(getattr(config, "grad_target_altitude", abs(takeoff_height)))
+        self.grad_success_reward = float(getattr(config, "grad_success_reward", 20.0))
+        self.grad_collision_reward = float(getattr(config, "grad_collision_reward", -20.0))
+        self.grad_timeout_reward = float(getattr(config, "grad_timeout_reward", -30.0))
+
+        # 轨迹与势能缓存（梯度奖励所需）
+        self.prev_position_xy = None
+        self.prev_potential = None
+        self.last_gradient_terms = {}
+
+        # 保留历史动作/速度字段，兼容上层可能读取这些属性的代码
         if hasattr(self.action_space, 'shape') and self.action_space.shape:
             self.prev_action = np.zeros(self.action_space.shape, dtype=np.float32)
         else:
-            self.prev_action = 0  # For discrete actions
+            self.prev_action = 0
         self.prev_velocity = np.zeros(3, dtype=np.float32)
 
     def _reconnect_airsim_client(self, reason=""):
@@ -396,90 +417,121 @@ class AirSimEnv(gym.Env):
         return inform
 
 
-    def computeReward(self, now, action, velocity_after=None):
+    def _extract_depth_frame(self, depth_img):
         """
-        计算每一步的奖励。
-        
-        奖励函数组成：
-        1. 距离惩罚：距离目标越远，惩罚越大。
-        2. 朝向奖励：如果朝向目标飞行 (cos(r_yaw) > 0)，给予速度相关的奖励。
-        3. jerk_penalty：带死区的动作连续性平方惩罚。
-        4. curvature_penalty：带速度门控和角度死区的轨迹曲率平方惩罚。
-        5. step_penalty：每步小惩罚。
-        
-        Args:
-            now (np.array): 当前位置·
-            action: 当前动作
-            velocity_after: 动作执行后的速度 (vx, vy, speed)
-            
-        Returns:
-            float: 计算出的奖励值
+        统一将深度图提取为 (H, W) 单帧浮点数组。
         """
+        if depth_img is None:
+            return np.zeros((128, 128), dtype=np.float32)
+        frame = np.asarray(depth_img, dtype=np.float32)
+        if frame.ndim == 3:
+            frame = frame[0]
+        return frame
 
-        distance_now = np.sqrt(np.power((self.goal[0] - now[0]), 2)
-                               + np.power((self.goal[1] - now[1]), 2)
-                               )
-        now_pos = self.airgym.drone_pos()[:2]
-        r_yaw = self.airgym.goal_direction(self.goal, now_pos)
+    def _estimate_obstacle_depth(self, depth_img):
+        """
+        从深度图估计前向最近障碍距离（米）与左右深度差。
+        """
+        frame = self._extract_depth_frame(depth_img)
+        h, w = frame.shape
+        y0, y1 = int(h * 0.30), int(h * 0.80)
+        x0, x1 = int(w * 0.25), int(w * 0.75)
+        roi = frame[y0:y1, x0:x1]
+        if roi.size == 0:
+            return 10.0, 0.0
 
-        r = -distance_now*0.03#0.02
+        # 深度图范围为[0,255]，原始尺度约对应[0m,10m]
+        depth_q = float(np.percentile(roi, 12.0))
+        nearest_depth_m = max((depth_q / 255.0) * 10.0, self.grad_depth_floor_m)
 
-        speed_toward_goal = 0.0
-        if math.cos(r_yaw) >= 0:
-            speed_toward_goal = self.speed * math.cos(r_yaw)
-            r += speed_toward_goal
+        mid = roi.shape[1] // 2
+        left_mean = float(np.mean(roi[:, :mid])) if mid > 0 else float(np.mean(roi))
+        right_mean = float(np.mean(roi[:, mid:])) if roi.shape[1] - mid > 0 else float(np.mean(roi))
+        lr_balance = (right_mean - left_mean) / 255.0
+        return nearest_depth_m, lr_balance
 
-        # Jerk penalty with deadzone: suppress exploration noise, punish real action jumps.
-        if self.config is not None and hasattr(self.action_space, 'shape') and len(self.action_space.shape) > 0:
-            action_diff = np.abs(action - self.prev_action)
-            action_range = np.array([
-                self.config.max_forward_speed - self.config.min_forward_speed,
-                self.config.max_vertical_speed - (-self.config.max_vertical_speed),  # z velocity range
-                self.config.max_yaw_rate - (-self.config.max_yaw_rate)  # yaw rate range
-            ], dtype=np.float32)
-            action_range = np.maximum(action_range, 1e-6)
-            delta_norm = action_diff / action_range
+    def _compute_gradient_potential(self, now, depth_img):
+        """
+        构造势能函数 Phi(s)：
+        - 目标吸引：距离越近势能越高
+        - 障碍排斥：离障碍越近势能越低
+        - 高度偏差：偏离目标高度势能越低
+        """
+        goal_vec = np.array([self.goal[0] - now[0], self.goal[1] - now[1]], dtype=np.float32)
+        distance_to_goal = float(np.linalg.norm(goal_vec))
+        current_altitude = float(-now[2])  # NED坐标系下高度为 -z
+        altitude_error = abs(current_altitude - self.grad_target_altitude)
 
-            delta_action = 0.15  # 15% action deadzone
-            delta_excess = np.maximum(delta_norm - delta_action, 0.0)
+        nearest_depth_m, lr_balance = self._estimate_obstacle_depth(depth_img)
+        obstacle_risk = 1.0 / (nearest_depth_m + self.grad_depth_floor_m)
 
-            # Per-dimension weights: yaw should be more expensive than translational channels.
-            # Order: [forward, z, yaw]
-            jerk_weights = np.array([0.05, 0.10, 0.05], dtype=np.float32)
-            jerk_penalty = float(np.sum(jerk_weights * np.square(delta_excess)))
-            jerk_penalty = float(np.clip(jerk_penalty, 0.0, 1.0))
+        potential = -(
+            self.grad_goal_weight * distance_to_goal
+            + self.grad_obstacle_weight * obstacle_risk
+            + self.grad_altitude_weight * altitude_error
+        )
+
+        terms = {
+            "distance_to_goal": distance_to_goal,
+            "nearest_depth_m": nearest_depth_m,
+            "lr_balance": lr_balance,
+            "obstacle_risk": obstacle_risk,
+            "altitude_error": altitude_error,
+            "potential": potential
+        }
+        return potential, terms
+
+    def computeReward(self, now, action, velocity_after=None, depth_img=None, prev_xy=None):
+        """
+        梯度地图奖励：
+        1. 势能增量：Phi(s_t+1)-Phi(s_t)
+        2. 梯度方向对齐：位移方向与目标梯度方向夹角余弦
+        3. 近障碍安全余量惩罚
+        4. 每步时间成本
+        """
+        del action, velocity_after  # 新奖励不再使用旧奖励的动作平滑与曲率项
+
+        potential_now, terms = self._compute_gradient_potential(now, depth_img)
+        if self.prev_potential is None:
+            progress = 0.0
         else:
-            jerk_penalty = 0.0
+            progress = float(potential_now - self.prev_potential)
 
-        # Curvature penalty with speed gating and angle deadzone.
-        curvature_penalty = 0.0
-        if velocity_after is not None:
-             v_xy_before = float(self.prev_velocity[2]) # speed is at index 2
-             v_xy_after = float(velocity_after[2])
-             max_fwd_speed = max(float(self.config.max_forward_speed), 1e-6)
+        if prev_xy is None:
+            prev_xy = self.prev_position_xy
 
-             # Adaptive gate for this project: at most 0.5m/s, but not unrealistically high for low-speed setups.
-            #  v_gate = min(0.5, 0.15 * max_fwd_speed)
-            #  v_gate = max(v_gate, 0.1)
-             v_gate = 0.25
-             if v_xy_before > v_gate and v_xy_after > v_gate:
-                 dot_product = np.dot(velocity_after[:2], self.prev_velocity[:2])
-                 cos_theta = dot_product / (v_xy_before * v_xy_after + 1e-6)
-                 cos_theta = np.clip(cos_theta, -1.0, 1.0)
-                 angle_change = float(np.arccos(cos_theta))
+        movement = np.zeros(2, dtype=np.float32)
+        if prev_xy is not None:
+            movement = np.array([now[0] - prev_xy[0], now[1] - prev_xy[1]], dtype=np.float32)
 
-                 delta_angle = math.radians(15.0)
-                 angle_excess = max(angle_change - delta_angle, 0.0)
+        move_norm = float(np.linalg.norm(movement))
+        goal_dir = np.array([self.goal[0] - now[0], self.goal[1] - now[1]], dtype=np.float32)
+        goal_norm = float(np.linalg.norm(goal_dir))
+        if move_norm > 1e-6 and goal_norm > 1e-6:
+            alignment = float(np.dot(movement / move_norm, goal_dir / goal_norm))
+        else:
+            alignment = 0.0
 
-                 curvature_weight = 20.0
-                 curvature_penalty = curvature_weight * (angle_excess ** 2) * (v_xy_after / max_fwd_speed)
-                 curvature_penalty = float(np.clip(curvature_penalty, 0.0, 1.0))
+        nearest_depth_m = float(terms["nearest_depth_m"])
+        clearance_penalty = max(0.0, (self.grad_safe_depth_m - nearest_depth_m) / max(self.grad_safe_depth_m, 1e-6))
 
-        # Add penalties to reward
-        r -= jerk_penalty + curvature_penalty + self.config.step_penalty
-        # print(f"Reward breakdown: base={-distance_now*0.01:.3f}, speed_toward_goal={speed_toward_goal:.3f}, jerk_penalty={jerk_penalty:.3f}, curvature_penalty={curvature_penalty:.3f}, step_penalty={self.config.step_penalty:.3f}, total_reward={r:.3f}")
+        reward = (
+            self.grad_progress_weight * progress
+            + self.grad_alignment_weight * alignment
+            - self.grad_clearance_weight * clearance_penalty
+            - self.grad_step_penalty
+        )
+        reward = float(np.clip(reward, -self.grad_reward_clip, self.grad_reward_clip))
 
-        return r
+        self.prev_potential = potential_now
+        self.last_gradient_terms = {
+            **terms,
+            "progress": progress,
+            "alignment": alignment,
+            "clearance_penalty": clearance_penalty,
+            "reward": reward
+        }
+        return reward
 
 
     #根据控制飞机飞的方式不同，动作空间和step会有不同
@@ -505,6 +557,7 @@ class AirSimEnv(gym.Env):
         """
 
         self.stepN += 1
+        self.last_gradient_terms = {}
 
         if self.check_ue4_status():
             state = self.get_obs()
@@ -517,6 +570,8 @@ class AirSimEnv(gym.Env):
             }
             return state, 0.0, True, False, info
         
+        prev_now = self.airgym.drone_pos()
+
         self.airgym.client.simPause(False)
         if (settings.control_mode == "moveByVelocity"):
 
@@ -585,40 +640,35 @@ class AirSimEnv(gym.Env):
             self.print_msg_of_inspiration()
             self.success = True
             msgs.success = True
-            reward = 20.0
+            reward = self.grad_success_reward
 
         elif collided == True:
             done = True
-            reward = -20.0
+            reward = self.grad_collision_reward
             self.success = False
-            # if altitude_violation:
-            #     print(f"[终止] 高度越界导致episode终止")
+
 
         elif self.stepN >= self.config.episode_length:
             done = True
-            reward = -30.0
+            reward = self.grad_timeout_reward
             self.success = False
             
         else:
-            # 获取当前速度用于奖励计算 (vx, vy, speed)
-            velocity_after = self.airgym.drone_velocity()
-            # 计算基础奖励
-            reward = self.computeReward(now, action, velocity_after=velocity_after)
+            reward = self.computeReward(
+                now=now,
+                action=action,
+                velocity_after=self.airgym.drone_velocity(),
+                depth_img=depth_img,
+                prev_xy=prev_now[:2]
+            )
             done = False
             self.success = False
-            
-            # 检查高度违规（施加惩罚但不终止）
-            if current_altitude < self.min_altitude_penalty:
-                reward -= self.altitude_penalty_value  # 低于惩罚高度阈值，给予固定惩罚
-                # print(f"[最低惩罚高度违规] 当前高度: {current_altitude:.2f}m，惩罚高度: {self.min_altitude_penalty}m，惩罚: -{self.altitude_penalty_value}")
-            if current_altitude > self.max_altitude_penalty:
-                reward -= self.altitude_penalty_value  # 高于惩罚高度阈值，给予固定惩罚
-                # print(f"[最高惩罚高度违规] 当前高度: {current_altitude:.2f}m，惩罚高度: {self.max_altitude_penalty}m，惩罚: -{self.altitude_penalty_value}")
-        
+
         # Accumulate reward for episode
         self.episode_reward += reward
 
         self.prev_state = state
+        self.prev_position_xy = np.array(now[:2], dtype=np.float32)
         self.prev_action = action.copy() if isinstance(action, np.ndarray) else action
         self.prev_velocity = self.airgym.drone_velocity()
 
@@ -634,6 +684,8 @@ class AirSimEnv(gym.Env):
             "altitude_violation": bool(altitude_violation),
             "is_success": bool(self.success)
         }
+        if self.last_gradient_terms:
+            info["gradient_terms"] = self.last_gradient_terms
         return state, reward, done, False, info
 
 
@@ -655,6 +707,9 @@ class AirSimEnv(gym.Env):
         self.stepN = 0
         self.episodeN += 1
         self.episode_reward = 0  # Reset reward accumulator for new episode
+        self.prev_position_xy = None
+        self.prev_potential = None
+        self.last_gradient_terms = {}
 
     def reset(self, *, seed=None, options=None):
         """
@@ -799,6 +854,9 @@ class AirSimEnv(gym.Env):
         self.prev_state = state
         self.prev_action = np.zeros(self.action_space.shape, dtype=np.float32) if hasattr(self.action_space, 'shape') and self.action_space.shape else 0
         self.prev_velocity = self.airgym.drone_velocity()
+        self.prev_position_xy = np.array(now[:2], dtype=np.float32)
+        init_depth = self.depth_stack[-1] if len(self.depth_stack) > 0 else np.zeros((128, 128), dtype=np.float32)
+        self.prev_potential, self.last_gradient_terms = self._compute_gradient_potential(now, init_depth)
         
         # 返回 (obs, info)
         info = {}  # 可以添加额外信息

@@ -59,17 +59,16 @@ def get_config(argv=None):
     parser.add_argument("--exploration_noise_final", type=float, default=0.01, help="最终探索噪声")
     parser.add_argument("--batch_size", type=int, default=256, help="批次大小")
     parser.add_argument("--gamma", type=float, default=0.98, help="折扣因子") 
-    parser.add_argument("--tau", type=float, default=0.003, help="软更新参数")
+    parser.add_argument("--tau", type=float, default=0.005, help="软更新参数")
     parser.add_argument("--actor_lr", type=float, default=7e-4, help="Actor学习率")
     parser.add_argument("--critic_lr", type=float, default=7e-4, help="Critic学习率")
-    parser.add_argument("--policy_noise", type=float, default=0.1, help="策略噪声")
+    parser.add_argument("--policy_noise", type=float, default=0.2, help="策略噪声")
     parser.add_argument("--noise_clip", type=float, default=0.2, help="噪声裁剪")
     parser.add_argument("--policy_freq", type=int, default=2, help="策略更新频率")
     parser.add_argument("--grad_clip", type=float, default=10.0, help="梯度裁剪")
 
     # 可视化 (Visualization)
     parser.add_argument("--render_window", action='store_true', default=False, help="显示实时可视化窗口 (默认开启，可用 --no-render_window 关闭)")
-    parser.add_argument("--need_render", action='store_true', default=False, help="启用2D轨迹渲染窗口 (Gym rendering，用于debug)")
     
     
         
