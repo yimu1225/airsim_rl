@@ -1,1 +1,2 @@
 from gym_airsim.envs.AirGym import AirSimEnv
+from gym_airsim.envs.AirGym_GradientReward import AirSimEnvGradientReward
