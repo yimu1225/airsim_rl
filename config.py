@@ -99,8 +99,8 @@ def get_config(argv=None):
     parser.add_argument("--gam_mamba_expand", type=int, default=2, help="GAM-Mamba-TD3中Mamba扩展因子")
 
     # ST-Mamba 参数
-    parser.add_argument("--st_mamba_embed_dim", type=int, default=32, help="ST-Mamba 嵌入维度")
-    parser.add_argument("--st_mamba_depth", type=int, default=1, help="ST-Mamba Block 数量")
+    parser.add_argument("--st_mamba_embed_dim", type=int, default=64, help="ST-Mamba 嵌入维度")
+    parser.add_argument("--st_mamba_depth", type=int, default=2, help="ST-Mamba Block 数量")
     parser.add_argument("--st_mamba_patch_size", type=int, default=8, help="ST-Mamba Patch 大小")
     parser.add_argument("--st_mamba_d_state", type=int, default=16, help="ST-Mamba SSM 状态维度")
     parser.add_argument("--st_mamba_d_conv", type=int, default=4, help="ST-Mamba SSM 卷积宽度")

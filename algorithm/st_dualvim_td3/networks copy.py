@@ -1,3 +1,4 @@
+import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -6,9 +7,10 @@ from torch.distributions.utils import _standard_normal
 from timm.models.layers import DropPath, trunc_normal_, to_2tuple
 
 from mamba_ssm import Mamba
-from mamba_ssm.ops.selective_scan_interface import selective_scan_fn
-from causal_conv1d import causal_conv1d_fn
-
+try:
+    from mamba_ssm.ops.selective_scan_interface import selective_scan_fn as mamba_selective_scan_fn
+except Exception:
+    mamba_selective_scan_fn = None
 
 
 
@@ -77,6 +79,11 @@ class VisionMambaBlock(nn.Module):
         layer_idx=None,
     ):
         super().__init__()
+        if mamba_selective_scan_fn is None:
+            raise RuntimeError(
+                "mamba_ssm.ops.selective_scan_interface.selective_scan_fn is unavailable. "
+                "Please ensure mamba_ssm (and its CUDA ops) is installed correctly."
+            )
         self.d_model = int(d_model)
         self.d_inner = int(d_model * expand)
 
@@ -129,7 +136,9 @@ class HierarchicalDualMamba(nn.Module):
       - Shared gate z applied to both branches, then summed.
 
     Micro level:
-      - Each branch is a VisionMambaBlock with bidirectional scanning.
+      - Keep two Vim-style branches (spatial + temporal) with independent CLS tokens.
+      - Pack 4 scan routes into one grouped selective scan:
+        spatial forward/backward + temporal forward/backward.
     """
 
     def __init__(
@@ -144,35 +153,32 @@ class HierarchicalDualMamba(nn.Module):
         rms_norm=True,
         residual_in_fp32=True,
         fused_add_norm=True,
+        dt_rank="auto",
+        dt_min=1e-3,
+        dt_max=1e-1,
+        dt_init_floor=1e-4,
+        force_fp32=True,
     ):
         super().__init__()
+        if mamba_selective_scan_fn is None:
+            raise RuntimeError(
+                "mamba_ssm.ops.selective_scan_interface.selective_scan_fn is unavailable. "
+                "Please ensure mamba_ssm (and its CUDA ops) is installed correctly."
+            )
         self.d_model = int(d_model)
         self.d_inner = int(d_model * expand)
         self.n_frames = int(n_frames)
         self.n_patches = int(n_patches)
+        self.d_state = int(d_state)
+        self.k_group = 4
+        self.dt_rank = int(math.ceil(self.d_inner / 16) if dt_rank == "auto" else dt_rank)
+        self.force_fp32 = bool(force_fp32)
 
         self.in_proj = nn.Linear(self.d_model, self.d_inner * 2)
-
-        self.spatial_branch = VisionMambaBlock(
-            d_model=self.d_inner,
-            d_state=d_state,
-            d_conv=d_conv,
-            expand=1,
-            drop_path=drop_path,
-            rms_norm=rms_norm,
-            residual_in_fp32=residual_in_fp32,
-            fused_add_norm=fused_add_norm,
-        )
-        self.temporal_branch = VisionMambaBlock(
-            d_model=self.d_inner,
-            d_state=d_state,
-            d_conv=d_conv,
-            expand=1,
-            drop_path=drop_path,
-            rms_norm=rms_norm,
-            residual_in_fp32=residual_in_fp32,
-            fused_add_norm=fused_add_norm,
-        )
+        use_rms = bool(rms_norm and (RMSNorm is not None))
+        norm_cls = RMSNorm if use_rms else nn.LayerNorm
+        self.spatial_norm = norm_cls(self.d_inner)
+        self.temporal_norm = norm_cls(self.d_inner)
 
         # Branch-specific CLS tokens:
         # spatial branch uses CLS_A; temporal branch uses CLS_B.
@@ -181,129 +187,33 @@ class HierarchicalDualMamba(nn.Module):
         trunc_normal_(self.cls_spatial, std=0.02)
         trunc_normal_(self.cls_temporal, std=0.02)
 
+        # Per-route scan parameters (4 routes):
+        # 0: spatial fwd, 1: spatial bwd, 2: temporal fwd, 3: temporal bwd
+        self.x_proj_weight = nn.Parameter(
+            torch.empty(self.k_group, self.dt_rank + 2 * self.d_state, self.d_inner)
+        )
+        self.dt_projs_weight = nn.Parameter(
+            torch.empty(self.k_group, self.d_inner, self.dt_rank)
+        )
+        self.dt_projs_bias = nn.Parameter(torch.empty(self.k_group, self.d_inner))
+        A = torch.arange(1, self.d_state + 1, dtype=torch.float32).view(1, 1, self.d_state)
+        A = A.repeat(self.k_group, self.d_inner, 1).contiguous()
+        self.A_logs = nn.Parameter(torch.log(A).view(self.k_group * self.d_inner, self.d_state))
+        self.Ds = nn.Parameter(torch.ones(self.k_group * self.d_inner, dtype=torch.float32))
+
+        self.spatial_out_proj = nn.Linear(self.d_inner, self.d_inner)
+        self.temporal_out_proj = nn.Linear(self.d_inner, self.d_inner)
         self.out_proj = nn.Linear(self.d_inner, self.d_model)
         self.drop_path = DropPath(drop_path) if drop_path > 0.0 else nn.Identity()
-        self.grouped_scan_enabled = bool(selective_scan_fn is not None)
 
-    def _prepare_route_scan_inputs(self, mamba_module, hidden_states, reverse=False):
-        # hidden_states: (B, L, d_inner)
-        if reverse:
-            hidden_states = torch.flip(hidden_states, dims=[1])
-
-        bsz, seqlen, _ = hidden_states.shape
-
-        xz = F.linear(hidden_states, mamba_module.in_proj.weight, mamba_module.in_proj.bias)
-        x, z = xz.chunk(2, dim=-1)
-        x = x.transpose(1, 2).contiguous()  # (B, d_inner, L)
-
-        if causal_conv1d_fn is None:
-            x = mamba_module.act(mamba_module.conv1d(x)[..., :seqlen])
-        else:
-            x = causal_conv1d_fn(
-                x,
-                mamba_module.conv1d.weight.squeeze(1),
-                mamba_module.conv1d.bias,
-                activation=mamba_module.activation,
-            )
-
-        x_dbl = mamba_module.x_proj(x.transpose(1, 2).reshape(bsz * seqlen, mamba_module.d_inner))
-        dt, B, C = torch.split(
-            x_dbl,
-            [mamba_module.dt_rank, mamba_module.d_state, mamba_module.d_state],
-            dim=-1,
-        )
-
-        dt = mamba_module.dt_proj.weight @ dt.t()
-        dt = dt.reshape(mamba_module.d_inner, bsz, seqlen).permute(1, 0, 2).contiguous()
-        B = B.reshape(bsz, seqlen, mamba_module.d_state).permute(0, 2, 1).contiguous()
-        C = C.reshape(bsz, seqlen, mamba_module.d_state).permute(0, 2, 1).contiguous()
-        z = z.transpose(1, 2).contiguous()
-
-        A = -torch.exp(mamba_module.A_log.float())
-        D = mamba_module.D.float()
-        delta_bias = mamba_module.dt_proj.bias.float()
-
-        return {
-            "module": mamba_module,
-            "reverse": bool(reverse),
-            "u": x,
-            "delta": dt,
-            "B": B,
-            "C": C,
-            "z": z,
-            "A": A,
-            "D": D,
-            "delta_bias": delta_bias,
-        }
-
-    def _grouped_bidirectional_scan(self, x_spatial, x_temporal):
-        # Route order: spatial fwd / spatial bwd / temporal fwd / temporal bwd
-        routes = [
-            self._prepare_route_scan_inputs(self.spatial_branch.mamba_fwd, x_spatial, reverse=False),
-            self._prepare_route_scan_inputs(self.spatial_branch.mamba_bwd, x_spatial, reverse=True),
-            self._prepare_route_scan_inputs(self.temporal_branch.mamba_fwd, x_temporal, reverse=False),
-            self._prepare_route_scan_inputs(self.temporal_branch.mamba_bwd, x_temporal, reverse=True),
-        ]
-
-        u_group = torch.cat([route["u"] for route in routes], dim=1)
-        delta_group = torch.cat([route["delta"] for route in routes], dim=1)
-        z_group = torch.cat([route["z"] for route in routes], dim=1)
-        A_group = torch.cat([route["A"] for route in routes], dim=0)
-        D_group = torch.cat([route["D"] for route in routes], dim=0)
-        delta_bias_group = torch.cat([route["delta_bias"] for route in routes], dim=0)
-        B_group = torch.stack([route["B"] for route in routes], dim=1)
-        C_group = torch.stack([route["C"] for route in routes], dim=1)
-
-        y_group = selective_scan_fn(
-            u_group,
-            delta_group,
-            A_group,
-            B_group,
-            C_group,
-            D_group,
-            z=z_group,
-            delta_bias=delta_bias_group,
-            delta_softplus=True,
-        )
-        y_routes = list(torch.chunk(y_group, chunks=4, dim=1))
-
-        route_outputs = []
-        for route_idx, route in enumerate(routes):
-            y_route = y_routes[route_idx]
-            if route["reverse"]:
-                y_route = torch.flip(y_route, dims=[-1])
-            y_route = y_route.transpose(1, 2).contiguous()  # (B, L, d_inner)
-            mamba_module = route["module"]
-            y_route = F.linear(y_route, mamba_module.out_proj.weight, mamba_module.out_proj.bias)
-            route_outputs.append(y_route)
-
-        y_spatial = route_outputs[0] + route_outputs[1]
-        y_temporal = route_outputs[2] + route_outputs[3]
-        return y_spatial, y_temporal
-
-    def _forward_grouped_branches(self, spatial_seq, temporal_seq):
-        spatial_residual = spatial_seq
-        temporal_residual = temporal_seq
-
-        spatial_hidden = self.spatial_branch.norm(spatial_seq)
-        temporal_hidden = self.temporal_branch.norm(temporal_seq)
-
-        spatial_xz = self.spatial_branch.in_proj(spatial_hidden)
-        temporal_xz = self.temporal_branch.in_proj(temporal_hidden)
-        x_spatial, z_spatial = spatial_xz.chunk(2, dim=-1)
-        x_temporal, z_temporal = temporal_xz.chunk(2, dim=-1)
-
-        y_spatial_inner, y_temporal_inner = self._grouped_bidirectional_scan(x_spatial, x_temporal)
-
-        y_spatial = (y_spatial_inner * F.silu(z_spatial))
-        y_temporal = (y_temporal_inner * F.silu(z_temporal))
-
-        y_spatial = self.spatial_branch.out_proj(y_spatial)
-        y_temporal = self.temporal_branch.out_proj(y_temporal)
-
-        y_spatial_seq = spatial_residual + self.spatial_branch.drop_path(y_spatial)
-        y_temporal_seq = temporal_residual + self.temporal_branch.drop_path(y_temporal)
-        return y_spatial_seq, y_temporal_seq
+        nn.init.xavier_uniform_(self.x_proj_weight)
+        nn.init.xavier_uniform_(self.dt_projs_weight)
+        dt = torch.exp(
+            torch.rand(self.k_group, self.d_inner) * (math.log(dt_max) - math.log(dt_min)) + math.log(dt_min)
+        ).clamp(min=dt_init_floor)
+        inv_dt = dt + torch.log(-torch.expm1(-dt))
+        with torch.no_grad():
+            self.dt_projs_bias.copy_(inv_dt)
 
     def forward(self, hidden_states):
         # hidden_states: (B, T, N, d_model)
@@ -319,24 +229,74 @@ class HierarchicalDualMamba(nn.Module):
 
         # Branch A: spatial-priority order (t, n)
         # [CLS_A, F1P1..F1PN, F2P1..F2PN, ...]
-        x_spatial_seq = x.reshape(bsz, frames * tokens, self.d_inner)
+        l = frames * tokens
         cls_spatial = self.cls_spatial.expand(bsz, -1, -1)
-        spatial_seq = torch.cat([cls_spatial, x_spatial_seq], dim=1)
+        spatial_seq = torch.cat([cls_spatial, x.reshape(bsz, l, self.d_inner)], dim=1)
 
         # Branch B: temporal-priority order (n, t)
         # [CLS_B, F1P1,F2P1..FTP1, F1P2,F2P2.., ...]
-        x_temporal_seq = x.permute(0, 2, 1, 3).reshape(bsz, tokens * frames, self.d_inner)
         cls_temporal = self.cls_temporal.expand(bsz, -1, -1)
-        temporal_seq = torch.cat([cls_temporal, x_temporal_seq], dim=1)
+        temporal_seq = torch.cat(
+            [cls_temporal, x.permute(0, 2, 1, 3).reshape(bsz, l, self.d_inner)],
+            dim=1,
+        )
 
-        if self.grouped_scan_enabled:
-            y_spatial_seq, y_temporal_seq = self._forward_grouped_branches(spatial_seq, temporal_seq)
-        else:
-            y_spatial_seq = self.spatial_branch(spatial_seq)
-            y_temporal_seq = self.temporal_branch(temporal_seq)
+        spatial_seq_n = self.spatial_norm(spatial_seq)
+        temporal_seq_n = self.temporal_norm(temporal_seq)
 
-        y_spatial = y_spatial_seq[:, 1:, :].reshape(bsz, frames, tokens, self.d_inner)
-        y_temporal = y_temporal_seq[:, 1:, :].reshape(bsz, tokens, frames, self.d_inner).permute(0, 2, 1, 3)
+        # Pack 4 routes and run one grouped selective scan.
+        # routes: [spatial fwd, spatial bwd, temporal fwd, temporal bwd]
+        routes = torch.stack(
+            [
+                spatial_seq_n,
+                spatial_seq_n.flip(dims=[1]),
+                temporal_seq_n,
+                temporal_seq_n.flip(dims=[1]),
+            ],
+            dim=1,
+        )  # (B, 4, L+1, D)
+        route_len = routes.shape[2]
+        routes_scan = routes.permute(0, 1, 3, 2).contiguous()  # (B, 4, D, L+1)
+
+        x_dbl = torch.einsum("b k d l, k c d -> b k c l", routes_scan, self.x_proj_weight)
+        dts, Bs, Cs = torch.split(x_dbl, [self.dt_rank, self.d_state, self.d_state], dim=2)
+        dts = torch.einsum("b k r l, k d r -> b k d l", dts, self.dt_projs_weight)
+
+        u = routes_scan.reshape(bsz, -1, route_len)
+        delta = dts.contiguous().reshape(bsz, -1, route_len)
+        As = -self.A_logs.float().exp()
+        Ds = self.Ds.float()
+        delta_bias = self.dt_projs_bias.reshape(-1).float()
+
+        if self.force_fp32:
+            u = u.float()
+            delta = delta.float()
+            Bs = Bs.float()
+            Cs = Cs.float()
+
+        ys = mamba_selective_scan_fn(
+            u,
+            delta,
+            As,
+            Bs.contiguous(),
+            Cs.contiguous(),
+            Ds,
+            z=None,
+            delta_bias=delta_bias,
+            delta_softplus=True,
+        ).view(bsz, self.k_group, self.d_inner, route_len)
+
+        spatial_out = ys[:, 0] + ys[:, 1].flip(dims=[-1])  # (B, D, L+1)
+        temporal_out = ys[:, 2] + ys[:, 3].flip(dims=[-1])  # (B, D, L+1)
+        spatial_out = spatial_out.transpose(1, 2).contiguous()  # (B, L+1, D)
+        temporal_out = temporal_out.transpose(1, 2).contiguous()  # (B, L+1, D)
+
+        # Branch-local residual + projection (Vim-like branch identity kept).
+        spatial_seq = spatial_seq + self.drop_path(self.spatial_out_proj(spatial_out))
+        temporal_seq = temporal_seq + self.drop_path(self.temporal_out_proj(temporal_out))
+
+        y_spatial = spatial_seq[:, 1:, :].reshape(bsz, frames, tokens, self.d_inner)
+        y_temporal = temporal_seq[:, 1:, :].reshape(bsz, tokens, frames, self.d_inner).permute(0, 2, 1, 3)
 
         y = (y_spatial * z) + (y_temporal * z)
         y = y.reshape(bsz, frames * tokens, self.d_inner)
@@ -374,12 +334,13 @@ class DualBranchVideoMambaEncoder(nn.Module):
     Hierarchical Dual VideoMamba Encoder (对应设计图):
     
     第一层分解 (Macro):
-    - Forward Branch (Spatial Scan): 对每帧内部进行空间双向扫描 (VisionMambaBlock)
-    - Backward Branch (Temporal Scan): 对每空间位置进行时间双向扫描 (VisionMambaBlock)
-    - z Gate: 分别与两个分支输出相乘后相加
+    - Spatial Branch: 空间优先序列 (t, n)
+    - Temporal Branch: 时间优先序列 (n, t)
+    - z Gate: 两分支输出加权融合
     
     第二层分解 (Micro, inside each branch):
-    - 复用 Vision Mamba 结构: Forward SSM + Backward SSM (bi-directional)
+    - 在单次 grouped selective scan 中并行完成:
+      空间前向/后向 + 时间前向/后向 四路扫描
     
     Patch Embedding 使用 Video Mamba 的方式 (3D Conv).
     """

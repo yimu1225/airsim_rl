@@ -4,7 +4,6 @@ import time
 import shutil
 from settings_folder import settings
 from common import utils
-import airsim
 import msgs
 import psutil
 
@@ -45,6 +44,10 @@ class GameHandler:
 
 
     def start_game_in_editor(self):
+        """
+        Start Unreal Editor process only.
+        AirSim client creation/confirmConnection is intentionally handled by AirLearningClient.
+        """
         # if not (settings.ip == '127.0.0.1'):
         #     print("can not start the game in a remote machine")
         #     exit(0)
@@ -80,40 +83,10 @@ class GameHandler:
                 break
 
         settings.game_proc_pid = diff_proc[0]
-        #time.sleep(30)
-        client = airsim.MultirotorClient(settings.ip)
-        connection_established = False
-        connection_ctr = 0  # counting the number of time tried to connect
-        # wait till connected to the multi rotor
-        time.sleep(5)
-        while not (connection_established):
-            try:
-                #os.system(self.press_play_file)
-                # time.sleep(2)
-                client.confirmConnection()
-                connection_established = True
-            except Exception as e:
-                if (connection_ctr >= settings.connection_count_threshold and msgs.restart_game_count >= settings.restart_game_from_scratch_count_threshold):
-                    print("couldn't connect to the UE4Editor multirotor after multiple tries")
-                    print("memory utilization:" + str(psutil.virtual_memory()[2]) + "%")
-                    exit(0)
-                if (connection_ctr == settings.connection_count_threshold):
-                    self.restart_game()
-                print("connection not established yet")
-                time.sleep(5)
-                connection_ctr += 1
-                client = airsim.MultirotorClient(settings.ip)
-                pass
 
-        # Connection is established, game should be ready
-        print("Connection established! Game is ready.")
-        
-        """ 
-		os.system(self.game_file)
-		time.sleep(30) 
-		os.system(self.press_play_file)
-		time.sleep(2)
-		"""
+        time.sleep(15.0)
+        print(f"Game process established (PID: {settings.game_proc_pid}). Connecting will be handled by AirLearningClient.")
+        return settings.game_proc_pid
 
     def kill_game_in_editor(self):
         process1_exist = False
