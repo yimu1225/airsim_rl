@@ -328,57 +328,40 @@ class AirLearningClient(object):
         """
         重置 AirSim 客户端连接和无人机状态。
         """
-        # 暂停仿真
-        
-        # self.client.simPause(True)
-       
-            
-        # Fast path: reuse existing client to avoid expensive reconnect each episode.
-        # Fallback to reconnect only when these commands fail.
-        try:
-            self.client.reset()
-            self.client.enableApiControl(True)
-            self.client.armDisarm(True)
-        except Exception:
-            current_ip = self.client._client._ip if hasattr(self.client, '_client') and hasattr(self.client._client, '_ip') else settings.ip
-            current_port = self.client._client._port if hasattr(self.client, '_client') and hasattr(self.client._client, '_port') else getattr(settings, 'port', 41451)
+        # 不复用旧连接，直接创建新连接。
+        current_ip = self.client._client._ip if hasattr(self.client, '_client') and hasattr(self.client._client, '_ip') else settings.ip
+        current_port = self.client._client._port if hasattr(self.client, '_client') and hasattr(self.client._client, '_port') else getattr(settings, 'port', 41451)
 
-            reconnect_ok = False
-            last_error = None
-            for _ in range(3):
+        last_err = None
+        for attempt in range(2):
+            try:
+                self.client = airsim.MultirotorClient(ip=current_ip, port=current_port, timeout_value=5)
+                self._apply_client_patches()
+                self.client.confirmConnection()
+                self.client.reset()
+                self.client.enableApiControl(True)
+                self.client.armDisarm(True)
+
+                self.client.moveToZAsync(float(self.z), 1.0)
+                time.sleep(1.0)
+                self.client.hoverAsync().join()
+                return
+            except msgpackrpc.error.TimeoutError as e:
+                last_err = e
+                print(f"AirSim_reset timeout ({attempt + 1}/2). Restarting UE and creating a fresh client...")
                 try:
-                    self.client = airsim.MultirotorClient(ip=current_ip, port=current_port, timeout_value=5)
-                    self._apply_client_patches()
-                    self.client.confirmConnection()
-                    self.client.reset()
-                    self.client.enableApiControl(True)
-                    self.client.armDisarm(True)
-                    reconnect_ok = True
-                    break
-                except Exception as e:
-                    last_error = e
-                    time.sleep(0.5)
+                    # Lazy import to avoid circular dependencies.
+                    from game_handling.game_handler_class import GameHandler
+                    GameHandler().restart_game()
+                except Exception as restart_err:
+                    print(f"UE restart attempt failed: {restart_err}")
+                time.sleep(3.0)
+            except Exception as e:
+                last_err = e
+                print(f"AirSim_reset failed ({attempt + 1}/2): {e}")
+                time.sleep(1.0)
 
-            if not reconnect_ok:
-                raise RuntimeError(f"AirSim_reset confirmConnection failed: {last_error}")
-        
-        # 使用 takeoff（移除超时参数以避免兼容性问题）
-        # self.client.takeoffAsync().join()
-        
-        # 移动到指定高度 (self.z 是 NED 坐标，负数为高度)
-        # 例如 self.z = -0.9
-        # self.client.moveToZAsync(float(self.z), 1.0).join()
-        self.client.moveToZAsync(float(self.z), 1.0)
-        time.sleep(1.0)
-
-        self.client.hoverAsync().join()
-        
-        # 重新启动仿真
-        # self.client.simPause(False)
-        
-        # 打印当前起飞高度
-        # pos = self.client.simGetVehiclePose().position
-        # print(f"[AirSim_reset] Reset & Takeoff sequence finished. Current Altitude (Z): {pos.z_val:.4f} (Target: {self.z})")
+        raise RuntimeError(f"AirSim_reset failed after retries: {last_err}")
 
     def unreal_reset(self):
         """

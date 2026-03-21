@@ -77,33 +77,10 @@ class GameHandler:
             diff_proc = (utils.list_diff(current_pids, unreal_pids_before_launch))
 
         settings.game_proc_pid = diff_proc[0]
-        #time.sleep(30)
-        client = airsim.MultirotorClient(settings.ip)
-        connection_established = False
-        connection_ctr = 0  # counting the number of time tried to connect
-        # wait till connected to the multi rotor
-        time.sleep(1)
-        while not (connection_established):
-            try:
-                #os.system(self.press_play_file)
-                # time.sleep(2)
-                client.confirmConnection()
-                connection_established = True
-            except Exception as e:
-                if (connection_ctr >= settings.connection_count_threshold and msgs.restart_game_count >= settings.restart_game_from_scratch_count_threshold):
-                    print("couldn't connect to the UE4Editor multirotor after multiple tries")
-                    print("memory utilization:" + str(psutil.virtual_memory()[2]) + "%")
-                    exit(0)
-                if (connection_ctr == settings.connection_count_threshold):
-                    self.restart_game()
-                print("connection not established yet")
-                time.sleep(5)
-                connection_ctr += 1
-                client = airsim.MultirotorClient(settings.ip)
-                pass
-
-        # Connection is established, game should be ready
-        print("Connection established! Game is ready.")
+        
+        # 等待游戏进程完全启动（不再创建临时client，连接由AirLearningClient负责）
+        time.sleep(5)
+        print("Game process started. Ready for AirSim connection.")
         
         """ 
 		os.system(self.game_file)

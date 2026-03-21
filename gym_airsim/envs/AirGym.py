@@ -735,7 +735,7 @@ class AirSimEnv(gym.Env):
         # 1. 环境随机化
         env_changed = self.randomize_env()
         
-        # 2. 如果环境变化了，重置 Unreal (障碍物等)
+        # 2. 只有在环境发生变化时才强制重建环境
         if env_changed:
             try:
                 start_time = time.time()
@@ -743,23 +743,27 @@ class AirSimEnv(gym.Env):
                 print(f"Unreal environment reset done. Time: {time.time() - start_time:.2f}s")
             except Exception as e:
                 print(f"Unreal reset failed: {e}")
-                self.check_ue4_status(force_restart=True, reason="unreal_reset_failed")
-        
-        # 3. 重置无人机状态 (不管环境变没变，无人机都得重置)
-        max_retries = 3
-        for attempt in range(max_retries):
+            
+            # 环境发了改变，必定存在连接断开，强制抛弃重建
+            reconnect_start = time.time()
+            self.airgym.AirSim_reset()
+            print(f"AirSim drone reset done (Hard Reconnect). Time: {time.time() - reconnect_start:.2f}s")
+        else:
+            # 环境没有改变时，可以采用软重置 (复用客户端以极速完成)
             try:
-                start_time = time.time()
+                soft_start = time.time()
+                self.airgym.client.reset()
+                self.airgym.client.enableApiControl(True)
+                self.airgym.client.armDisarm(True)
+                self.airgym.client.moveToZAsync(float(self.airgym.z), 1.0)
+                time.sleep(1.0)
+                self.airgym.client.hoverAsync().join()
+                print(f"AirSim drone soft reset done. Time: {time.time() - soft_start:.2f}s")
+            except Exception:
+                # 软复位失败兜底保底
+                fallback_start = time.time()
                 self.airgym.AirSim_reset()
-                print(f"AirSim drone reset done. Time: {time.time() - start_time:.2f}s")
-                break
-            except Exception as e:
-                print(f"AirSim reset failed (attempt {attempt+1}/{max_retries}): {e}")
-                self.check_ue4_status(force_restart=True, reason="airsim_reset_exception")
-                time.sleep(2)
-                if attempt == max_retries - 1:
-                    print("Critical error: Unable to reset AirSim after multiple attempts. Restarting game...")
-                    self.check_ue4_status(force_restart=True, reason="airsim_reset_failed_max_retry")
+                print(f"AirSim drone fallback hard reset done. Time: {time.time() - fallback_start:.2f}s")
 
         # 4. 检查起飞结果并自旋重试 (如果失败)
         # Check takeoff status and retry if failed
@@ -780,7 +784,7 @@ class AirSimEnv(gym.Env):
             self.airgym.AirSim_reset()
             now, collision_info = _get_takeoff_status()
 
-        max_takeoff_retries = 3
+        max_takeoff_retries = 5
         retry_count = 0
         while ((-now[2]) < 0.5 or collision_info.has_collided) and retry_count < max_takeoff_retries:
             print(f"Takeoff attempt {retry_count+1} failed! Height: {-now[2]:.2f}, Collided: {collision_info.has_collided}")
