@@ -20,7 +20,9 @@ from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 
 from config import get_config
-from gym_airsim.envs.AirGym import AirSimEnv
+import gymnasium as gym
+import gym_airsim  # noqa: F401 - ensure env ids are registered
+from gym_airsim.envs import AirSimEnv, AirSimEnvGradientReward
 
 # On-Policy Algorithm Imports
 from algorithm.ppo.ppo import PPOAgent
@@ -81,6 +83,40 @@ def get_agent_class(algo_name):
     if algo_name in agents:
         return agents[algo_name]
     raise ValueError(f"Unknown on-policy algorithm: {algo_name}")
+
+
+def create_env_from_name(args, n_frames):
+    """
+    Build environment from --env_name.
+    Supports both registered Gym ids and local aliases.
+    """
+    env_name = str(getattr(args, "env_name", "AirSimEnv-v42")).strip()
+
+    # Local aliases (instantiate directly to avoid wrapper surprises).
+    env_aliases = {
+        "AirSimEnv-v42": AirSimEnv,
+        "AirSimEnv": AirSimEnv,
+        "AirSimEnv-Gradient-v1": AirSimEnvGradientReward,
+        "AirSimEnvGradientReward": AirSimEnvGradientReward,
+    }
+    env_cls = env_aliases.get(env_name)
+    if env_cls is not None:
+        return env_cls(takeoff_height=args.takeoff_height, config=args, stack_frames=n_frames)
+
+    # Fallback: try Gym registry id.
+    try:
+        return gym.make(
+            env_name,
+            takeoff_height=args.takeoff_height,
+            config=args,
+            stack_frames=n_frames,
+        )
+    except Exception as e:
+        supported_aliases = ", ".join(sorted(env_aliases.keys()))
+        raise ValueError(
+            f"Unsupported --env_name '{env_name}'. "
+            f"Supported aliases: {supported_aliases}; or pass a valid gymnasium env id."
+        ) from e
 
 
 def train_ppo_algorithm(env, agent, args, algo_name, device, base_state, depth_image, n_frames):
@@ -272,7 +308,7 @@ def train_ppo_algorithm(env, agent, args, algo_name, device, base_state, depth_i
                         env.game_handler.kill_game_in_editor()
                         time.sleep(2)
                     
-                    env = AirSimEnv(takeoff_height=args.takeoff_height, config=args, stack_frames=n_frames)
+                    env = create_env_from_name(args, n_frames)
                     env.success_count = old_success_count
                     env.success_deque = old_success_deque
                     env.level = old_level
@@ -375,8 +411,11 @@ def main():
             n_frames = args.n_frames
 
             # Initialize Environment
-            print(f"Initialize AirSimEnv with n_frames={n_frames} for {algo_name} (seed={seed})...")
-            env = AirSimEnv(takeoff_height=args.takeoff_height, config=args, stack_frames=n_frames)
+            print(
+                f"Initialize env '{args.env_name}' with n_frames={n_frames} "
+                f"for {algo_name} (seed={seed})..."
+            )
+            env = create_env_from_name(args, n_frames)
             if hasattr(env, "action_space") and hasattr(env.action_space, "seed"):
                 env.action_space.seed(seed)
 
