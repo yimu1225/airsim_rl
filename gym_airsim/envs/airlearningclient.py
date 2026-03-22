@@ -374,7 +374,7 @@ class AirLearningClient(object):
         """
         # 调用自定义RPC从JSON重载环境
         self.client.client.call('resetUnreal')
-        time.sleep(3.0)  # 给UE引擎时间重建环境 - 1.0s太短会导致连接断开，回调至2.0s
+        time.sleep(5.0)  # 给UE引擎时间重建环境 - 1.0s太短会导致连接断开，回调至2.0s
         return True
 
 

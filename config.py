@@ -68,7 +68,7 @@ def get_config(argv=None):
     parser.add_argument("--grad_clip", type=float, default=10.0, help="梯度裁剪")
 
     # 可视化 (Visualization)
-    parser.add_argument("--render_window", action='store_true', default=True, help="显示实时可视化窗口 (默认开启，可用 --no-render_window 关闭)")
+    parser.add_argument("--render_window", action='store_true', default=False, help="显示实时可视化窗口 (默认开启，可用 --no-render_window 关闭)")
     
     
         

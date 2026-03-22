@@ -173,17 +173,45 @@ class AirSimEnvGradientReward(gym.Env):
         self._cached_window_alive = None
         
         # Gradient-map reward hyperparameters (all可通过config覆盖)
+        # 设计目标：
+        # - 不依赖障碍物坐标（仅使用局部深度观测）
+        # - 在课程学习中保持尺度一致（距离归一化）
         self.grad_goal_weight = float(getattr(config, "grad_goal_weight", 1.0))
-        self.grad_obstacle_weight = float(getattr(config, "grad_obstacle_weight", 0.35))
+        self.grad_heading_weight = float(getattr(config, "grad_heading_weight", 0.35))
+        self.grad_obstacle_weight = float(getattr(config, "grad_obstacle_weight", 0.90))
         self.grad_altitude_weight = float(getattr(config, "grad_altitude_weight", 0.25))
-        self.grad_progress_weight = float(getattr(config, "grad_progress_weight", 7.0))
-        self.grad_alignment_weight = float(getattr(config, "grad_alignment_weight", 0.5))
-        self.grad_clearance_weight = float(getattr(config, "grad_clearance_weight", 0.6))
-        self.grad_step_penalty = float(getattr(config, "grad_step_penalty", 0.02))
+        self.grad_progress_weight = float(getattr(config, "grad_progress_weight", 8.0))
+        self.grad_step_penalty = float(getattr(config, "grad_step_penalty", 0.03))
         self.grad_reward_clip = float(getattr(config, "grad_reward_clip", 8.0))
+        self.grad_cost_clip = float(getattr(config, "grad_cost_clip", 3.0))
+        self.grad_shaping_gamma = float(getattr(config, "grad_shaping_gamma", 1.0))
+
+        # 仅依赖深度图的局部障碍风险建模
         self.grad_safe_depth_m = float(getattr(config, "grad_safe_depth_m", 1.2))
-        self.grad_depth_floor_m = float(getattr(config, "grad_depth_floor_m", 0.2))
+        self.grad_depth_floor_m = float(getattr(config, "grad_depth_floor_m", 0.15))
+        self.grad_depth_max_m = float(getattr(config, "grad_depth_max_m", 10.0))
+        self.grad_depth_percentile = float(getattr(config, "grad_depth_percentile", 15.0))
+        self.grad_obstacle_decay_m = float(getattr(config, "grad_obstacle_decay_m", 2.0))
+        self.grad_obstacle_balance_weight = float(getattr(config, "grad_obstacle_balance_weight", 0.25))
+
+        # 高度目标与归一化带宽
         self.grad_target_altitude = float(getattr(config, "grad_target_altitude", abs(takeoff_height)))
+        default_alt_band = max((self.max_altitude - self.min_altitude) * 0.5, 1.0)
+        self.grad_altitude_band_m = float(getattr(config, "grad_altitude_band_m", default_alt_band))
+
+        # 跨课程学习尺度归一化（避免地图变大后奖励量级漂移）
+        self.grad_distance_scale_min = float(
+            getattr(config, "grad_distance_scale_min", settings.success_distance_to_goal * 2.0)
+        )
+        self.grad_distance_arena_ratio = float(getattr(config, "grad_distance_arena_ratio", 0.25))
+
+        # 平滑控制与停滞惩罚
+        self.grad_smoothness_weight = float(getattr(config, "grad_smoothness_weight", 0.08))
+        self.grad_smoothness_deadzone = float(getattr(config, "grad_smoothness_deadzone", 0.15))
+        self.grad_stagnation_window = int(getattr(config, "grad_stagnation_window", 15))
+        self.grad_stagnation_threshold = float(getattr(config, "grad_stagnation_threshold", 0.015))
+        self.grad_stagnation_penalty = float(getattr(config, "grad_stagnation_penalty", 0.15))
+
         self.grad_success_reward = float(getattr(config, "grad_success_reward", 20.0))
         self.grad_collision_reward = float(getattr(config, "grad_collision_reward", -20.0))
         self.grad_timeout_reward = float(getattr(config, "grad_timeout_reward", -30.0))
@@ -192,6 +220,10 @@ class AirSimEnvGradientReward(gym.Env):
         self.prev_position_xy = None
         self.prev_potential = None
         self.last_gradient_terms = {}
+        self.episode_arena_diag = 1.0
+        self.episode_goal_distance0 = 1.0
+        self.episode_goal_scale = 1.0
+        self.grad_cost_history = collections.deque(maxlen=max(3, self.grad_stagnation_window))
 
         # 保留历史动作/速度字段，兼容上层可能读取这些属性的代码
         if hasattr(self.action_space, 'shape') and self.action_space.shape:
@@ -428,98 +460,210 @@ class AirSimEnvGradientReward(gym.Env):
             frame = frame[0]
         return frame
 
-    def _estimate_obstacle_depth(self, depth_img):
+    def _get_arena_diagonal_xy(self):
         """
-        从深度图估计前向最近障碍距离（米）与左右深度差。
+        从当前关卡配置中估计场地XY对角线长度（米），用于奖励归一化。
+        """
+        default_diag = math.sqrt(30.0 ** 2 + 30.0 ** 2)
+        try:
+            arena = self.game_config_handler.get_cur_item("ArenaSize")
+            if arena is None or len(arena) < 2:
+                return default_diag
+            arena_x = max(abs(float(arena[0])), 1.0)
+            arena_y = max(abs(float(arena[1])), 1.0)
+            return max(math.sqrt(arena_x ** 2 + arena_y ** 2), 1.0)
+        except Exception:
+            return default_diag
+
+    def _refresh_episode_scales(self, now_xy):
+        """
+        结合初始目标距离与场地尺度，更新本回合归一化尺度。
+        """
+        goal_vec = np.array([self.goal[0] - now_xy[0], self.goal[1] - now_xy[1]], dtype=np.float32)
+        self.episode_goal_distance0 = max(float(np.linalg.norm(goal_vec)), 1e-3)
+        self.episode_arena_diag = self._get_arena_diagonal_xy()
+
+        arena_based_min = self.grad_distance_arena_ratio * self.episode_arena_diag
+        self.episode_goal_scale = max(
+            self.episode_goal_distance0,
+            arena_based_min,
+            self.grad_distance_scale_min,
+            settings.success_distance_to_goal * 2.0,
+            1e-3,
+        )
+
+    def _estimate_obstacle_profile(self, depth_img):
+        """
+        仅依赖前向深度图构建障碍风险，不使用障碍物坐标。
         """
         frame = self._extract_depth_frame(depth_img)
         h, w = frame.shape
-        y0, y1 = int(h * 0.30), int(h * 0.80)
-        x0, x1 = int(w * 0.25), int(w * 0.75)
+        y0, y1 = int(h * 0.30), int(h * 0.82)
+        x0, x1 = int(w * 0.12), int(w * 0.88)
         roi = frame[y0:y1, x0:x1]
         if roi.size == 0:
-            return 10.0, 0.0
+            return {
+                "nearest_depth_m": self.grad_depth_max_m,
+                "center_depth_m": self.grad_depth_max_m,
+                "left_risk": 0.0,
+                "right_risk": 0.0,
+                "field_risk": 0.0,
+                "balance_risk": 0.0,
+                "obstacle_risk": 0.0,
+            }
 
-        # 深度图范围为[0,255]，原始尺度约对应[0m,10m]
-        depth_q = float(np.percentile(roi, 12.0))
-        nearest_depth_m = max((depth_q / 255.0) * 10.0, self.grad_depth_floor_m)
+        roi = np.clip(roi, 0.0, 255.0)
+        sectors = np.array_split(roi, 3, axis=1)
+        sector_depth_m = []
+        sector_risk = []
+        risk_decay = max(self.grad_obstacle_decay_m, 1e-3)
 
-        mid = roi.shape[1] // 2
-        left_mean = float(np.mean(roi[:, :mid])) if mid > 0 else float(np.mean(roi))
-        right_mean = float(np.mean(roi[:, mid:])) if roi.shape[1] - mid > 0 else float(np.mean(roi))
-        lr_balance = (right_mean - left_mean) / 255.0
-        return nearest_depth_m, lr_balance
+        for sec in sectors:
+            if sec.size == 0:
+                depth_m = self.grad_depth_max_m
+            else:
+                q = float(np.percentile(sec, self.grad_depth_percentile))
+                depth_m = (q / 255.0) * self.grad_depth_max_m
+                depth_m = float(np.clip(depth_m, self.grad_depth_floor_m, self.grad_depth_max_m))
+            sector_depth_m.append(depth_m)
+            sector_risk.append(float(math.exp(-depth_m / risk_decay)))
+
+        nearest_depth_m = float(min(sector_depth_m))
+        center_depth_m = float(sector_depth_m[1]) if len(sector_depth_m) > 1 else nearest_depth_m
+        left_risk = float(sector_risk[0])
+        right_risk = float(sector_risk[-1])
+        field_risk = float(np.mean(sector_risk))
+        balance_risk = abs(right_risk - left_risk)
+
+        clearance_risk = max(
+            0.0,
+            (self.grad_safe_depth_m - nearest_depth_m) / max(self.grad_safe_depth_m, 1e-6),
+        )
+        obstacle_risk = (
+            0.65 * clearance_risk
+            + 0.35 * field_risk
+            + self.grad_obstacle_balance_weight * balance_risk
+        )
+        obstacle_risk = float(np.clip(obstacle_risk, 0.0, 1.5))
+
+        return {
+            "nearest_depth_m": nearest_depth_m,
+            "center_depth_m": center_depth_m,
+            "left_risk": left_risk,
+            "right_risk": right_risk,
+            "field_risk": field_risk,
+            "balance_risk": balance_risk,
+            "obstacle_risk": obstacle_risk,
+        }
 
     def _compute_gradient_potential(self, now, depth_img):
         """
-        构造势能函数 Phi(s)：
-        - 目标吸引：距离越近势能越高
-        - 障碍排斥：离障碍越近势能越低
-        - 高度偏差：偏离目标高度势能越低
+        构造观测驱动势能 Phi(s)：
+        - 目标距离项：按本回合尺度归一化
+        - 朝向项：偏航误差归一化
+        - 障碍项：仅来自深度图局部统计
+        - 高度项：偏离目标高度的归一化惩罚
         """
         goal_vec = np.array([self.goal[0] - now[0], self.goal[1] - now[1]], dtype=np.float32)
         distance_to_goal = float(np.linalg.norm(goal_vec))
+        distance_to_goal_norm = min(distance_to_goal / max(self.episode_goal_scale, 1e-6), self.grad_cost_clip)
+
+        r_yaw = getattr(self, "r_yaw", np.array([0.0], dtype=np.float32))
+        r_yaw_val = float(np.asarray(r_yaw, dtype=np.float32).reshape(-1)[0]) if np.size(r_yaw) > 0 else 0.0
+        heading_error = 0.5 * (1.0 - math.cos(r_yaw_val))
+        heading_error = float(np.clip(heading_error, 0.0, 1.0))
+
+        obstacle_profile = self._estimate_obstacle_profile(depth_img)
+        obstacle_risk = float(obstacle_profile["obstacle_risk"])
+
         current_altitude = float(-now[2])  # NED坐标系下高度为 -z
         altitude_error = abs(current_altitude - self.grad_target_altitude)
+        altitude_error_norm = min(altitude_error / max(self.grad_altitude_band_m, 1e-6), self.grad_cost_clip)
 
-        nearest_depth_m, lr_balance = self._estimate_obstacle_depth(depth_img)
-        obstacle_risk = 1.0 / (nearest_depth_m + self.grad_depth_floor_m)
-
-        potential = -(
-            self.grad_goal_weight * distance_to_goal
+        cost = (
+            self.grad_goal_weight * distance_to_goal_norm
+            + self.grad_heading_weight * heading_error
             + self.grad_obstacle_weight * obstacle_risk
-            + self.grad_altitude_weight * altitude_error
+            + self.grad_altitude_weight * altitude_error_norm
         )
+        cost = float(np.clip(cost, 0.0, self.grad_cost_clip))
+        potential = -cost
 
         terms = {
             "distance_to_goal": distance_to_goal,
-            "nearest_depth_m": nearest_depth_m,
-            "lr_balance": lr_balance,
+            "distance_to_goal_norm": distance_to_goal_norm,
+            "heading_error": heading_error,
             "obstacle_risk": obstacle_risk,
             "altitude_error": altitude_error,
-            "potential": potential
+            "altitude_error_norm": altitude_error_norm,
+            "cost": cost,
+            "potential": potential,
+            "goal_scale": self.episode_goal_scale,
+            "goal_distance0": self.episode_goal_distance0,
+            "arena_diag": self.episode_arena_diag,
+            **obstacle_profile,
         }
         return potential, terms
 
+    def _compute_smoothness_penalty(self, action):
+        """
+        动作变化惩罚：压制高频抖动，避免策略在局部噪声里震荡。
+        """
+        if not (hasattr(self.action_space, "shape") and self.action_space.shape):
+            return 0.0
+        if not isinstance(action, np.ndarray):
+            return 0.0
+
+        prev_action = self.prev_action
+        if not isinstance(prev_action, np.ndarray):
+            return 0.0
+
+        action_span = np.asarray(self.action_space.high - self.action_space.low, dtype=np.float32)
+        action_span = np.maximum(action_span, 1e-6)
+        delta_norm = np.abs(action.astype(np.float32) - prev_action.astype(np.float32)) / action_span
+        delta_excess = np.maximum(delta_norm - self.grad_smoothness_deadzone, 0.0)
+        penalty = self.grad_smoothness_weight * float(np.mean(np.square(delta_excess)))
+        return float(np.clip(penalty, 0.0, 1.0))
+
     def computeReward(self, now, action, velocity_after=None, depth_img=None, prev_xy=None):
         """
-        梯度地图奖励：
-        1. 势能增量：Phi(s_t+1)-Phi(s_t)
-        2. 梯度方向对齐：位移方向与目标梯度方向夹角余弦
-        3. 近障碍安全余量惩罚
-        4. 每步时间成本
+        梯度奖励主体：
+        1. 代价下降量（核心）
+        2. 每步时间成本
+        3. 平滑惩罚
+        4. 停滞惩罚（防止原地打转）
         """
-        del action, velocity_after  # 新奖励不再使用旧奖励的动作平滑与曲率项
+        del velocity_after
 
         potential_now, terms = self._compute_gradient_potential(now, depth_img)
         if self.prev_potential is None:
             progress = 0.0
         else:
-            progress = float(potential_now - self.prev_potential)
+            progress = float(self.grad_shaping_gamma * potential_now - self.prev_potential)
+
+        smoothness_penalty = self._compute_smoothness_penalty(action)
+
+        cost_now = float(terms["cost"])
+        self.grad_cost_history.append(cost_now)
+        stagnation_penalty = 0.0
+        if len(self.grad_cost_history) >= self.grad_stagnation_window:
+            recent_cost_drop = float(self.grad_cost_history[0] - self.grad_cost_history[-1])
+            if recent_cost_drop < self.grad_stagnation_threshold:
+                stagnation_penalty = self.grad_stagnation_penalty
+        else:
+            recent_cost_drop = 0.0
 
         if prev_xy is None:
             prev_xy = self.prev_position_xy
-
-        movement = np.zeros(2, dtype=np.float32)
+        move_distance = 0.0
         if prev_xy is not None:
-            movement = np.array([now[0] - prev_xy[0], now[1] - prev_xy[1]], dtype=np.float32)
-
-        move_norm = float(np.linalg.norm(movement))
-        goal_dir = np.array([self.goal[0] - now[0], self.goal[1] - now[1]], dtype=np.float32)
-        goal_norm = float(np.linalg.norm(goal_dir))
-        if move_norm > 1e-6 and goal_norm > 1e-6:
-            alignment = float(np.dot(movement / move_norm, goal_dir / goal_norm))
-        else:
-            alignment = 0.0
-
-        nearest_depth_m = float(terms["nearest_depth_m"])
-        clearance_penalty = max(0.0, (self.grad_safe_depth_m - nearest_depth_m) / max(self.grad_safe_depth_m, 1e-6))
+            move_distance = float(np.linalg.norm(np.array([now[0] - prev_xy[0], now[1] - prev_xy[1]], dtype=np.float32)))
 
         reward = (
             self.grad_progress_weight * progress
-            + self.grad_alignment_weight * alignment
-            - self.grad_clearance_weight * clearance_penalty
             - self.grad_step_penalty
+            - smoothness_penalty
+            - stagnation_penalty
         )
         reward = float(np.clip(reward, -self.grad_reward_clip, self.grad_reward_clip))
 
@@ -527,9 +671,11 @@ class AirSimEnvGradientReward(gym.Env):
         self.last_gradient_terms = {
             **terms,
             "progress": progress,
-            "alignment": alignment,
-            "clearance_penalty": clearance_penalty,
-            "reward": reward
+            "move_distance": move_distance,
+            "smoothness_penalty": smoothness_penalty,
+            "stagnation_penalty": stagnation_penalty,
+            "recent_cost_drop": recent_cost_drop,
+            "reward": reward,
         }
         return reward
 
@@ -710,6 +856,10 @@ class AirSimEnvGradientReward(gym.Env):
         self.prev_position_xy = None
         self.prev_potential = None
         self.last_gradient_terms = {}
+        self.episode_arena_diag = 1.0
+        self.episode_goal_distance0 = 1.0
+        self.episode_goal_scale = 1.0
+        self.grad_cost_history.clear()
 
     def reset(self, *, seed=None, options=None):
         """
@@ -842,21 +992,17 @@ class AirSimEnvGradientReward(gym.Env):
         self.on_episode_start()
         state = self.init_state_f()
         print(f"Initial state acquisition time: {time.time() - start_time:.2f}s")
-        
-        # # 打印当前 episode 的 JSON 配置
-        # print("="*60)
-        # print(f"Episode {self.episodeN} Configuration (JSON):")
-        # import json
-        # print(json.dumps(self.game_config_handler.cur_game_config.get(), indent=2))
-        # print("="*60)
-
+        # 重新读取当前位置，避免沿用起飞检查时的旧坐标
+        now = self.airgym.drone_pos()
 
         self.prev_state = state
         self.prev_action = np.zeros(self.action_space.shape, dtype=np.float32) if hasattr(self.action_space, 'shape') and self.action_space.shape else 0
         self.prev_velocity = self.airgym.drone_velocity()
         self.prev_position_xy = np.array(now[:2], dtype=np.float32)
+        self._refresh_episode_scales(self.prev_position_xy)
         init_depth = self.depth_stack[-1] if len(self.depth_stack) > 0 else np.zeros((128, 128), dtype=np.float32)
         self.prev_potential, self.last_gradient_terms = self._compute_gradient_potential(now, init_depth)
+        self.grad_cost_history.append(float(self.last_gradient_terms.get("cost", 0.0)))
         
         # 返回 (obs, info)
         info = {}  # 可以添加额外信息

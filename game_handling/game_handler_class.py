@@ -71,7 +71,7 @@ class GameHandler:
 
         # wait till there is a UE4Editor process
         while not (len(diff_proc) == 1):
-            time.sleep(3)
+            time.sleep(15)
             target_name = "UE4Editor.exe" if (os.name == "nt" or self.ue4_exe_path.endswith(".exe")) else "UE4Editor"
             current_pids = utils.find_process_id_by_name(target_name)
             diff_proc = (utils.list_diff(current_pids, unreal_pids_before_launch))
