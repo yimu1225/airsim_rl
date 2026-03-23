@@ -162,10 +162,10 @@ class AirLearningClient(object):
 
     def getScreenDepth(self):
         """
-        获取前方摄像头(ID: "0")的深度图像，失败时直接重置环境。
+        获取前方摄像头(ID: "0")的深度图像，失败时无限重试直到成功。
         
         1. 发送 simGetImages 请求获取 DepthPerspective 类型的图像（浮点数据）。
-        2. 如果请求超时或失败，直接重置环境并返回零数组。
+        2. 如果请求超时或失败，无限重试直到成功。
         3. 截断最大深度值 (clip max=10)，并归一化缩放到 0-255 范围。
         4. 将数据 reshape 为 2D 图像。
         5. 统一 resize 到 128x128 分辨率。
@@ -174,18 +174,34 @@ class AirLearningClient(object):
             np.array: 处理后的深度图像 (128x128)。
         """
         # 使用第一个可用车辆和摄像头 "0" (前置中心)
-        responses = self.client.simGetImages([airsim.ImageRequest("0", airsim.ImageType.DepthPerspective, True, False)], vehicle_name='SimpleFlight')
+        # 无限重试直到成功获取图像
+        while True:
+            responses = None
+            try:
+                responses = self.client.simGetImages([airsim.ImageRequest("0", airsim.ImageType.DepthPerspective, True, False)], vehicle_name='SimpleFlight')
+            except Exception as e:
+                print(f"getScreenDepth RPC error: {e}, retrying...")
+                time.sleep(0.1)
+                continue
 
-        if (responses == None):
-            print("Camera timeout! Resetting environment...")
-            self.AirSim_reset()
-            if hasattr(self, 'last_img') and self.last_img.size > 0:
-                if len(self.last_img.shape) == 3:
-                    return self.last_img[0]
-                else:
-                    return self.last_img
-            return np.zeros((128, 128), dtype=np.float32)
-        else:
+            if responses is None:
+                print("Camera timeout, retrying...")
+                time.sleep(0.1)
+                continue
+            
+            # 检查图像尺寸是否有效
+            valid_images = True
+            for i in range(len(responses)):
+                if responses[i].width == 0 or responses[i].height == 0:
+                    print(f"Invalid image dimensions ({responses[i].width}x{responses[i].height}), retrying...")
+                    valid_images = False
+                    break
+            
+            if not valid_images:
+                time.sleep(0.1)
+                continue
+            
+            # 处理图像数据
             img = []
             for res in responses:
                 img.append(np.array(res.image_data_float, dtype=float))
@@ -196,14 +212,10 @@ class AirLearningClient(object):
             # 归一化到 0-255 范围
             img = (img / 10.0) * 255.0
 
+            # 处理有效图像
             img2d = []
             for i in range(len(responses)):
-                if ((responses[i].width != 0 or responses[i].height != 0)):
-                    img2d.append(np.reshape(img[i], (responses[i].height, responses[i].width)))
-                else:
-                    print("Invalid image dimensions! Resetting environment...")
-                    self.AirSim_reset()
-                    img2d.append(self.last_img[i] if i < len(self.last_img) else np.zeros((128, 128)))
+                img2d.append(np.reshape(img[i], (responses[i].height, responses[i].width)))
 
             self.last_img = np.stack(img2d, axis=0)
 
@@ -374,7 +386,7 @@ class AirLearningClient(object):
         """
         # 调用自定义RPC从JSON重载环境
         self.client.client.call('resetUnreal')
-        time.sleep(5.0)  # 给UE引擎时间重建环境 - 1.0s太短会导致连接断开，回调至2.0s
+        time.sleep(8.0)  # 给UE引擎时间重建环境 - 1.0s太短会导致连接断开，回调至2.0s
         return True
 
 
