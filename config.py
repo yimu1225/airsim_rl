@@ -25,14 +25,15 @@ def get_config(argv=None):
     # get the parameters
     parser = argparse.ArgumentParser(description='AirSim_RL')
     # 环境 (Environment)
-    parser.add_argument("--env_name", type=str, default='AirSimEnv-v42', help="要训练的环境名称")  # AirSimEnv-v42  CartPole-v0
+    parser.add_argument("--env_name", type=str, default='AirSimEnv-Gradient-v1', help="要训练的环境名称")  # AirSimEnv-v42  CartPole-v0
 
     # 算法选择 (Algorithm Selection)
-    parser.add_argument("--algorithm_name", type=str, default='CL-aetd3,CL-td3',
-                        help="要训练的算法。支持: td3, ddpg, aetd3, per_td3, per_aetd3, cfc_td3, st_mamba_td3, ST-VimTD3, ST-SVimTD3, ST_3DVimTD3, st_cnn_td3, gam_mamba_td3, ST-DualVimTD3 (推荐), ppo。可以是单个，多个（逗号分隔），或组名 ('all', 'base', 'seq')")
+    parser.add_argument("--algorithm_name", type=str, default='CL-ST-DualVimTD3,CL-td3',
+                        help="要训练的算法。支持: td3, ddpg, aetd3, per_td3, per_aetd3, cfc_td3, st_mamba_td3, ST-VimTD3, ST-SVimTD3, ST_3DVimTD3, st_cnn_td3, gam_mamba_td3, ST-DualVimTD3, sac, ppo。可以是单个，多个（逗号分隔），或组名 ('all', 'base', 'seq')")
     parser.add_argument("--smooth_window", type=int, default=100, help="平滑窗口大小，用于平滑学习曲线 (仅对移动平均有效)")
-    parser.add_argument("--smooth_method", type=str, default="moving", choices=["moving","ema"], help="曲线平滑方法: moving=滑动平均, ema=指数加权平均")
-    parser.add_argument("--smooth_alpha", type=float, default=0.99, help="指数加权平均的平滑系数 (0-1)，与TensorBoard一致：数值越大越平滑。内部将转换为 pandas 所需的 alpha=1-smooth_alpha")
+    parser.add_argument("--smooth_method", type=str, default="moving", choices=["moving","zero_phase_des"], help="曲线平滑方法: moving=滑动平均, zero_phase_des=零相位双重指数平滑")
+    parser.add_argument("--smooth_alpha", type=float, default=0.3, help="零相位双重指数平滑的水平平滑因子 (0-1)，越大越关注近期数据")
+    parser.add_argument("--smooth_beta", type=float, default=0.1, help="零相位双重指数平滑的趋势平滑因子 (0-1)，越大越关注近期趋势变化")
     parser.add_argument("--plot_cl", action='store_true', default=False, help="绘图时是否检索带 CL- 前缀的算法 (默认: True)")
     parser.add_argument("--plot_non_cl", action='store_true', default=True, help="绘图时是否检索常规算法 (默认: True)")
     parser.add_argument("--use_percentile", action='store_true', default=False, help="使用四分位范围作为阴影带而不是均值加置信区间")
@@ -56,20 +57,19 @@ def get_config(argv=None):
     parser.add_argument("--hidden_dim", type=int, default=128, help="隐藏层维度")
     parser.add_argument("--base_feature_dim", type=int, default=32, help="基础状态先映射到该维度，再与视觉特征拼接")
     parser.add_argument("--exploration_noise", type=float, default=0.3, help="探索噪声")
-    parser.add_argument("--exploration_noise_final", type=float, default=0.05, help="最终探索噪声")
+    parser.add_argument("--exploration_noise_final", type=float, default=0.01, help="最终探索噪声")
     parser.add_argument("--batch_size", type=int, default=256, help="批次大小")
     parser.add_argument("--gamma", type=float, default=0.98, help="折扣因子") 
     parser.add_argument("--tau", type=float, default=0.005, help="软更新参数")
     parser.add_argument("--actor_lr", type=float, default=7e-4, help="Actor学习率")
     parser.add_argument("--critic_lr", type=float, default=7e-4, help="Critic学习率")
     parser.add_argument("--policy_noise", type=float, default=0.2, help="策略噪声")
-    parser.add_argument("--noise_clip", type=float, default=0.3, help="噪声裁剪")
+    parser.add_argument("--noise_clip", type=float, default=0.2, help="噪声裁剪")
     parser.add_argument("--policy_freq", type=int, default=2, help="策略更新频率")
     parser.add_argument("--grad_clip", type=float, default=10.0, help="梯度裁剪")
 
     # 可视化 (Visualization)
     parser.add_argument("--render_window", action='store_true', default=False, help="显示实时可视化窗口 (默认开启，可用 --no-render_window 关闭)")
-
     
     
         
@@ -81,6 +81,11 @@ def get_config(argv=None):
     parser.add_argument("--ou_sigma", type=float, default=0.1, help="OU噪声的sigma参数")
     parser.add_argument("--ou_sigma_min", type=float, default=0.01, help="OU噪声的最小sigma")
     parser.add_argument("--ou_dt", type=float, default=1.0, help="OU噪声的时间步长")
+    
+    # SAC 参数 (Soft Actor-Critic)
+    parser.add_argument("--auto_entropy_tuning", action='store_true', default=True, help="SAC: 是否自动调整熵温度系数")
+    parser.add_argument("--alpha", type=float, default=0.2, help="SAC: 固定的熵温度系数 (当auto_entropy_tuning=False时使用)")
+    
     # CfC
     parser.add_argument("--cfc_lr", type=float, default=1e-2, help="CfC 时间序列模块学习率")
     parser.add_argument("--cfc_units", type=int, default=32, help="NCPs 拓扑总神经元数")
@@ -99,9 +104,9 @@ def get_config(argv=None):
     parser.add_argument("--gam_mamba_expand", type=int, default=2, help="GAM-Mamba-TD3中Mamba扩展因子")
 
     # ST-Mamba 参数
-    parser.add_argument("--st_mamba_embed_dim", type=int, default=48, help="ST-Mamba 嵌入维度")
+    parser.add_argument("--st_mamba_embed_dim", type=int, default=32, help="ST-Mamba 嵌入维度")
     parser.add_argument("--st_mamba_depth", type=int, default=1, help="ST-Mamba Block 数量")
-    parser.add_argument("--st_mamba_patch_size", type=int, default=8, help="ST-Mamba Patch 大小")
+    parser.add_argument("--st_mamba_patch_size", type=int, default=16, help="ST-Mamba Patch 大小")
     parser.add_argument("--st_mamba_d_state", type=int, default=16, help="ST-Mamba SSM 状态维度")
     parser.add_argument("--st_mamba_d_conv", type=int, default=4, help="ST-Mamba SSM 卷积宽度")
     parser.add_argument("--st_mamba_expand", type=int, default=2, help="ST-Mamba Block 扩展因子")
@@ -165,8 +170,8 @@ def get_config(argv=None):
     parser.add_argument("--grad_goal_weight", type=float, default=1.0, help="梯度奖励：目标距离项权重")
     parser.add_argument("--grad_heading_weight", type=float, default=0.35, help="梯度奖励：朝向误差项权重")
     parser.add_argument("--grad_obstacle_weight", type=float, default=0.90, help="梯度奖励：障碍物风险项权重")
-    parser.add_argument("--grad_altitude_weight", type=float, default=0.25, help="梯度奖励：高度误差项权重")
-    parser.add_argument("--grad_progress_weight", type=float, default=8.0, help="梯度奖励：进度项权重")
+    parser.add_argument("--grad_altitude_weight", type=float, default=0.30, help="梯度奖励：高度误差项权重")
+    parser.add_argument("--grad_progress_weight", type=float, default=10.0, help="梯度奖励：进度项权重")
     
     # 惩罚与裁剪
     parser.add_argument("--grad_step_penalty", type=float, default=0.1, help="梯度奖励：每步时间成本")
@@ -175,7 +180,7 @@ def get_config(argv=None):
     parser.add_argument("--grad_shaping_gamma", type=float, default=1.0, help="梯度奖励：势能折扣因子")
     
     # 深度图参数
-    parser.add_argument("--grad_safe_depth_m", type=float, default=1.5, help="梯度奖励：安全深度阈值(米)")
+    parser.add_argument("--grad_safe_depth_m", type=float, default=1.0, help="梯度奖励：安全深度阈值(米)")
     parser.add_argument("--grad_depth_floor_m", type=float, default=0.15, help="梯度奖励：深度最小值(米)")
     parser.add_argument("--grad_depth_max_m", type=float, default=10.0, help="梯度奖励：深度最大值(米)")
     parser.add_argument("--grad_depth_percentile", type=float, default=15.0, help="梯度奖励：深度统计百分位")
@@ -226,7 +231,6 @@ def get_config(argv=None):
     # AIRSIM 连接参数 (AIRSIM CONNECTION PARAMETERS) 
     parser.add_argument("--airsim_ip", type=str, default="127.0.0.1", help="AirSim 服务器 IP 地址")
     parser.add_argument("--airsim_port", type=int, default=41451, help="AirSim 服务器端口")
-    parser.add_argument("--enable_ue4_health_monitor", action="store_true", default=False, help="启用UE4运行时健康监测（Ubuntu直跑默认关闭）")
     parser.add_argument("--ue4_rpc_fail_threshold", type=int, default=2, help="UE4健康检测中，连续RPC失败达到该次数后触发强制重启")
     parser.add_argument("--ue4_health_check_interval", type=float, default=10.0, help="UE4健康检查最小间隔秒数，降低对训练速度的影响")
     parser.add_argument("--ue4_window_check_interval", type=float, default=10.0, help="窗口状态检测间隔秒数（较慢但开销更大，建议大于健康检查间隔）")
