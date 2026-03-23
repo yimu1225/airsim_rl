@@ -27,17 +27,15 @@ class AirSimEnv(gym.Env):
         airgym (AirLearningClient): 与 AirSim 交互的客户端实例。
         goal (np.array): 目标点坐标。
     """
-    def __init__(self, need_render=False, takeoff_height=-0.9, config=None, stack_frames=4):
+    def __init__(self, takeoff_height=-0.9, config=None, stack_frames=4):
         """
         初始化 AirSim 环境。
         
         Args:
-            need_render (bool): 是否需要渲染 2D 轨迹图 (debug用)。
             takeoff_height (float): 起飞高度 (NED坐标，负数为高度)。
             config: 配置对象，包含高度限制等参数。
             stack_frames (int): 堆叠帧数 (默认4帧)。如果为1，则不进行堆叠（用于RNN/LSTM）。
         """
-        # 如果 need_render 为 True，则可以使用 2D 窗口渲染环境
 
         self.config = config  # Store config for reward calculations
 
@@ -163,10 +161,6 @@ class AirSimEnv(gym.Env):
         # 使用训练配置中的 seed 初始化随机数生成器，确保首次环境采样可复现
         self.success_deque = collections.deque(maxlen=100)
 
-        self.need_render = need_render
-
-        # Health Monitor configurations
-        self.enable_ue4_health_monitor = True  # Forced enable
         self.ue4_rpc_fail_count = 0
         self.ue4_rpc_fail_threshold = getattr(config, "ue4_rpc_fail_threshold", 2) 
         self.ue4_health_check_interval = getattr(config, "ue4_health_check_interval", 1.0) 
@@ -177,7 +171,7 @@ class AirSimEnv(gym.Env):
         self._last_window_check_ts = 0.0
         self._cached_process_alive = True
         self._cached_window_alive = None
-
+        
         # Initialize previous action for jerk penalty calculation
         if hasattr(self.action_space, 'shape') and self.action_space.shape:
             self.prev_action = np.zeros(self.action_space.shape, dtype=np.float32)
@@ -206,7 +200,9 @@ class AirSimEnv(gym.Env):
                 self.ue4_rpc_fail_count = 0
                 return True
             except Exception as e:
-                pass
+                if attempt == max_retry - 1:
+                    print(f"WARNING: AirSim reconnect failed after UE recovery ({reason or 'unknown reason'}): {e}")
+                time.sleep(1.5)
         return False
 
     def _is_airsim_rpc_alive(self):
@@ -239,9 +235,6 @@ class AirSimEnv(gym.Env):
         Check if UE process/RPC is healthy. If not, force restart and reconnect client.
         Returns True if restart/recovery happened.
         """
-        if (not self.enable_ue4_health_monitor) and (not force_restart):
-            return False
-
         now_ts = time.monotonic()
         elapsed = now_ts - self._last_ue4_health_check_ts
         if (not force_restart) and (elapsed < self.ue4_health_check_interval):
@@ -249,7 +242,7 @@ class AirSimEnv(gym.Env):
         self._last_ue4_health_check_ts = now_ts
 
         # Fast path: process check first (cheap)
-        if hasattr(self, 'game_handler') and self.game_handler:
+        if self.game_handler:
             if (now_ts - self._last_process_check_ts) >= self.ue4_process_check_interval:
                 self._last_process_check_ts = now_ts
                 self._cached_process_alive = self.game_handler.is_game_process_alive()
@@ -296,7 +289,7 @@ class AirSimEnv(gym.Env):
             force_restart = True
             reason = f"rpc_unhealthy_{self.ue4_rpc_fail_count}_times"
 
-        if hasattr(self, 'game_handler') and self.game_handler and force_restart:
+        if self.game_handler and force_restart:
             restarted = self.game_handler.check_and_recover_game(
                 force_restart=force_restart,
                 reason=reason,
@@ -344,7 +337,17 @@ class AirSimEnv(gym.Env):
     def init_state_f(self):
         self.depth_stack.clear()
         for i in range(self.stack_frames):
-            self.depth_stack.append(self.airgym.getScreenDepth())
+            # 无限重试直到获取到图像
+            depth = None
+            while depth is None:
+                try:
+                    depth = self.airgym.getScreenDepth()
+                    if depth is not None and depth.shape == (128, 128):
+                        self.depth_stack.append(depth)
+                        break
+                except Exception as e:
+                    print(f"init_state_f: getScreenDepth failed: {e}, retrying...")
+                    time.sleep(0.05)
             time.sleep(0.03)
         return self.get_obs()
 
@@ -483,8 +486,7 @@ class AirSimEnv(gym.Env):
                  curvature_penalty = float(np.clip(curvature_penalty, 0.0, 1.0))
 
         # Add penalties to reward
-        # r -= jerk_penalty + curvature_penalty + self.config.step_penalty
-        r -= self.config.step_penalty
+        r -= jerk_penalty + curvature_penalty + self.config.step_penalty
         # print(f"Reward breakdown: base={-distance_now*0.01:.3f}, speed_toward_goal={speed_toward_goal:.3f}, jerk_penalty={jerk_penalty:.3f}, curvature_penalty={curvature_penalty:.3f}, step_penalty={self.config.step_penalty:.3f}, total_reward={r:.3f}")
 
         return r
@@ -513,8 +515,8 @@ class AirSimEnv(gym.Env):
         """
 
         self.stepN += 1
-        
-        if self.enable_ue4_health_monitor and self.check_ue4_status():
+
+        if self.check_ue4_status():
             state = self.get_obs()
             self.success = False
             info = {
@@ -524,7 +526,7 @@ class AirSimEnv(gym.Env):
                 "ue4_restarted": True
             }
             return state, 0.0, True, False, info
-
+        
         self.airgym.client.simPause(False)
         if (settings.control_mode == "moveByVelocity"):
 
@@ -686,10 +688,9 @@ class AirSimEnv(gym.Env):
         # 设置种子
         if seed is not None:
             self.seed(seed)
+
+        self.check_ue4_status()
         
-        if self.enable_ue4_health_monitor:
-            self.check_ue4_status()
-            
         # 取消暂停，确保重置和起飞命令可以执行
         self.airgym.client.simPause(False)
 
@@ -706,6 +707,7 @@ class AirSimEnv(gym.Env):
             #     self.level = 3
             #     self.game_config_handler = GameConfigHandler(range_dic_name="settings.dynamic_obstacles_dic")
             
+
         print("--- Resetting Episode ---")
         
         # 1. 环境随机化
@@ -719,7 +721,6 @@ class AirSimEnv(gym.Env):
                 print(f"Unreal environment reset done. Time: {time.time() - start_time:.2f}s")
             except Exception as e:
                 print(f"Unreal reset failed: {e}")
-                self.check_ue4_status(force_restart=True, reason="unreal_reset_failed")
             
             # 环境发了改变，必定存在连接断开，强制抛弃重建
             reconnect_start = time.time()
@@ -739,7 +740,6 @@ class AirSimEnv(gym.Env):
             except Exception:
                 # 软复位失败兜底保底
                 fallback_start = time.time()
-                self.check_ue4_status(force_restart=True, reason="airsim_reset_exception")
                 self.airgym.AirSim_reset()
                 print(f"AirSim drone fallback hard reset done. Time: {time.time() - fallback_start:.2f}s")
 
@@ -750,42 +750,39 @@ class AirSimEnv(gym.Env):
         collision_info = None
 
         # Robust check for drone position and collision info
-        try:
-             now = self.airgym.drone_pos()
-             collision_info = self.airgym.client.simGetCollisionInfo()
-        except Exception as e:
-             # If getting status fails, try to reconnect heavily
-             print(f"Status check failed after reset: {e}. Retrying with hard reset...")
-             if self.game_handler:
-                 self.game_handler.restart_game()
-                 # Wait for game restart
-                 time.sleep(10)
-                 # Reconnect
-                 self.airgym = AirLearningClient(z=self.airgym.z, ip=self.config.airsim_ip, port=self.config.airsim_port)
-                 now = self.airgym.drone_pos()
-                 collision_info = self.airgym.client.simGetCollisionInfo()
+        def _get_takeoff_status():
+            return self.airgym.drone_pos(), self.airgym.client.simGetCollisionInfo()
 
+        try:
+            now, collision_info = _get_takeoff_status()
+        except Exception as e:
+            # If getting status fails, try to reconnect heavily
+            print(f"Status check failed after reset: {e}. Retrying with hard reset...")
+            self.check_ue4_status(force_restart=True, reason="takeoff_status_query_failed")
+            self.airgym.AirSim_reset()
+            now, collision_info = _get_takeoff_status()
+
+        max_takeoff_retries = 5
         retry_count = 0
-        while ((-now[2]) < 0.5 or collision_info.has_collided) and retry_count <= 3:
-             print(f"Takeoff attempt {retry_count+1} failed! Height: {-now[2]:.2f}, Collided: {collision_info.has_collided}")
-             
-             # 随机更换种子并重新加载环境（使用负的 retry 计数避免与正常变化冲突）
-             self.game_config_handler.sample('Seed', change_counter=-(retry_count + 1), base_seed=self.base_seed)
-             
-             # 第一次重试使用 unreal_reset，第二次开始重启整个游戏进程
-             if retry_count >= 3 and self.game_handler is not None:
-                 print(f"Takeoff failed {retry_count+1} times, restarting UE4 game process...")
-                 self.game_handler.restart_game()
-                 time.sleep(10)  # 等待游戏完全重启
-                 # 重新初始化 AirSim 客户端
-                 self.airgym = AirLearningClient(z=self.airgym.z, ip=self.config.airsim_ip if self.config else None, port=self.config.airsim_port if self.config else None)
-             else:
-                 self.airgym.unreal_reset()
-                 self.airgym.AirSim_reset()
-             
-             now = self.airgym.drone_pos()
-             collision_info = self.airgym.client.simGetCollisionInfo()
-             retry_count += 1
+        while ((-now[2]) < 0.5 or collision_info.has_collided) and retry_count < max_takeoff_retries:
+            print(f"Takeoff attempt {retry_count+1} failed! Height: {-now[2]:.2f}, Collided: {collision_info.has_collided}")
+
+            # 多次失败直接重启游戏（最简单兜底）
+            if retry_count == max_takeoff_retries - 1:
+                print("Takeoff failed multiple times. Restarting game...")
+                self.check_ue4_status(force_restart=True, reason="takeoff_failed_max_retry")
+                self.airgym.AirSim_reset()
+                now, collision_info = _get_takeoff_status()
+                retry_count += 1
+                break
+
+            # 失败次数尚未达到阈值，先尝试软重置
+            self.game_config_handler.sample('Seed', change_counter=-(retry_count + 1), base_seed=self.base_seed)
+            self.airgym.unreal_reset()
+            self.airgym.AirSim_reset()
+
+            now, collision_info = _get_takeoff_status()
+            retry_count += 1
 
         print(f"Takeoff check completed. Total time: {time.time() - start_time:.2f}s, Retries: {retry_count}")
 
@@ -856,12 +853,6 @@ class AirSimEnv(gym.Env):
         self.change_counter += 1
         self.game_config_handler.sample(*arg, change_counter=self.change_counter, base_seed=self.base_seed)
 
-    def render(self, mode='human', close=False):
-        """
-        渲染环境的 2D debug 视图 (已禁用)。
-        """
-        return None
-
     def close(self):
         """Close the environment and clean up resources."""
-        pass
+        return None
