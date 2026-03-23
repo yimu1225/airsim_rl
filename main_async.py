@@ -119,8 +119,6 @@ def get_agent_class(algo_name):
         'gam_mamba_td3': GAMMambaTD3Agent,
         'ST_3DVimTD3': ST3DVimTD3Agent,
         'ST-DualVimTD3': DualBranchVideoMambaTD3Agent,
-        # Backward-compatible alias
-        'dual_videomamba_td3': DualBranchVideoMambaTD3Agent,
     }
     if algo_name in agents:
         return agents[algo_name]
