@@ -172,49 +172,45 @@ class AirSimEnvGradientReward(gym.Env):
         self._cached_process_alive = True
         self._cached_window_alive = None
         
-        # Gradient-map reward hyperparameters (all可通过config覆盖)
+        # Gradient-map reward hyperparameters (从config读取)
         # 设计目标：
         # - 不依赖障碍物坐标（仅使用局部深度观测）
         # - 在课程学习中保持尺度一致（距离归一化）
-        self.grad_goal_weight = float(getattr(config, "grad_goal_weight", 1.0))
-        self.grad_heading_weight = float(getattr(config, "grad_heading_weight", 0.35))
-        self.grad_obstacle_weight = float(getattr(config, "grad_obstacle_weight", 0.90))
-        self.grad_altitude_weight = float(getattr(config, "grad_altitude_weight", 0.25))
-        self.grad_progress_weight = float(getattr(config, "grad_progress_weight", 8.0))
-        self.grad_step_penalty = float(getattr(config, "grad_step_penalty", 0.03))
-        self.grad_reward_clip = float(getattr(config, "grad_reward_clip", 8.0))
-        self.grad_cost_clip = float(getattr(config, "grad_cost_clip", 3.0))
-        self.grad_shaping_gamma = float(getattr(config, "grad_shaping_gamma", 1.0))
+        self.grad_goal_weight = float(config.grad_goal_weight)
+        self.grad_heading_weight = float(config.grad_heading_weight)
+        self.grad_obstacle_weight = float(config.grad_obstacle_weight)
+        self.grad_altitude_weight = float(config.grad_altitude_weight)
+        self.grad_progress_weight = float(config.grad_progress_weight)
+        self.grad_step_penalty = float(config.grad_step_penalty)
+        self.grad_reward_clip = float(config.grad_reward_clip)
+        self.grad_cost_clip = float(config.grad_cost_clip)
+        self.grad_shaping_gamma = float(config.grad_shaping_gamma)
 
         # 仅依赖深度图的局部障碍风险建模
-        self.grad_safe_depth_m = float(getattr(config, "grad_safe_depth_m", 1.2))
-        self.grad_depth_floor_m = float(getattr(config, "grad_depth_floor_m", 0.15))
-        self.grad_depth_max_m = float(getattr(config, "grad_depth_max_m", 10.0))
-        self.grad_depth_percentile = float(getattr(config, "grad_depth_percentile", 15.0))
-        self.grad_obstacle_decay_m = float(getattr(config, "grad_obstacle_decay_m", 2.0))
-        self.grad_obstacle_balance_weight = float(getattr(config, "grad_obstacle_balance_weight", 0.25))
+        self.grad_safe_depth_m = float(config.grad_safe_depth_m)
+        self.grad_depth_floor_m = float(config.grad_depth_floor_m)
+        self.grad_depth_max_m = float(config.grad_depth_max_m)
+        self.grad_depth_percentile = float(config.grad_depth_percentile)
+        self.grad_obstacle_decay_m = float(config.grad_obstacle_decay_m)
+        self.grad_obstacle_balance_weight = float(config.grad_obstacle_balance_weight)
 
-        # 高度目标与归一化带宽
-        self.grad_target_altitude = float(getattr(config, "grad_target_altitude", abs(takeoff_height)))
-        default_alt_band = max((self.max_altitude - self.min_altitude) * 0.5, 1.0)
-        self.grad_altitude_band_m = float(getattr(config, "grad_altitude_band_m", default_alt_band))
+        # 高度归一化带宽
+        self.grad_altitude_band_m = float(config.grad_altitude_band_m)
 
         # 跨课程学习尺度归一化（避免地图变大后奖励量级漂移）
-        self.grad_distance_scale_min = float(
-            getattr(config, "grad_distance_scale_min", settings.success_distance_to_goal * 2.0)
-        )
-        self.grad_distance_arena_ratio = float(getattr(config, "grad_distance_arena_ratio", 0.25))
+        self.grad_distance_scale_min = float(config.grad_distance_scale_min)
+        self.grad_distance_arena_ratio = float(config.grad_distance_arena_ratio)
 
         # 平滑控制与停滞惩罚
-        self.grad_smoothness_weight = float(getattr(config, "grad_smoothness_weight", 0.08))
-        self.grad_smoothness_deadzone = float(getattr(config, "grad_smoothness_deadzone", 0.15))
-        self.grad_stagnation_window = int(getattr(config, "grad_stagnation_window", 15))
-        self.grad_stagnation_threshold = float(getattr(config, "grad_stagnation_threshold", 0.015))
-        self.grad_stagnation_penalty = float(getattr(config, "grad_stagnation_penalty", 0.15))
+        self.grad_smoothness_weight = float(config.grad_smoothness_weight)
+        self.grad_smoothness_deadzone = float(config.grad_smoothness_deadzone)
+        self.grad_stagnation_window = int(config.grad_stagnation_window)
+        self.grad_stagnation_threshold = float(config.grad_stagnation_threshold)
+        self.grad_stagnation_penalty = float(config.grad_stagnation_penalty)
 
-        self.grad_success_reward = float(getattr(config, "grad_success_reward", 20.0))
-        self.grad_collision_reward = float(getattr(config, "grad_collision_reward", -20.0))
-        self.grad_timeout_reward = float(getattr(config, "grad_timeout_reward", -30.0))
+        self.grad_success_reward = float(config.grad_success_reward)
+        self.grad_collision_reward = float(config.grad_collision_reward)
+        self.grad_timeout_reward = float(config.grad_timeout_reward)
 
         # 轨迹与势能缓存（梯度奖励所需）
         self.prev_position_xy = None
@@ -474,16 +470,13 @@ class AirSimEnvGradientReward(gym.Env):
         """
         从当前关卡配置中估计场地XY对角线长度（米），用于奖励归一化。
         """
-        default_diag = math.sqrt(30.0 ** 2 + 30.0 ** 2)
-        try:
-            arena = self.game_config_handler.get_cur_item("ArenaSize")
-            if arena is None or len(arena) < 2:
-                return default_diag
-            arena_x = max(abs(float(arena[0])), 1.0)
-            arena_y = max(abs(float(arena[1])), 1.0)
-            return max(math.sqrt(arena_x ** 2 + arena_y ** 2), 1.0)
-        except Exception:
-            return default_diag
+       
+        arena = self.game_config_handler.get_cur_item("ArenaSize")
+    
+        arena_x = max(abs(float(arena[0])), 1.0)
+        arena_y = max(abs(float(arena[1])), 1.0)
+        return max(math.sqrt(arena_x ** 2 + arena_y ** 2), 1.0)
+     
 
     def _refresh_episode_scales(self, now_xy):
         """
@@ -587,7 +580,10 @@ class AirSimEnvGradientReward(gym.Env):
         obstacle_risk = float(obstacle_profile["obstacle_risk"])
 
         current_altitude = float(-now[2])  # NED坐标系下高度为 -z
-        altitude_error = abs(current_altitude - self.grad_target_altitude)
+        # 高度范围软惩罚：在[min_altitude_penalty, max_altitude_penalty]范围内无惩罚，超出后按偏离程度惩罚
+        low_violation = max(0.0, self.min_altitude_penalty - current_altitude)
+        high_violation = max(0.0, current_altitude - self.max_altitude_penalty)
+        altitude_error = low_violation + high_violation
         altitude_error_norm = min(altitude_error / max(self.grad_altitude_band_m, 1e-6), self.grad_cost_clip)
 
         cost = (
