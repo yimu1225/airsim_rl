@@ -337,7 +337,17 @@ class AirSimEnv(gym.Env):
     def init_state_f(self):
         self.depth_stack.clear()
         for i in range(self.stack_frames):
-            self.depth_stack.append(self.airgym.getScreenDepth())
+            # 无限重试直到获取到图像
+            depth = None
+            while depth is None:
+                try:
+                    depth = self.airgym.getScreenDepth()
+                    if depth is not None and depth.shape == (128, 128):
+                        self.depth_stack.append(depth)
+                        break
+                except Exception as e:
+                    print(f"init_state_f: getScreenDepth failed: {e}, retrying...")
+                    time.sleep(0.05)
             time.sleep(0.03)
         return self.get_obs()
 
