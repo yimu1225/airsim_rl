@@ -25,8 +25,56 @@ def smooth_curve(values, window=10):
     smoothed = series.rolling(window, center=True, min_periods=1).mean().to_numpy()
     return smoothed
 
+
+def zero_phase_double_exponential_smoothing(data, alpha=0.3, beta=0.1):
+    """
+    零相位双重指数平滑（Zero-Phase Double Exponential Smoothing）
+    
+    结合双重指数平滑（Holt's方法）和零相位滤波技术：
+    1. 双重指数平滑：处理带有趋势的时间序列，同时平滑水平和趋势分量
+    2. 零相位滤波：通过前向+后向滤波消除相位延迟
+    
+    参数:
+        data: 输入数据（1D numpy数组或列表）
+        alpha: 水平平滑因子 (0~1)，越大越关注近期数据
+        beta: 趋势平滑因子 (0~1)，越大越关注近期趋势变化
+    
+    返回:
+        平滑后的数据（与输入等长）
+    """
+    data = np.asarray(data, dtype=np.float64)
+    n = len(data)
+    if n <= 1:
+        return data
+    
+    # 第一阶段：正向双重指数平滑
+    s_fwd = np.zeros(n)  # 水平分量
+    b_fwd = np.zeros(n)  # 趋势分量
+    
+    # 初始化
+    s_fwd[0] = data[0]
+    b_fwd[0] = data[1] - data[0] if n > 1 else 0
+    
+    for t in range(1, n):
+        s_fwd[t] = alpha * data[t] + (1 - alpha) * (s_fwd[t-1] + b_fwd[t-1])
+        b_fwd[t] = beta * (s_fwd[t] - s_fwd[t-1]) + (1 - beta) * b_fwd[t-1]
+    
+    # 第二阶段：反向双重指数平滑（消除相位延迟）
+    s_rev = s_fwd[::-1]
+    s_bwd = np.zeros(n)
+    b_bwd = np.zeros(n)
+    
+    s_bwd[0] = s_rev[0]
+    b_bwd[0] = s_rev[1] - s_rev[0] if n > 1 else 0
+    
+    for t in range(1, n):
+        s_bwd[t] = alpha * s_rev[t] + (1 - alpha) * (s_bwd[t-1] + b_bwd[t-1])
+        b_bwd[t] = beta * (s_bwd[t] - s_bwd[t-1]) + (1 - beta) * b_bwd[t-1]
+    
+    return s_bwd[::-1]
+
 def plot_curves(algorithms, seeds_to_plot=None, save_path="learning_curves.png", 
-                smooth_window=10, smooth_method="moving", smooth_alpha=0.6,
+                smooth_window=10, smooth_method="moving", smooth_alpha=0.6, smooth_beta=0.1,
                 plot_cl=True, plot_non_cl=True, n_interpolate_points=1000, ci_type="std"):
     """
     Plots learning curves for specified algorithms on the same figures.
@@ -38,10 +86,9 @@ def plot_curves(algorithms, seeds_to_plot=None, save_path="learning_curves.png",
         seeds_to_plot: 要绘制的随机种子列表（如 ['1', '2', '3']），None 表示绘制所有种子
         save_path: 保存路径
         smooth_window: 平滑窗口大小（仅对 ``moving`` 方法有效）
-        smooth_method: 平滑方法，"moving" 或 "ema"。
-        smooth_alpha: 对于 ``ema`` 使用，遵循 TensorBoard 语义——
-            越大越平滑（0.0 无平滑，1.0 完全保留过去）。
-            内部会转换成 pandas 所需的 ``alpha = 1 - smooth_alpha``。
+        smooth_method: 平滑方法，"moving" 或 "zero_phase_des"（零相位双重指数平滑）。
+        smooth_alpha: 对于 ``zero_phase_des`` 使用，水平平滑因子 (0~1)，越大越关注近期数据
+        smooth_beta: 对于 ``zero_phase_des`` 使用，趋势平滑因子 (0~1)，越大越关注近期趋势变化
         plot_cl: 是否绘制带 CL- 前缀的算法
         plot_non_cl: 是否绘制不带 CL- 前缀的算法
         n_interpolate_points: 插值点数，用于对齐多个种子的曲线
@@ -158,11 +205,10 @@ def plot_curves(algorithms, seeds_to_plot=None, save_path="learning_curves.png",
             # 对该种子的数据进行平滑
             if smooth_method == "moving":
                 rewards_smooth = smooth_curve(rewards, smooth_window)
-            else:  # ema
-                tb_val = smooth_alpha
-                alpha = 1.0 - tb_val
-                series = pd.Series(rewards)
-                rewards_smooth = series.ewm(alpha=alpha, adjust=False).mean().to_numpy()
+            else:  # zero_phase_des（零相位双重指数平滑）
+                rewards_smooth = zero_phase_double_exponential_smoothing(
+                    rewards, alpha=smooth_alpha, beta=smooth_beta
+                )
             
             all_timesteps.append(timesteps)
             smoothed_curves.append((timesteps, rewards_smooth))
@@ -254,11 +300,10 @@ def plot_curves(algorithms, seeds_to_plot=None, save_path="learning_curves.png",
             # 对该种子的数据进行平滑
             if smooth_method == "moving":
                 success_smooth = smooth_curve(success_rates, smooth_window)
-            else:  # ema
-                tb_val = smooth_alpha
-                alpha = 1.0 - tb_val
-                series = pd.Series(success_rates)
-                success_smooth = series.ewm(alpha=alpha, adjust=False).mean().to_numpy()
+            else:  # zero_phase_des（零相位双重指数平滑）
+                success_smooth = zero_phase_double_exponential_smoothing(
+                    success_rates, alpha=smooth_alpha, beta=smooth_beta
+                )
             
             all_timesteps.append(timesteps)
             smoothed_curves.append((timesteps, success_smooth))
@@ -366,6 +411,7 @@ def main():
         smooth_window=args.smooth_window,
         smooth_method=args.smooth_method,
         smooth_alpha=args.smooth_alpha,
+        smooth_beta=args.smooth_beta,
         plot_cl=args.plot_cl,
         plot_non_cl=args.plot_non_cl,
         ci_type=args.ci_type)

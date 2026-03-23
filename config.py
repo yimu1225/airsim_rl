@@ -25,14 +25,15 @@ def get_config(argv=None):
     # get the parameters
     parser = argparse.ArgumentParser(description='AirSim_RL')
     # 环境 (Environment)
-    parser.add_argument("--env_name", type=str, default='AirSimEnv-v42', help="要训练的环境名称")  # AirSimEnv-v42  CartPole-v0
+    parser.add_argument("--env_name", type=str, default='AirSimEnv-Gradient-v1', help="要训练的环境名称")  # AirSimEnv-v42  CartPole-v0
 
     # 算法选择 (Algorithm Selection)
     parser.add_argument("--algorithm_name", type=str, default='CL-ST-DualVimTD3,CL-td3',
                         help="要训练的算法。支持: td3, ddpg, aetd3, per_td3, per_aetd3, cfc_td3, st_mamba_td3, ST-VimTD3, ST-SVimTD3, ST_3DVimTD3, st_cnn_td3, gam_mamba_td3, ST-DualVimTD3, ppo。可以是单个，多个（逗号分隔），或组名 ('all', 'base', 'seq')")
     parser.add_argument("--smooth_window", type=int, default=100, help="平滑窗口大小，用于平滑学习曲线 (仅对移动平均有效)")
-    parser.add_argument("--smooth_method", type=str, default="moving", choices=["moving","ema"], help="曲线平滑方法: moving=滑动平均, ema=指数加权平均")
-    parser.add_argument("--smooth_alpha", type=float, default=0.99, help="指数加权平均的平滑系数 (0-1)，与TensorBoard一致：数值越大越平滑。内部将转换为 pandas 所需的 alpha=1-smooth_alpha")
+    parser.add_argument("--smooth_method", type=str, default="moving", choices=["moving","zero_phase_des"], help="曲线平滑方法: moving=滑动平均, zero_phase_des=零相位双重指数平滑")
+    parser.add_argument("--smooth_alpha", type=float, default=0.3, help="零相位双重指数平滑的水平平滑因子 (0-1)，越大越关注近期数据")
+    parser.add_argument("--smooth_beta", type=float, default=0.1, help="零相位双重指数平滑的趋势平滑因子 (0-1)，越大越关注近期趋势变化")
     parser.add_argument("--plot_cl", action='store_true', default=False, help="绘图时是否检索带 CL- 前缀的算法 (默认: True)")
     parser.add_argument("--plot_non_cl", action='store_true', default=True, help="绘图时是否检索常规算法 (默认: True)")
     parser.add_argument("--use_percentile", action='store_true', default=False, help="使用四分位范围作为阴影带而不是均值加置信区间")
@@ -174,7 +175,7 @@ def get_config(argv=None):
     parser.add_argument("--grad_shaping_gamma", type=float, default=1.0, help="梯度奖励：势能折扣因子")
     
     # 深度图参数
-    parser.add_argument("--grad_safe_depth_m", type=float, default=1.5, help="梯度奖励：安全深度阈值(米)")
+    parser.add_argument("--grad_safe_depth_m", type=float, default=1.0, help="梯度奖励：安全深度阈值(米)")
     parser.add_argument("--grad_depth_floor_m", type=float, default=0.15, help="梯度奖励：深度最小值(米)")
     parser.add_argument("--grad_depth_max_m", type=float, default=10.0, help="梯度奖励：深度最大值(米)")
     parser.add_argument("--grad_depth_percentile", type=float, default=15.0, help="梯度奖励：深度统计百分位")
