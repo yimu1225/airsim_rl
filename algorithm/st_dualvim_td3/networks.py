@@ -210,7 +210,7 @@ class HierarchicalDualMamba(nn.Module):
                 x,
                 mamba_module.conv1d.weight.squeeze(1),
                 mamba_module.conv1d.bias,
-                mamba_module.activation,
+                activation=mamba_module.activation,
             )
 
         x_dbl = mamba_module.x_proj(x.transpose(1, 2).reshape(bsz * seqlen, mamba_module.d_inner))
