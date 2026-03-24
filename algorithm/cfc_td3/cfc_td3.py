@@ -305,10 +305,7 @@ class CFCTD3Agent:
             for param, target_param in zip(self.critic_base_adapter.parameters(), self.critic_base_adapter_target.parameters()):
                 target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
 
-        return {
-            "critic_loss": critic_loss.item(),
-            "actor_loss": actor_loss_val
-        }
+        return {}
 
     def save(self, filename):
         torch.save(

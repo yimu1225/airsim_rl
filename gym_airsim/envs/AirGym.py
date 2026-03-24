@@ -336,18 +336,33 @@ class AirSimEnv(gym.Env):
 
     def init_state_f(self):
         self.depth_stack.clear()
-        for i in range(self.stack_frames):
-            # 无限重试直到获取到图像
+        for _ in range(self.stack_frames):
             depth = None
-            while depth is None:
-                try:
-                    depth = self.airgym.getScreenDepth()
-                    if depth is not None and depth.shape == (128, 128):
-                        self.depth_stack.append(depth)
-                        break
-                except Exception as e:
-                    print(f"init_state_f: getScreenDepth failed: {e}, retrying...")
-                    time.sleep(0.05)
+            try:
+                depth = self.airgym.getScreenDepth(max_attempts=3)
+            except Exception as e:
+                print(f"init_state_f: getScreenDepth failed after 3 attempts: {e}. Restarting game...")
+                if self.game_handler:
+                    self.game_handler.restart_game()
+                    time.sleep(10)
+                    self.airgym = AirLearningClient(
+                        z=self.airgym.z,
+                        ip=self.config.airsim_ip if self.config else None,
+                        port=self.config.airsim_port if self.config else None
+                    )
+                    try:
+                        depth = self.airgym.getScreenDepth(max_attempts=3)
+                    except Exception as e2:
+                        print(f"init_state_f: still failed after restart: {e2}. Using zero depth.")
+                        depth = np.zeros((128, 128), dtype=np.float32)
+                else:
+                    print("init_state_f: no game handler available. Using zero depth.")
+                    depth = np.zeros((128, 128), dtype=np.float32)
+
+            if depth is None or depth.shape != (128, 128):
+                print("init_state_f: invalid depth shape, using zero depth.")
+                depth = np.zeros((128, 128), dtype=np.float32)
+            self.depth_stack.append(depth)
             time.sleep(0.03)
         return self.get_obs()
 
@@ -543,32 +558,30 @@ class AirSimEnv(gym.Env):
 
         self.airgym.client.simPause(True)
 
-        # Update stacks
+        # Update stacks: max 3 attempts in getScreenDepth; restart immediately on failure.
         depth_img = None
-        for attempt in range(4):  # 初始尝试 + 3次重试
-            try:
-                depth_img = self.airgym.getScreenDepth()
-                break
-            except Exception as e:
-                if attempt < 3:
-                    print(f"Error fetching images in step (attempt {attempt+1}/4): {e}")
-                    time.sleep(0.1)  # 短暂等待后重试
-                else:
-                    print(f"Failed to fetch images after 4 attempts: {e}. Restarting game...")
-                    if self.game_handler:
-                        self.game_handler.restart_game()
-                        time.sleep(10)  # 等待游戏重启
-                        # 重新初始化客户端
-                        self.airgym = AirLearningClient(z=self.airgym.z, ip=self.config.airsim_ip if self.config else None, port=self.config.airsim_port if self.config else None)
-                        # 最后一次尝试
-                        try:
-                            depth_img = self.airgym.getScreenDepth()
-                        except Exception as e2:
-                            print(f"Still failed after restart: {e2}. Using zero arrays.")
-                            depth_img = np.zeros((128, 128), dtype=np.float32)
-                    else:
-                        print("No game handler available. Using zero arrays.")
-                        depth_img = np.zeros((128, 128), dtype=np.float32)
+        try:
+            depth_img = self.airgym.getScreenDepth(max_attempts=3)
+        except Exception as e:
+            print(f"Failed to fetch images after 3 attempts: {e}. Restarting game...")
+            if self.game_handler:
+                self.game_handler.restart_game()
+                time.sleep(10)  # 等待游戏重启
+                # 重新初始化客户端
+                self.airgym = AirLearningClient(
+                    z=self.airgym.z,
+                    ip=self.config.airsim_ip if self.config else None,
+                    port=self.config.airsim_port if self.config else None
+                )
+                # 重启后再尝试一次（同样最多3次）
+                try:
+                    depth_img = self.airgym.getScreenDepth(max_attempts=3)
+                except Exception as e2:
+                    print(f"Still failed after restart: {e2}. Using zero arrays.")
+                    depth_img = np.zeros((128, 128), dtype=np.float32)
+            else:
+                print("No game handler available. Using zero arrays.")
+                depth_img = np.zeros((128, 128), dtype=np.float32)
         
         self.depth_stack.append(depth_img)
 

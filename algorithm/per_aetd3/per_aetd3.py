@@ -200,7 +200,6 @@ class PERAETD3Agent:
         self.replay_buffer.update_priorities(indices, new_priorities)
 
         result = {
-            "critic_loss": critic_loss.item(),
             "meta_weight_entropy": entropy.item(),
             "meta_weight_max": adaptive_weights.max(dim=1).values.mean().item(),
             "adaptive_reg": current_adaptive_reg,
@@ -238,8 +237,6 @@ class PERAETD3Agent:
             for param, target_param in zip(self.actor_base_adapter.parameters(), self.actor_base_adapter_target.parameters()):
                 target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
             
-            result["actor_loss"] = actor_loss.item()
-
         return result
 
     def save(self, filename):

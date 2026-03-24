@@ -165,7 +165,6 @@ def train_ppo_algorithm(env, agent, args, algo_name, device, base_state, depth_i
     episode_num = 0
     episode_reward = 0
     episode_timesteps = 0
-    action_hist = []
 
     state = depth_image
     base = base_state
@@ -196,8 +195,6 @@ def train_ppo_algorithm(env, agent, args, algo_name, device, base_state, depth_i
                 action,
                 f"algo={display_algo_name}, total_timesteps={total_timesteps}, episode={episode_num}, episode_step={episode_timesteps}"
             )
-
-            action_hist.append(action)
 
             # Step environment
             try:
@@ -274,16 +271,6 @@ def train_ppo_algorithm(env, agent, args, algo_name, device, base_state, depth_i
                 writer.add_scalar('train/episode_length', episode_timesteps, total_timesteps)
                 writer.add_scalar('train/success_rate', success_rate, total_timesteps)
 
-                # Log action distribution
-                if len(action_hist) > 0:
-                    action_arr = np.array(action_hist)
-                    if action_arr.ndim == 1:
-                        writer.add_histogram('train/action_distribution', action_arr, episode_num)
-                    else:
-                        action_dim_names = ['forward_speed', 'vertical_speed', 'yaw_rate'] if action_arr.shape[1] == 3 else [f'action_dim_{i}' for i in range(action_arr.shape[1])]
-                        for dim, name in enumerate(action_dim_names):
-                            writer.add_histogram(f'train/{name}', action_arr[:, dim], episode_num)
-                
                 # Log to CSV
                 with open(csv_filename, mode='a', newline='') as f:
                     csv_writer = csv.writer(f)
@@ -294,7 +281,6 @@ def train_ppo_algorithm(env, agent, args, algo_name, device, base_state, depth_i
                 episode_num += 1
                 episode_reward = 0
                 episode_timesteps = 0
-                action_hist = []
 
                 # Check restart
                 if total_timesteps >= next_restart:
@@ -347,10 +333,10 @@ def train_ppo_algorithm(env, agent, args, algo_name, device, base_state, depth_i
             if train_info:
                 # Log training metrics
                 for key, value in train_info.items():
-                    writer.add_scalar(f'loss/{key}', value, total_timesteps)
-                print(f"  Policy Loss: {train_info.get('policy_loss', 0):.4f}, "
-                      f"Value Loss: {train_info.get('value_loss', 0):.4f}, "
-                      f"Entropy: {train_info.get('entropy', 0):.4f}, "
+                    if "loss" in key:
+                        continue
+                    writer.add_scalar(f'train/{key}', value, total_timesteps)
+                print(f"  Entropy: {train_info.get('entropy', 0):.4f}, "
                       f"Approx KL: {train_info.get('approx_kl', 0):.4f}")
             
             # Memory cleanup after training

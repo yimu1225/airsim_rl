@@ -160,12 +160,12 @@ class AirLearningClient(object):
         return np.array([track])
 
 
-    def getScreenDepth(self):
+    def getScreenDepth(self, max_attempts=3, retry_sleep=0.1):
         """
-        获取前方摄像头(ID: "0")的深度图像，失败时无限重试直到成功。
-        
+        获取前方摄像头(ID: "0")的深度图像。
+
         1. 发送 simGetImages 请求获取 DepthPerspective 类型的图像（浮点数据）。
-        2. 如果请求超时或失败，无限重试直到成功。
+        2. 请求失败时最多重试 max_attempts 次，超过后抛出异常。
         3. 截断最大深度值 (clip max=10)，并归一化缩放到 0-255 范围。
         4. 将数据 reshape 为 2D 图像。
         5. 统一 resize 到 128x128 分辨率。
@@ -174,32 +174,49 @@ class AirLearningClient(object):
             np.array: 处理后的深度图像 (128x128)。
         """
         # 使用第一个可用车辆和摄像头 "0" (前置中心)
-        # 无限重试直到成功获取图像
-        while True:
+        max_attempts = max(1, int(max_attempts))
+        for attempt in range(1, max_attempts + 1):
             responses = None
             try:
                 responses = self.client.simGetImages([airsim.ImageRequest("0", airsim.ImageType.DepthPerspective, True, False)], vehicle_name='SimpleFlight')
             except Exception as e:
-                print(f"getScreenDepth RPC error: {e}, retrying...")
-                time.sleep(0.1)
-                continue
+                if attempt < max_attempts:
+                    print(f"getScreenDepth RPC error (attempt {attempt}/{max_attempts}): {e}, retrying...")
+                    time.sleep(retry_sleep)
+                    continue
+                raise RuntimeError(f"getScreenDepth failed after {max_attempts} attempts: {e}") from e
 
             if responses is None:
-                print("Camera timeout, retrying...")
-                time.sleep(0.1)
-                continue
+                if attempt < max_attempts:
+                    print(f"Camera timeout (attempt {attempt}/{max_attempts}), retrying...")
+                    time.sleep(retry_sleep)
+                    continue
+                raise RuntimeError(f"getScreenDepth failed after {max_attempts} attempts: camera timeout")
+
+            if len(responses) == 0:
+                if attempt < max_attempts:
+                    print(f"Empty image response (attempt {attempt}/{max_attempts}), retrying...")
+                    time.sleep(retry_sleep)
+                    continue
+                raise RuntimeError(f"getScreenDepth failed after {max_attempts} attempts: empty image response")
             
             # 检查图像尺寸是否有效
             valid_images = True
             for i in range(len(responses)):
                 if responses[i].width == 0 or responses[i].height == 0:
-                    print(f"Invalid image dimensions ({responses[i].width}x{responses[i].height}), retrying...")
+                    if attempt < max_attempts:
+                        print(
+                            f"Invalid image dimensions ({responses[i].width}x{responses[i].height}) "
+                            f"(attempt {attempt}/{max_attempts}), retrying..."
+                        )
                     valid_images = False
                     break
             
             if not valid_images:
-                time.sleep(0.1)
-                continue
+                if attempt < max_attempts:
+                    time.sleep(retry_sleep)
+                    continue
+                raise RuntimeError(f"getScreenDepth failed after {max_attempts} attempts: invalid image dimensions")
             
             # 处理图像数据
             img = []
@@ -232,6 +249,8 @@ class AirLearningClient(object):
             else:
                 depth = img2d_resized[0].astype(np.float32)
                 return self._add_depth_noise(depth)
+
+        raise RuntimeError(f"getScreenDepth failed after {max_attempts} attempts")
 
 
     def get_ryp(self):

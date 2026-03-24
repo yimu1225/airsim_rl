@@ -257,9 +257,9 @@ class ST_CNN_Agent:
             self.soft_update(self.critic_state_net, self.critic_state_net_target, self.tau)
             self.soft_update(self.critic_head, self.critic_head_target, self.tau)
             
-            return {'critic_loss': critic_loss.item(), 'actor_loss': actor_loss.item()}
+            return {}
         
-        return {'critic_loss': critic_loss.item(), 'actor_loss': 0.0}
+        return {}
 
     def soft_update(self, net, target_net, tau):
         for param, target_param in zip(net.parameters(), target_net.parameters()):

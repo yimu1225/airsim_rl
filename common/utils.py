@@ -1,6 +1,7 @@
 import random
 import os
 import subprocess
+import shutil
 import numpy as np
 import psutil
 import json
@@ -174,11 +175,33 @@ def get_random_end_point(arena_size, split_index, total_num_of_splits,np_random)
 
 def copy_json_to_server(filename):
     try:
-        exit_code = os.system("copy " + filename + " " + settings.unreal_host_shared_dir)
-        if not(exit_code == 0):
-            raise Exception("couldn't copy the json file to the unreal_host_shared_dir")
+        src = os.path.abspath(filename)
+        shared_dir = str(getattr(settings, "unreal_host_shared_dir", "")).strip()
+
+        # On WSL/Linux runs, many setups already write directly to a host-shared path
+        # (e.g. /mnt/d/...); in that case an extra copy step is unnecessary.
+        if not shared_dir:
+            return
+
+        if not os.path.isfile(src):
+            raise FileNotFoundError(f"json file does not exist: {src}")
+
+        if os.path.isdir(shared_dir):
+            dst = os.path.join(shared_dir, os.path.basename(src))
+        else:
+            dst = shared_dir
+            parent = os.path.dirname(dst)
+            if parent and (not os.path.isdir(parent)):
+                raise FileNotFoundError(f"destination directory does not exist: {parent}")
+
+        if os.path.exists(dst):
+            try:
+                if os.path.samefile(src, dst):
+                    return
+            except OSError:
+                pass
+
+        shutil.copy2(src, dst)
     except Exception as e:
-        print(str(e))
+        print(f"couldn't copy the json file to the unreal_host_shared_dir: {e}")
         exit(1)
-
-

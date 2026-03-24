@@ -11,8 +11,8 @@ os.environ.setdefault('CUBLAS_WORKSPACE_CONFIG', ':4096:8')
 
 
 # 设置环境变量，获得更详细的错误信息
-os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
-os.environ['TORCH_USE_CUDA_DSA'] = '1'
+# os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
+# os.environ['TORCH_USE_CUDA_DSA'] = '1'
 
 import time
 import random
@@ -304,7 +304,6 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, ba
     episode_num = 0
     episode_reward = 0
     episode_timesteps = 0
-    action_hist = []
 
     state = depth_image
     base = base_state
@@ -343,9 +342,6 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, ba
                     action,
                     f"algo={display_algo_name}, total_timesteps={total_timesteps}, episode={episode_num}, episode_step={episode_timesteps}"
                 )
-
-                # Track actions for distribution logging (per episode)
-                action_hist.append(action)
 
             # Step
             try:
@@ -492,17 +488,6 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, ba
                 writer.add_scalar('train/episode_length', episode_timesteps, total_timesteps)
                 writer.add_scalar('train/success_rate', success_rate, total_timesteps)
 
-                # Log action distribution to TensorBoard (per episode)
-                if len(action_hist) > 0:
-                    action_arr = np.array(action_hist)
-                    if action_arr.ndim == 1:
-                        writer.add_histogram('train/action_distribution', action_arr, episode_num)
-                    else:
-                        # Record each action dimension separately - only keep histograms
-                        action_dim_names = ['forward_speed', 'vertical_speed', 'yaw_rate'] if action_arr.shape[1] == 3 else [f'action_dim_{i}' for i in range(action_arr.shape[1])]
-                        for dim, name in enumerate(action_dim_names):
-                            writer.add_histogram(f'train/{name}', action_arr[:, dim], episode_num)
-                
                 # Log to CSV
                 with open(csv_filename, mode='a', newline='') as f:
                     csv_writer = csv.writer(f)
@@ -521,7 +506,6 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, ba
                 episode_num += 1
                 episode_reward = 0
                 episode_timesteps = 0
-                action_hist = []
 
                 # Check if need to restart game
                 if total_timesteps >= next_restart:
@@ -568,23 +552,10 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, ba
                 progress_ratio = total_timesteps / max_timesteps
                 train_info = agent.train(progress_ratio=progress_ratio)
                 if train_info:
-                    for metric_name in ("actor_loss", "critic_loss"):
-                        if metric_name in train_info:
-                            _raise_if_non_finite(
-                                f"train.{metric_name}",
-                                train_info[metric_name],
-                                f"algo={display_algo_name}, total_timesteps={total_timesteps}"
-                            )
                     loss_info_list.append(train_info)
             
-            # Log average loss every 100 training steps
+            # Log non-loss metrics every 100 training steps
             if loss_info_list and total_timesteps % 100 == 0:
-                avg_actor_loss = sum(info.get('actor_loss', 0) for info in loss_info_list) / len(loss_info_list)
-                avg_critic_loss = sum(info.get('critic_loss', 0) for info in loss_info_list) / len(loss_info_list)
-                
-                writer.add_scalar('loss/actor_loss', avg_actor_loss, total_timesteps)
-                writer.add_scalar('loss/critic_loss', avg_critic_loss, total_timesteps)
-
                 meta_metric_map = {
                     'adaptive/meta_weight_entropy': 'meta_weight_entropy',
                     'adaptive/meta_weight_max': 'meta_weight_max',
