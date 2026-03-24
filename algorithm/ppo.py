@@ -142,7 +142,6 @@ class PPO():
 
 
         if self.logger is not None:
-
             self.logger.add_scalars('value_loss',
                                     {'value_loss': value_loss},
                                     self.step)
@@ -158,4 +157,3 @@ class PPO():
 
 
         self.step += 1
-

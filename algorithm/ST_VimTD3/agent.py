@@ -40,21 +40,27 @@ class STVimTD3Agent:
 
         self.actor_encoder = STVimEncoder(args).to(self.device)
         self.actor_base_net = StateAdapter(self.base_dim, self.base_feature_dim).to(self.device)
+        self.visual_feature_dim = self.actor_encoder.repr_dim
+        self.fused_feature_dim = self.visual_feature_dim + self.base_feature_dim
         self.actor = Actor(
-            feature_dim=args.st_mamba_embed_dim + self.base_feature_dim,
+            feature_dim=self.fused_feature_dim,
             action_dim=self.action_dim,
             hidden_dim=args.hidden_dim
         ).to(self.device)
 
         self.critic_encoder = STVimEncoder(args).to(self.device)
         self.critic_base_net = StateAdapter(self.base_dim, self.base_feature_dim).to(self.device)
+        if self.critic_encoder.repr_dim != self.visual_feature_dim:
+            raise ValueError(
+                f"Actor/Critic visual dims mismatch: {self.visual_feature_dim} vs {self.critic_encoder.repr_dim}"
+            )
         self.critic_1 = Critic(
-            feature_dim=args.st_mamba_embed_dim + self.base_feature_dim,
+            feature_dim=self.fused_feature_dim,
             action_dim=self.action_dim,
             hidden_dim=args.hidden_dim
         ).to(self.device)
         self.critic_2 = Critic(
-            feature_dim=args.st_mamba_embed_dim + self.base_feature_dim,
+            feature_dim=self.fused_feature_dim,
             action_dim=self.action_dim,
             hidden_dim=args.hidden_dim
         ).to(self.device)
@@ -251,7 +257,7 @@ class STVimTD3Agent:
 
             actor_loss_value = actor_loss.item()
 
-        return {"critic_loss": critic_loss.item(), "actor_loss": actor_loss_value}
+        return {}
 
     def soft_update(self, net, target_net, tau):
         for param, target_param in zip(net.parameters(), target_net.parameters()):

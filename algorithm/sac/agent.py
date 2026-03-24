@@ -252,11 +252,7 @@ class SACAgent:
         # ============ Soft Update Target Networks ============
         self._soft_update()
 
-        # Return losses for logging
         return {
-            'critic_loss': critic_loss.item(),
-            'actor_loss': actor_loss.item() if isinstance(actor_loss, torch.Tensor) else 0.0,
-            'alpha_loss': alpha_loss.item() if isinstance(alpha_loss, torch.Tensor) else 0.0,
             'alpha': self.alpha if isinstance(self.alpha, float) else self.alpha.item(),
         }
 

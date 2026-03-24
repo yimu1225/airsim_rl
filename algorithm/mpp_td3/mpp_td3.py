@@ -202,7 +202,7 @@ class MPPTD3Agent:
         new_priorities = (torch.abs(td_error1) + torch.abs(td_error2)).detach().cpu().numpy().flatten()
         self.replay_buffer.update_priorities(indices, new_priorities)
         
-        result = {"critic_loss": critic_loss.item()}
+        result = {}
 
         # Delayed policy updates
         if self.total_it % self.policy_freq == 0:
@@ -231,8 +231,6 @@ class MPPTD3Agent:
             for param, target_param in zip(self.actor_base_adapter.parameters(), self.actor_base_adapter_target.parameters()):
                 target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
                 
-            result["actor_loss"] = actor_loss.item()
-            
         return result
 
     def save(self, filename):

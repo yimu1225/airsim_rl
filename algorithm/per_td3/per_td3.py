@@ -281,8 +281,6 @@ class PERTD3Agent:
         self._sync_cuda("train_metrics")
 
         return {
-            "actor_loss": self._to_float(actor_loss),
-            "critic_loss": self._to_float(critic_loss),
             "per_beta": float(beta),
             "replay/success_sample_ratio_target": float(current_mu),
             "replay/success_batch_fraction": mix_info["batch_success_fraction"],

@@ -338,8 +338,6 @@ class PPOAgent:
         self.num_updates += 1
         
         return {
-            'policy_loss': total_policy_loss / n_updates if n_updates > 0 else 0,
-            'value_loss': total_value_loss / n_updates if n_updates > 0 else 0,
             'entropy': total_entropy / n_updates if n_updates > 0 else 0,
             'approx_kl': np.mean(approx_kl_divs) if approx_kl_divs else 0,
         }

@@ -18,7 +18,7 @@ class MambaBlock(nn.Module):
         self.mamba = Mamba(d_model=dim, d_state=d_state, d_conv=d_conv, expand=expand)
 
     def forward(self, x):
-        return x + self.mamba(self.norm(x))
+        return self.mamba(self.norm(x))
 
 
 class TemporalMambaStack(nn.Module):
@@ -54,6 +54,10 @@ class STVimEncoder(nn.Module):
         depth_shape = args.depth_shape
         in_chans = depth_shape[0]
         self.seq_len = args.n_frames
+        # Default to flatten all temporal tokens for downstream policy/value heads.
+        # Set args.st_vim_flatten_all_tokens = False to recover old behavior (last token only).
+        self.flatten_all_tokens = bool(getattr(args, "st_vim_flatten_all_tokens", True))
+        self.repr_dim = self.embed_dim * self.seq_len if self.flatten_all_tokens else self.embed_dim
 
         height = depth_shape[1]
         width = depth_shape[2]
@@ -103,8 +107,12 @@ class STVimEncoder(nn.Module):
         frame_tokens = frame_tokens.view(B, T, self.embed_dim)
 
         temporal_tokens = self.temporal_mamba(frame_tokens)
-        # Return only the last temporal token
-        vis_tokens = temporal_tokens[:, -1, :]
+        if self.flatten_all_tokens:
+            # Use all temporal tokens: (B, T, D) -> (B, T*D)
+            vis_tokens = temporal_tokens.reshape(B, T * self.embed_dim)
+        else:
+            # Old behavior: use only the last temporal token.
+            vis_tokens = temporal_tokens[:, -1, :]
 
         return vis_tokens
 

@@ -246,11 +246,7 @@ class TD3Agent:
             for param, target_param in zip(self.critic_base_adapter.parameters(), self.critic_base_adapter_target.parameters()):
                 target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
 
-        # 返回损失值用于调试
-        return {
-            'actor_loss': actor_loss.item() if isinstance(actor_loss, torch.Tensor) else actor_loss,
-            'critic_loss': critic_loss.item(),
-        }
+        return {}
 
     def save(self, filename: str):
         torch.save(

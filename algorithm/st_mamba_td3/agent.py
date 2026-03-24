@@ -234,7 +234,7 @@ class ST_Mamba_Agent:
 
             actor_loss_value = actor_loss.item()
 
-        return {"critic_loss": critic_loss.item(), "actor_loss": actor_loss_value}
+        return {}
 
     def soft_update(self, net, target_net, tau):
         for param, target_param in zip(net.parameters(), target_net.parameters()):
