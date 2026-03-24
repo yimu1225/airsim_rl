@@ -668,7 +668,7 @@ class AirSimEnvGradientReward(gym.Env):
         reward = (
             self.grad_progress_weight * progress
             - self.grad_step_penalty
-            - smoothness_penalty
+            # - smoothness_penalty
             - stagnation_penalty
         )
         reward = float(np.clip(reward, -self.grad_reward_clip, self.grad_reward_clip))
@@ -898,10 +898,10 @@ class AirSimEnvGradientReward(gym.Env):
         # 课程学习等级升级（仅在启用课程学习时）
         if self.use_curriculum and len(self.success_deque)>0:
             succes_rate=sum(self.success_deque) / len(self.success_deque)
-            if succes_rate>0.6 and self.level==0 and self.success_count>300:
+            if succes_rate>0.6 and self.level==0 and self.success_count>600:
                 self.level=1
                 self.game_config_handler=GameConfigHandler(range_dic_name="settings.medium_range_dic")
-            elif succes_rate > 0.7 and self.level == 1 and self.success_count>600:
+            elif succes_rate > 0.7 and self.level == 1 and self.success_count>900:
                 self.level = 2
                 self.game_config_handler = GameConfigHandler(range_dic_name="settings.hard_range_dic")
             # elif succes_rate > 0.8 and self.level == 2 and self.success_count > 900:

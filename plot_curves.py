@@ -3,8 +3,6 @@ import glob
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-import seaborn as sns
-from scipy import interpolate
 from config import get_config
 
 def smooth_curve(values, window=10):
@@ -73,6 +71,83 @@ def zero_phase_double_exponential_smoothing(data, alpha=0.3, beta=0.1):
     
     return s_bwd[::-1]
 
+
+def interpolate_to_grid(x_src, y_src, x_dst):
+    """将单条曲线插值到统一网格，原始范围外填充 NaN。"""
+    x_src = np.asarray(x_src, dtype=np.float64)
+    y_src = np.asarray(y_src, dtype=np.float64)
+    x_dst = np.asarray(x_dst, dtype=np.float64)
+
+    if x_src.size == 0 or y_src.size == 0:
+        return np.full_like(x_dst, np.nan, dtype=np.float64)
+
+    # 保证 x 严格递增且去重，避免 np.interp 在重复点处行为不稳定
+    order = np.argsort(x_src)
+    x_sorted = x_src[order]
+    y_sorted = y_src[order]
+    unique_x, unique_idx = np.unique(x_sorted, return_index=True)
+    unique_y = y_sorted[unique_idx]
+
+    if unique_x.size == 1:
+        y_interp = np.full_like(x_dst, np.nan, dtype=np.float64)
+        y_interp[np.isclose(x_dst, unique_x[0])] = unique_y[0]
+        return y_interp
+
+    return np.interp(x_dst, unique_x, unique_y, left=np.nan, right=np.nan)
+
+
+def aggregate_seed_curves(smoothed_curves, n_points=1000, ci_type="std", min_valid_count=1):
+    """
+    将多个 seed 曲线对齐到“并集时间轴”，并用 NaN 感知统计量聚合。
+
+    返回:
+        x_common, mean, lower, upper, valid_mask, valid_counts
+    """
+    if not smoothed_curves:
+        return None
+
+    starts = [timesteps[0] for timesteps, _ in smoothed_curves if len(timesteps) > 0]
+    ends = [timesteps[-1] for timesteps, _ in smoothed_curves if len(timesteps) > 0]
+    if not starts or not ends:
+        return None
+
+    min_timestep = min(starts)
+    max_timestep = max(ends)
+    if min_timestep >= max_timestep:
+        return None
+
+    x_common = np.linspace(min_timestep, max_timestep, n_points)
+    interpolated_curves = np.array(
+        [interpolate_to_grid(timesteps, values, x_common) for timesteps, values in smoothed_curves],
+        dtype=np.float64,
+    )
+
+    valid_counts = np.sum(np.isfinite(interpolated_curves), axis=0)
+    valid_mask = valid_counts >= max(1, int(min_valid_count))
+    if not np.any(valid_mask):
+        return None
+
+    mean = np.full_like(x_common, np.nan, dtype=np.float64)
+    std = np.full_like(x_common, np.nan, dtype=np.float64)
+
+    mean[valid_mask] = (
+        np.nansum(interpolated_curves[:, valid_mask], axis=0) / valid_counts[valid_mask]
+    )
+    centered = interpolated_curves[:, valid_mask] - mean[valid_mask]
+    centered = np.where(np.isfinite(interpolated_curves[:, valid_mask]), centered, np.nan)
+    std[valid_mask] = np.sqrt(
+        np.nansum(centered ** 2, axis=0) / valid_counts[valid_mask]
+    )
+
+    if ci_type == "std":
+        ci = std
+    else:  # sem
+        ci = std / np.sqrt(np.maximum(valid_counts, 1))
+
+    upper = mean + ci
+    lower = mean - ci
+    return x_common, mean, lower, upper, valid_mask, valid_counts
+
 def plot_curves(algorithms, seeds_to_plot=None, save_path="learning_curves.png", 
                 smooth_window=10, smooth_method="moving", smooth_alpha=0.6, smooth_beta=0.1,
                 plot_cl=True, plot_non_cl=True, n_interpolate_points=1000, ci_type="std"):
@@ -91,10 +166,8 @@ def plot_curves(algorithms, seeds_to_plot=None, save_path="learning_curves.png",
         smooth_beta: 对于 ``zero_phase_des`` 使用，趋势平滑因子 (0~1)，越大越关注近期趋势变化
         plot_cl: 是否绘制带 CL- 前缀的算法
         plot_non_cl: 是否绘制不带 CL- 前缀的算法
-        n_interpolate_points: 插值点数，用于对齐多个种子的曲线
+        n_interpolate_points: 插值点数，用于对齐多个种子的曲线（并集时间轴）
     """
-    from scipy import interpolate
-    
     results_dir = "./results"
     
     # Set font to Arial
@@ -190,9 +263,9 @@ def plot_curves(algorithms, seeds_to_plot=None, save_path="learning_curves.png",
         seeds = algo_df['Seed'].unique()
         print(f"\n{algo_name}: {len(seeds)} seeds")
         
-        # 收集每个种子的数据，找到共同的 timestep 范围
-        all_timesteps = []
+        # 收集每个种子的数据
         smoothed_curves = []
+        seed_end_timesteps = []
         
         for seed in seeds:
             seed_df = algo_df[algo_df['Seed'] == seed].sort_values('total_timesteps')
@@ -210,56 +283,48 @@ def plot_curves(algorithms, seeds_to_plot=None, save_path="learning_curves.png",
                     rewards, alpha=smooth_alpha, beta=smooth_beta
                 )
             
-            all_timesteps.append(timesteps)
             smoothed_curves.append((timesteps, rewards_smooth))
+            seed_end_timesteps.append(timesteps[-1])
         
         if not smoothed_curves:
             continue
-        
-        # 找到所有种子的共同 timestep 范围
-        min_timestep = max(t[0] for t in all_timesteps)  # 最大的起始点
-        max_timestep = min(t[-1] for t in all_timesteps)  # 最小的结束点
-        
-        if min_timestep >= max_timestep:
-            print(f"  Warning: {algo_name} 的种子时间范围不重叠，跳过")
+
+        min_end = min(seed_end_timesteps)
+        max_end = max(seed_end_timesteps)
+        if max_end > min_end * 3:
+            print(
+                f"  Note: {algo_name} seed 时长差异较大 ({int(min_end)} ~ {int(max_end)}), "
+                "已使用并集时间轴 + NaN 感知均值避免短 seed 截断整条曲线。"
+            )
+
+        n_seed_curves = len(smoothed_curves)
+        min_valid_for_plot = 1 if n_seed_curves <= 1 else max(2, int(np.ceil(0.5 * n_seed_curves)))
+
+        aggregated = aggregate_seed_curves(
+            smoothed_curves,
+            n_points=n_interpolate_points,
+            ci_type=ci_type,
+            min_valid_count=min_valid_for_plot,
+        )
+        if aggregated is None:
+            print(f"  Warning: {algo_name} 聚合失败，跳过")
             continue
-        
-        # 创建统一的 timestep 网格
-        x_common = np.linspace(min_timestep, max_timestep, n_interpolate_points)
-        
-        # 将每个种子的曲线插值到统一网格上
-        interpolated_curves = []
-        for timesteps, rewards in smoothed_curves:
-            # 使用线性插值
-            f = interpolate.interp1d(timesteps, rewards, kind='linear', 
-                                     bounds_error=False, fill_value='extrapolate')
-            y_interp = f(x_common)
-            interpolated_curves.append(y_interp)
-        
-        interpolated_curves = np.array(interpolated_curves)  # shape: (n_seeds, n_points)
-        
-        # 计算均值和标准差（跨种子）
-        mean_reward = np.mean(interpolated_curves, axis=0)
-        std_reward = np.std(interpolated_curves, axis=0)
-        n_seeds = len(interpolated_curves)
-        
-        # 使用标准差或标准误差
-        if ci_type == "std":
-            ci = std_reward
-        else:  # sem
-            ci = std_reward / np.sqrt(n_seeds)
-        upper = mean_reward + ci
-        lower = mean_reward - ci
+        x_common, mean_reward, lower, upper, valid_mask, valid_counts = aggregated
+        if valid_counts[-1] < min_valid_for_plot:
+            print(
+                f"  Note: {algo_name} 末端可用 seed 数不足（{int(valid_counts[-1])}/{n_seed_curves}），"
+                f"已隐藏覆盖不足的尾段以避免终点跳变。"
+            )
         
         color = color_map[algo_name]
         
         # 绘制均值曲线
-        ax_reward.plot(x_common, mean_reward, 
+        ax_reward.plot(x_common[valid_mask], mean_reward[valid_mask], 
                       label=algo_name.upper(), linewidth=2.5, color=color, 
                       linestyle=line_style_map[algo_name])
         
         # 绘制阴影区域（标准差或标准误差）
-        ax_reward.fill_between(x_common, lower, upper,
+        ax_reward.fill_between(x_common[valid_mask], lower[valid_mask], upper[valid_mask],
                               color=color, alpha=0.2)
     
     ax_reward.set_xlabel("Total Timesteps", fontfamily='Arial', fontsize=20)
@@ -286,8 +351,8 @@ def plot_curves(algorithms, seeds_to_plot=None, save_path="learning_curves.png",
         seeds = algo_df['Seed'].unique()
         
         # 收集每个种子的数据
-        all_timesteps = []
         smoothed_curves = []
+        seed_end_timesteps = []
         
         for seed in seeds:
             seed_df = algo_df[algo_df['Seed'] == seed].sort_values('total_timesteps')
@@ -304,55 +369,53 @@ def plot_curves(algorithms, seeds_to_plot=None, save_path="learning_curves.png",
                 success_smooth = zero_phase_double_exponential_smoothing(
                     success_rates, alpha=smooth_alpha, beta=smooth_beta
                 )
+            # 成功率是有界指标，平滑后裁剪回 [0, 1] 避免 Holt 趋势项导致越界
+            success_smooth = np.clip(success_smooth, 0.0, 1.0)
             
-            all_timesteps.append(timesteps)
             smoothed_curves.append((timesteps, success_smooth))
+            seed_end_timesteps.append(timesteps[-1])
         
         if not smoothed_curves:
             continue
-        
-        # 找到所有种子的共同 timestep 范围
-        min_timestep = max(t[0] for t in all_timesteps)
-        max_timestep = min(t[-1] for t in all_timesteps)
-        
-        if min_timestep >= max_timestep:
+
+        min_end = min(seed_end_timesteps)
+        max_end = max(seed_end_timesteps)
+        if max_end > min_end * 3:
+            print(
+                f"  Note: {algo_name} seed 时长差异较大 ({int(min_end)} ~ {int(max_end)}), "
+                "已使用并集时间轴 + NaN 感知均值避免短 seed 截断整条曲线。"
+            )
+
+        n_seed_curves = len(smoothed_curves)
+        min_valid_for_plot = 1 if n_seed_curves <= 1 else max(2, int(np.ceil(0.5 * n_seed_curves)))
+
+        aggregated = aggregate_seed_curves(
+            smoothed_curves,
+            n_points=n_interpolate_points,
+            ci_type=ci_type,
+            min_valid_count=min_valid_for_plot,
+        )
+        if aggregated is None:
             continue
-        
-        # 创建统一的 timestep 网格
-        x_common = np.linspace(min_timestep, max_timestep, n_interpolate_points)
-        
-        # 将每个种子的曲线插值到统一网格上
-        interpolated_curves = []
-        for timesteps, success in smoothed_curves:
-            f = interpolate.interp1d(timesteps, success, kind='linear',
-                                     bounds_error=False, fill_value='extrapolate')
-            y_interp = f(x_common)
-            interpolated_curves.append(y_interp)
-        
-        interpolated_curves = np.array(interpolated_curves)
-        
-        # 计算均值和标准差（跨种子）
-        mean_success = np.mean(interpolated_curves, axis=0)
-        std_success = np.std(interpolated_curves, axis=0)
-        n_seeds = len(interpolated_curves)
-        
-        # 使用标准差或标准误差
-        if ci_type == "std":
-            ci = std_success
-        else:  # sem
-            ci = std_success / np.sqrt(n_seeds)
-        upper = np.clip(mean_success + ci, 0, 1)
-        lower = np.clip(mean_success - ci, 0, 1)
+        x_common, mean_success, lower, upper, valid_mask, valid_counts = aggregated
+        if valid_counts[-1] < min_valid_for_plot:
+            print(
+                f"  Note: {algo_name} 末端可用 seed 数不足（{int(valid_counts[-1])}/{n_seed_curves}），"
+                f"已隐藏覆盖不足的尾段以避免终点跳变。"
+            )
+        mean_success = np.clip(mean_success, 0.0, 1.0)
+        upper = np.clip(upper, 0.0, 1.0)
+        lower = np.clip(lower, 0.0, 1.0)
         
         color = color_map[algo_name]
         
         # 绘制均值曲线
-        ax_success.plot(x_common, mean_success, 
+        ax_success.plot(x_common[valid_mask], mean_success[valid_mask], 
                        label=algo_name.upper(), linewidth=2.5, color=color,
                        linestyle=line_style_map[algo_name])
         
         # 绘制阴影区域（标准差或标准误差）
-        ax_success.fill_between(x_common, lower, upper,
+        ax_success.fill_between(x_common[valid_mask], lower[valid_mask], upper[valid_mask],
                                color=color, alpha=0.2)
     
     ax_success.set_xlabel("Total Timesteps", fontfamily='Arial', fontsize=20)
@@ -403,6 +466,8 @@ def main():
             seeds_to_plot = [s.strip() for s in args.seed.split(',')]
         elif isinstance(args.seed, (list, tuple)):
             seeds_to_plot = [str(s) for s in args.seed]
+        else:
+            seeds_to_plot = [str(args.seed)]
         print(f"Seeds to plot: {seeds_to_plot}")
     
     plot_curves(

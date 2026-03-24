@@ -9,6 +9,11 @@ import os
 os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'expandable_segments:True'
 os.environ.setdefault('CUBLAS_WORKSPACE_CONFIG', ':4096:8')
 
+
+# 设置环境变量，获得更详细的错误信息
+os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
+os.environ['TORCH_USE_CUDA_DSA'] = '1'
+
 import time
 import random
 import numpy as np
@@ -505,6 +510,14 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, ba
 
                 print(f"[{display_algo_name.upper()}] Episode {episode_num}, Reward: {episode_reward:.2f}, Length: {episode_timesteps}, Success Rate: {success_rate:.2f}, Level: {env.level}, Total Timesteps: {total_timesteps}, Total Successes: {env.success_count}")
                 
+                # Periodic CUDA memory cleanup
+                if episode_num % 50 == 0:
+                    torch.cuda.empty_cache()
+                    if hasattr(torch.cuda, 'memory_summary'):
+                        allocated = torch.cuda.memory_allocated() / 1024**3
+                        reserved = torch.cuda.memory_reserved() / 1024**3
+                        print(f"[Memory] CUDA cache cleared. Allocated: {allocated:.2f}GB, Reserved: {reserved:.2f}GB")
+                
                 episode_num += 1
                 episode_reward = 0
                 episode_timesteps = 0
@@ -615,6 +628,14 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, ba
         if total_timesteps % 100000 == 0:
             agent.save(f"./models/{algo_name}_async_{total_timesteps}.pth")
             print(f"Model saved at timestep {total_timesteps}")
+        
+        # Periodic CUDA memory cleanup every 5000 steps
+        if total_timesteps % 5000 == 0:
+            torch.cuda.empty_cache()
+            if hasattr(torch.cuda, 'memory_summary') and torch.cuda.is_available():
+                allocated = torch.cuda.memory_allocated() / 1024**3
+                reserved = torch.cuda.memory_reserved() / 1024**3
+                print(f"[Memory] Step {total_timesteps}: CUDA cache cleared. Allocated: {allocated:.2f}GB, Reserved: {reserved:.2f}GB")
             
             # Memory cleanup after checkpoint
             if torch.cuda.is_available():
