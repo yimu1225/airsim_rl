@@ -438,3 +438,12 @@ Incompatible or missing module: libUE4Editor-JsonParsing18Version.so
 确保已经安装了 mono-mcs，可以手动执行以下命令：
 
 sudo apt-get install mono-mcs
+
+cd /home/yimu/project/UnrealEngine-4.18/Engine/Source/ThirdParty
+
+# 创建软链接（推荐，节省磁盘空间）
+ln -s ../PhysX/Lib PhysX3/Lib
+
+# 验证链接成功
+ls -la PhysX3/
+ls PhysX3/Lib/Linux/x86_64-unknown-linux-gnu/*.a | head -5

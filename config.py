@@ -28,7 +28,7 @@ def get_config(argv=None):
     parser.add_argument("--env_name", type=str, default='AirSimEnv-Gradient-v1', help="要训练的环境名称")  # AirSimEnv-v42  CartPole-v0
 
     # 算法选择 (Algorithm Selection)
-    parser.add_argument("--algorithm_name", type=str, default='CL-ST-VimTD3,CL-td3',
+    parser.add_argument("--algorithm_name", type=str, default='CL-td3,CL-aetd3',
                         help="要训练的算法。支持: td3, ddpg, aetd3, per_td3, per_aetd3, cfc_td3, st_mamba_td3, ST-VimTD3, ST-SVimTD3, ST_3DVimTD3, st_cnn_td3, gam_mamba_td3, ST-DualVimTD3, sac, ppo。可以是单个，多个（逗号分隔），或组名 ('all', 'base', 'seq')")
     parser.add_argument("--smooth_window", type=int, default=100, help="平滑窗口大小，用于平滑学习曲线 (仅对移动平均有效)")
     parser.add_argument("--smooth_method", type=str, default="moving", choices=["moving","zero_phase_des"], help="曲线平滑方法: moving=滑动平均, zero_phase_des=零相位双重指数平滑")
@@ -170,7 +170,7 @@ def get_config(argv=None):
     parser.add_argument("--grad_goal_weight", type=float, default=1.0, help="梯度奖励：目标距离项权重")
     parser.add_argument("--grad_heading_weight", type=float, default=0.35, help="梯度奖励：朝向误差项权重")
     parser.add_argument("--grad_obstacle_weight", type=float, default=0.90, help="梯度奖励：障碍物风险项权重")
-    parser.add_argument("--grad_altitude_weight", type=float, default=0.30, help="梯度奖励：高度误差项权重")
+    parser.add_argument("--grad_altitude_weight", type=float, default=0.50, help="梯度奖励：高度误差项权重")
     parser.add_argument("--grad_progress_weight", type=float, default=5.0, help="梯度奖励：进度项权重")
     
     # 惩罚与裁剪
@@ -197,8 +197,8 @@ def get_config(argv=None):
     # 平滑控制与停滞惩罚
     parser.add_argument("--grad_smoothness_weight", type=float, default=0.25, help="梯度奖励：动作平滑性惩罚权重")
     parser.add_argument("--grad_smoothness_deadzone", type=float, default=0.15, help="梯度奖励：平滑性死区")
-    parser.add_argument("--grad_stagnation_window", type=int, default=15, help="梯度奖励：停滞检测窗口大小")
-    parser.add_argument("--grad_stagnation_threshold", type=float, default=0.015, help="梯度奖励：停滞判定阈值")
+    parser.add_argument("--grad_stagnation_window", type=int, default=10, help="梯度奖励：停滞检测窗口大小")
+    parser.add_argument("--grad_stagnation_threshold", type=float, default=0.25, help="梯度奖励：停滞判定阈值")
     parser.add_argument("--grad_stagnation_penalty", type=float, default=0.15, help="梯度奖励：停滞惩罚值")
     
     # 终止条件奖励

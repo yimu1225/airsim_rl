@@ -18,21 +18,28 @@
 ```bash
 sudo apt update
 sudo apt install -y build-essential clang g++-12 libstdc++-12-dev
+sudo apt-get install -y build-essential gcc g++ make cmake
+sudo apt-get install -y python python-dev python-pip
+sudo apt-get install -y libclang-dev libc++-dev lldb
+sudo apt-get install -y libboost-all-dev
+
 ```
 *(注：如果不安装 `libstdc++-12-dev` 和 `g++-12`，较高版本的系统由于依赖不全，Clang 无法正常工作。具体版本视系统而定，Ubuntu 22.04 常用 `12`。)*
 
 ### 2.2 修改 `setup.sh` 中的硬编码
 解除 `setup.sh` 中对版本号的限制，使其使用系统默认的 clang。您可以使用 `sed` 批量替换，或手动编辑文件。
 ```bash
-sed -i 's/export C_COMPILER=clang-5.0/export C_COMPILER=clang/g' setup.sh
-sed -i 's/export COMPILER=clang++-5.0/export COMPILER=clang++/g' setup.sh
+sed -i 's|/usr/local/opt/llvm-5.0/bin/clang-5.0|clang|g' setup.sh
+sed -i 's|/usr/local/opt/llvm-5.0/bin/clang++-5.0|clang++|g' setup.sh
+
+sed -i 's|sudo apt-get install -y clang-5.0 clang++-5.0|# sudo apt-get install -y clang-5.0 clang++-5.0|g' setup.sh
 ```
 
 ### 2.3 修改 `build.sh` 中的硬编码
 同理，`build.sh` 脚本内部也有几处写死了带有 `5.0` 后缀的编译器。进行以下替换：
 ```bash
-sed -i 's/"clang++-5.0"/"clang++"/g' build.sh
-sed -i 's/\/usr\/local\/opt\/llvm-5.0\/bin\/clang++-5.0/\/usr\/local\/opt\/llvm-5.0\/bin\/clang++/g' build.sh
+sed -i 's/clang++-5.0/clang++/g' build.sh
+sed -i 's/clang-5.0/clang/g' build.sh
 # 同样适用 sed 命令将其替换为默认包名。
 ```
 
