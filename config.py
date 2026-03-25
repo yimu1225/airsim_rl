@@ -170,7 +170,7 @@ def get_config(argv=None):
     parser.add_argument("--grad_goal_weight", type=float, default=1.0, help="梯度奖励：目标距离项权重")
     parser.add_argument("--grad_heading_weight", type=float, default=0.35, help="梯度奖励：朝向误差项权重")
     parser.add_argument("--grad_obstacle_weight", type=float, default=0.90, help="梯度奖励：障碍物风险项权重")
-    parser.add_argument("--grad_altitude_weight", type=float, default=0.50, help="梯度奖励：高度误差项权重")
+    parser.add_argument("--grad_altitude_weight", type=float, default=0.30, help="梯度奖励：高度误差项权重")
     parser.add_argument("--grad_progress_weight", type=float, default=5.0, help="梯度奖励：进度项权重")
     
     # 惩罚与裁剪
@@ -194,12 +194,9 @@ def get_config(argv=None):
     parser.add_argument("--grad_distance_scale_min", type=float, default=2.0, help="梯度奖励：距离尺度最小值")
     parser.add_argument("--grad_distance_arena_ratio", type=float, default=0.25, help="梯度奖励：距离与场地比例")
     
-    # 平滑控制与停滞惩罚
-    parser.add_argument("--grad_smoothness_weight", type=float, default=0.25, help="梯度奖励：动作平滑性惩罚权重")
+    # 平滑控制
+    parser.add_argument("--grad_smoothness_weight", type=float, default=0.5, help="梯度奖励：动作平滑性惩罚权重")
     parser.add_argument("--grad_smoothness_deadzone", type=float, default=0.15, help="梯度奖励：平滑性死区")
-    parser.add_argument("--grad_stagnation_window", type=int, default=10, help="梯度奖励：停滞检测窗口大小")
-    parser.add_argument("--grad_stagnation_threshold", type=float, default=0.25, help="梯度奖励：停滞判定阈值")
-    parser.add_argument("--grad_stagnation_penalty", type=float, default=0.15, help="梯度奖励：停滞惩罚值")
     
     # 终止条件奖励
     parser.add_argument("--grad_success_reward", type=float, default=20.0, help="梯度奖励：成功到达目标奖励")

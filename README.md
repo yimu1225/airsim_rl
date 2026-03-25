@@ -98,7 +98,25 @@ action_space = Box(
 8. **曲率惩罚**: 惩罚急转弯，优化轨迹
 9. **高度惩罚**: 超出安全高度范围时施加惩罚
 
-## 🛠️ 安装指南
+## � 快速开始
+
+### 环境搭建
+
+1. **系统要求**: Ubuntu 22.04, Python 3.8+, CUDA 11.0+
+2. **安装依赖**: 详见 [Ubuntu 22.04 构建方法](Ubuntu%2022.04%20构建方法.md)
+3. **Python环境**: 详见 [环境安装指南](INSTALL_GUIDE.md)
+
+### 训练示例
+
+```bash
+# 安装Python依赖
+pip install -r requirements.txt
+
+# 训练ST-VimTD3算法
+python main_async.py --algorithm_name ST-VimTD3 --max_timesteps 1000000
+```
+
+## �🛠️ 安装指南
 
 ### 环境要求
 - Python 3.8+

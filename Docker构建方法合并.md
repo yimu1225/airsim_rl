@@ -231,7 +231,29 @@ cp Engine/Build/Commit.gitdeps.xml Engine/Build/Commit.gitdeps.xml.bak
 cp /workspace/downloads/Commit.gitdeps.xml Engine/Build/Commit.gitdeps.xml
 ```
 
-### 7.3 编译
+### 7.3 修复 PhysX 库链接问题
+
+```bash
+cd /workspace/src/UnrealEngine/Engine/Source/ThirdParty
+
+# 创建软链接（推荐，节省磁盘空间）
+ln -s ../PhysX/Lib PhysX3/Lib
+
+# 验证链接成功
+ls -la PhysX3/
+ls PhysX3/Lib/Linux/x86_64-unknown-linux-gnu/*.a | head -5
+```
+
+### 7.4 修复 mono-dmcs 问题
+
+在 `Engine/Build/BatchFiles/Linux/Setup.sh` 中将 `mono-dmcs` 修改为 `mono-mcs`。
+
+确保已经安装了 mono-mcs：
+```bash
+sudo apt-get install mono-mcs
+```
+
+### 7.5 编译
 
 ```bash
 ./Setup.sh
@@ -241,12 +263,13 @@ make -j4
 
 > 如果首次编译，建议先用 `-j1` 或 `-j4` 确保稳定。
 
-### 7.4 编译 ShaderCompileWorker（必需）
+### 7.6 编译 ShaderCompileWorker（必需）
 
 ```bash
 make ShaderCompileWorker UnrealLightmass UnrealPak
 ```
 
+---
 
 ## 8. 编译 AirSim
 
@@ -267,9 +290,10 @@ make ShaderCompileWorker UnrealLightmass UnrealPak
 
 **问题 2：Eigen 下载地址失效**
 
-将 `setup.sh` 中的 Eigen 下载地址改为 GitLab 可用归档地址。
-# 新地址（GitLab 归档）
+将 `setup.sh` 中的 Eigen 下载地址改为 GitLab 可用归档地址：
+```
 https://gitlab.com/libeigen/eigen/-/archive/3.4.0/eigen-3.4.0.tar.bz2
+```
 
 ### 8.3 编译
 
@@ -348,9 +372,15 @@ SDL_VIDEODRIVER=x11 SDL_AUDIODRIVER=dummy \
   ./Engine/Binaries/Linux/UE4Editor /workspace/airlearning-ue4/AirLearning.uproject \
   -opengl4 -nosplash -windowed -ResX=1280 -ResY=720 -log
 ```
-./UnrealEngine-staging-4.18/Engine/Build/BatchFiles/Linux/Build.sh JsonParsing18VersionEditor Linux Development /home/admin/DRL_Project/airlearning-ue4/AirLearning.uproject -waitmutex
 
-export DISPLAY=:1 && SDL_VIDEODRIVER=x11 SDL_AUDIODRIVER=dummy ./UnrealEngine-staging-4.18/Engine/Binaries/Linux/UE4Editor /home/admin/DRL_Project/airlearning-ue4/AirLearning.uproject -opengl4 -nosplash -windowed -ResX=1280 -ResY=720 -log
+游戏模式启动：
+```bash
+export DISPLAY=:1 && SDL_VIDEODRIVER=x11 SDL_AUDIODRIVER=dummy \
+  ./UnrealEngine-staging-4.18/Engine/Binaries/Linux/UE4Editor \
+  /home/admin/DRL_Project/airlearning-ue4/AirLearning.uproject \
+  -game -windowed -ResX=640 -ResY=480 -nosound -noaudio
+```
+
 ---
 
 ## 11. 容器常用操作
@@ -362,7 +392,7 @@ exit
 # 重新进入容器（宿主机执行）
 docker start airsim_rl
 docker exec -it airsim_rl bash
-exit
+
 # 以 yimu 用户进入
 docker exec -it -u yimu airsim_rl bash
 ```
@@ -432,3 +462,62 @@ Incompatible or missing module: libUE4Editor-JsonParsing18Version.so
 ```
 
 解决：执行工程编译命令（见第 9.3 节）。
+
+### 问题 8：PhysX 库链接问题
+
+现象：编译时找不到 PhysX3 库文件。
+
+解决：创建 PhysX 库的软链接（见第 7.3 节）。
+
+### 问题 9：mono-dmcs 命令不存在
+
+现象：Setup.sh 执行失败，提示 mono-dmcs 命令不存在。
+
+解决：修改 Setup.sh 中的 mono-dmcs 为 mono-mcs（见第 7.4 节）。
+
+---
+
+## 13. 性能优化建议
+
+### 13.1 编译优化
+
+- 使用 `make -j$(nproc)` 充分利用多核 CPU
+- 首次编译建议使用较低并行度 `-j4` 避免内存不足
+- 增量编译只重新编译修改的部分
+
+### 13.2 运行优化
+
+- 确保有足够的 RAM（建议 16GB+）
+- 使用 SSD 存储加速编译
+- 游戏模式下可以使用 `-nosound -noaudio` 减少资源占用
+
+### 13.3 GPU 加速
+
+- 确保 NVIDIA 驱动正确安装
+- 使用 `-opengl4` 参数启用 OpenGL 4.x
+
+---
+
+## 14. 备份和恢复
+
+### 14.1 备份已编译产物
+
+```bash
+# 备份 UE4
+cp -r ~/airsim_rl/workspace/src/UnrealEngine ~/airsim_rl/backup/
+
+# 备份 AirSim
+cp -r ~/airsim_rl/workspace/AirSim-1-rpc-base-reset-plus-energy ~/airsim_rl/backup/
+
+# 备份工程
+cp -r ~/airsim_rl/workspace/airlearning-ue4 ~/airsim_rl/backup/
+```
+
+### 14.2 增量编译
+
+如果只修改了代码，可以使用增量编译：
+```bash
+cd ~/airsim_rl/workspace/src/UnrealEngine
+make -j$(nproc)  # 只重新编译修改的部分
+```</content>
+<parameter name="filePath">/home/yimu/airsim_rl/Docker构建方法合并.md
