@@ -201,12 +201,9 @@ class AirSimEnvGradientReward(gym.Env):
         self.grad_distance_scale_min = float(config.grad_distance_scale_min)
         self.grad_distance_arena_ratio = float(config.grad_distance_arena_ratio)
 
-        # 平滑控制与停滞惩罚
+        # 平滑控制
         self.grad_smoothness_weight = float(config.grad_smoothness_weight)
         self.grad_smoothness_deadzone = float(config.grad_smoothness_deadzone)
-        self.grad_stagnation_window = int(config.grad_stagnation_window)
-        self.grad_stagnation_threshold = float(config.grad_stagnation_threshold)
-        self.grad_stagnation_penalty = float(config.grad_stagnation_penalty)
 
         self.grad_success_reward = float(config.grad_success_reward)
         self.grad_collision_reward = float(config.grad_collision_reward)
@@ -219,7 +216,6 @@ class AirSimEnvGradientReward(gym.Env):
         self.episode_arena_diag = 1.0
         self.episode_goal_distance0 = 1.0
         self.episode_goal_scale = 1.0
-        self.grad_cost_history = collections.deque(maxlen=max(3, self.grad_stagnation_window))
 
         # 保留历史动作/速度字段，兼容上层可能读取这些属性的代码
         if hasattr(self.action_space, 'shape') and self.action_space.shape:
@@ -652,7 +648,6 @@ class AirSimEnvGradientReward(gym.Env):
         1. 代价下降量（核心）
         2. 每步时间成本
         3. 平滑惩罚
-        4. 停滞惩罚（防止原地打转）
         """
         del velocity_after
 
@@ -661,19 +656,9 @@ class AirSimEnvGradientReward(gym.Env):
             progress = 0.0
         else:
             progress = float(self.grad_shaping_gamma * potential_now - self.prev_potential)
-        print(f"computeReward: potential_now={potential_now:.4f}, progress={progress:.4f}")
+        # print(f"computeReward: potential_now={potential_now:.4f}, progress={progress:.4f}")
 
         smoothness_penalty = self._compute_smoothness_penalty(action)
-
-        cost_now = float(terms["cost"])
-        self.grad_cost_history.append(cost_now)
-        stagnation_penalty = 0.0
-        if len(self.grad_cost_history) >= self.grad_stagnation_window:
-            recent_cost_drop = float(self.grad_cost_history[0] - self.grad_cost_history[-1])
-            if recent_cost_drop < self.grad_stagnation_threshold:
-                stagnation_penalty = self.grad_stagnation_penalty
-        else:
-            recent_cost_drop = 0.0
 
         if prev_xy is None:
             prev_xy = self.prev_position_xy
@@ -685,7 +670,6 @@ class AirSimEnvGradientReward(gym.Env):
             self.grad_progress_weight * progress
             - self.grad_step_penalty
             - smoothness_penalty
-            - stagnation_penalty
         )
         reward = float(np.clip(reward, -self.grad_reward_clip, self.grad_reward_clip))
 
@@ -695,10 +679,31 @@ class AirSimEnvGradientReward(gym.Env):
             "progress": progress,
             "move_distance": move_distance,
             "smoothness_penalty": smoothness_penalty,
-            "stagnation_penalty": stagnation_penalty,
-            "recent_cost_drop": recent_cost_drop,
             "reward": reward,
         }
+        # 打印奖励函数的各项
+        print("奖励函数各项:")
+        print(f"  目标距离: {terms['distance_to_goal']:.4f} (归一化: {terms['distance_to_goal_norm']:.4f})")
+        print(f"  朝向误差: {terms['heading_error']:.4f}")
+        print(f"  障碍风险: {terms['obstacle_risk']:.4f}")
+        print(f"  高度误差: {terms['altitude_error']:.4f} (归一化: {terms['altitude_error_norm']:.4f})")
+        print(f"  总代价: {terms['cost']:.4f}")
+        print(f"  势能: {terms['potential']:.4f}")
+        print(f"  进度奖励: {progress:.4f}")
+        print(f"  移动距离: {move_distance:.4f}")
+        print(f"  平滑惩罚: {smoothness_penalty:.4f}")
+        print(f"  平滑惩罚: {smoothness_penalty:.4f}")
+        print(f"  每步惩罚: {self.grad_step_penalty:.4f}")
+        # 打印 reward 计算的各项
+        progress_reward = self.grad_progress_weight * progress
+        step_penalty = self.grad_step_penalty
+        smoothness_penalty_total = smoothness_penalty
+        print(f"  奖励计算:")
+        print(f"    进度奖励项: {self.grad_progress_weight:.4f} * {progress:.4f} = {progress_reward:.4f}")
+        print(f"    每步惩罚项: -{step_penalty:.4f}")
+        print(f"    平滑惩罚项: -{smoothness_penalty_total:.4f}")
+        print(f"    奖励总和: {progress_reward:.4f} - {step_penalty:.4f} - {smoothness_penalty_total:.4f} = {reward:.4f}")
+        print()
         return reward
 
 
@@ -912,10 +917,10 @@ class AirSimEnvGradientReward(gym.Env):
         # 课程学习等级升级（仅在启用课程学习时）
         if self.use_curriculum and len(self.success_deque)>0:
             succes_rate=sum(self.success_deque) / len(self.success_deque)
-            if succes_rate>0.6 and self.level==0 and self.success_count>600:
+            if succes_rate>0.6 and self.level==0 and self.success_count>500:
                 self.level=1
                 self.game_config_handler=GameConfigHandler(range_dic_name="settings.medium_range_dic")
-            elif succes_rate > 0.7 and self.level == 1 and self.success_count>900:
+            elif succes_rate > 0.7 and self.level == 1 and self.success_count>800:
                 self.level = 2
                 self.game_config_handler = GameConfigHandler(range_dic_name="settings.hard_range_dic")
             # elif succes_rate > 0.8 and self.level == 2 and self.success_count > 900:
