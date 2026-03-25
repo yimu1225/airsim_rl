@@ -31,6 +31,7 @@ def expand_algorithms(algo_str):
             "ST-SVimTD3",
             "st_cnn_td3",
             "gam_mamba_td3",
+            "gam_td3",
             "ST_3DVimTD3",
         ],
         "base": ["td3", "ddpg", "aetd3", "per_td3", "per_aetd3"],
