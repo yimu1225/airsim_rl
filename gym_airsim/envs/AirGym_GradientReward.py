@@ -884,7 +884,7 @@ class AirSimEnvGradientReward(gym.Env):
         self.episode_arena_diag = 1.0
         self.episode_goal_distance0 = 1.0
         self.episode_goal_scale = 1.0
-        self.grad_cost_history.clear()
+  
 
     def reset(self, *, seed=None, options=None):
         """
@@ -1027,7 +1027,6 @@ class AirSimEnvGradientReward(gym.Env):
         self._refresh_episode_scales(self.prev_position_xy)
         init_depth = self.depth_stack[-1] if len(self.depth_stack) > 0 else np.zeros((128, 128), dtype=np.float32)
         self.prev_potential, self.last_gradient_terms = self._compute_gradient_potential(now, init_depth)
-        self.grad_cost_history.append(float(self.last_gradient_terms.get("cost", 0.0)))
         
         # 返回 (obs, info)
         info = {}  # 可以添加额外信息
