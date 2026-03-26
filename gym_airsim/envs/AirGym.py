@@ -159,7 +159,7 @@ class AirSimEnv(gym.Env):
         self.success = False
         
         # 使用训练配置中的 seed 初始化随机数生成器，确保首次环境采样可复现
-        self.success_deque = collections.deque(maxlen=100)
+        self.success_deque = collections.deque(maxlen=512)
 
         self.ue4_rpc_fail_count = 0
         self.ue4_rpc_fail_threshold = getattr(config, "ue4_rpc_fail_threshold", 2) 

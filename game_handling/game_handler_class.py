@@ -84,7 +84,7 @@ class GameHandler:
 
         settings.game_proc_pid = diff_proc[0]
 
-        time.sleep(15.0)
+        time.sleep(25.0)
         print(f"Game process established (PID: {settings.game_proc_pid}). Connecting will be handled by AirLearningClient.")
         return settings.game_proc_pid
 
