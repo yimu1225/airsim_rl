@@ -171,17 +171,12 @@ class HierarchicalDualMamba(nn.Module):
             fused_add_norm=fused_add_norm,
         )
 
-        # Branch-specific CLS tokens:
-        # spatial branch uses CLS_A; temporal branch uses CLS_B.
-        self.cls_spatial = nn.Parameter(torch.zeros(1, 1, self.d_inner))
-        self.cls_temporal = nn.Parameter(torch.zeros(1, 1, self.d_inner))
-        trunc_normal_(self.cls_spatial, std=0.02)
-        trunc_normal_(self.cls_temporal, std=0.02)
-
         self.out_proj = nn.Linear(self.d_inner, self.d_model)
+        self.cls_gate = nn.Linear(self.d_inner * 2, self.d_inner)
+        self.cls_proj = nn.Linear(self.d_inner, self.d_model)
         self.drop_path = DropPath(drop_path) if drop_path > 0.0 else nn.Identity()
 
-    def forward(self, hidden_states):
+    def forward(self, hidden_states, cls_token):
         # hidden_states: (B, T, N, d_model)
         bsz, frames, tokens, dim = hidden_states.shape
         residual = hidden_states
@@ -189,31 +184,39 @@ class HierarchicalDualMamba(nn.Module):
         flat = hidden_states.reshape(bsz, frames * tokens, dim)
         xz = self.in_proj(flat)
         x, z = xz.chunk(2, dim=-1)
+        cls_inner, _ = self.in_proj(cls_token).chunk(2, dim=-1)
 
         x = x.reshape(bsz, frames, tokens, self.d_inner)
         z = F.silu(z.reshape(bsz, frames, tokens, self.d_inner))
 
         # Branch A: spatial-priority order (t, n)
-        # [CLS_A, F1P1..F1PN, F2P1..F2PN, ...]
+        # [CLS, F1P1..F1PN, F2P1..F2PN, ...]
         x_spatial_seq = x.reshape(bsz, frames * tokens, self.d_inner)
-        cls_spatial = self.cls_spatial.expand(bsz, -1, -1)
-        spatial_seq = torch.cat([cls_spatial, x_spatial_seq], dim=1)
+        spatial_seq = torch.cat([cls_inner, x_spatial_seq], dim=1)
         y_spatial_seq = self.spatial_branch(spatial_seq)
+        cls_spatial = y_spatial_seq[:, :1, :]
         y_spatial = y_spatial_seq[:, 1:, :].reshape(bsz, frames, tokens, self.d_inner)
 
         # Branch B: temporal-priority order (n, t)
-        # [CLS_B, F1P1,F2P1..FTP1, F1P2,F2P2.., ...]
+        # [CLS, F1P1,F2P1..FTP1, F1P2,F2P2.., ...]
         x_temporal_seq = x.permute(0, 2, 1, 3).reshape(bsz, tokens * frames, self.d_inner)
-        cls_temporal = self.cls_temporal.expand(bsz, -1, -1)
-        temporal_seq = torch.cat([cls_temporal, x_temporal_seq], dim=1)
+        temporal_seq = torch.cat([cls_inner, x_temporal_seq], dim=1)
         y_temporal_seq = self.temporal_branch(temporal_seq)
+        cls_temporal = y_temporal_seq[:, :1, :]
         y_temporal = y_temporal_seq[:, 1:, :].reshape(bsz, tokens, frames, self.d_inner).permute(0, 2, 1, 3)
 
         y = (y_spatial * z) + (y_temporal * z)
         y = y.reshape(bsz, frames * tokens, self.d_inner)
         y = self.drop_path(self.out_proj(y))
         y = y.reshape(bsz, frames, tokens, dim)
-        return residual + y
+        out = residual + y
+
+        cls_pair = torch.cat([cls_spatial, cls_temporal], dim=-1)
+        cls_gate = torch.sigmoid(self.cls_gate(cls_pair))
+        cls_combined = cls_gate * cls_spatial + (1.0 - cls_gate) * cls_temporal
+        cls_out = cls_token + self.drop_path(self.cls_proj(cls_combined))
+
+        return out, cls_out
 
 
 class TruncatedNormal(pyd.Normal):
@@ -330,6 +333,7 @@ class DualBranchVideoMambaEncoder(nn.Module):
         # Final normalization
         norm_cls = RMSNorm if self.use_rms_norm else nn.LayerNorm
         self.norm_f = norm_cls(self.embed_dim, eps=1e-5)
+        self.cls_token = nn.Parameter(torch.zeros(1, 1, self.embed_dim))
 
         self.repr_dim = self.embed_dim
 
@@ -338,6 +342,7 @@ class DualBranchVideoMambaEncoder(nn.Module):
     def _init_weights(self):
         trunc_normal_(self.spatial_pos_embed, std=0.02)
         trunc_normal_(self.temporal_pos_embedding, std=0.02)
+        trunc_normal_(self.cls_token, std=0.02)
         norm_types = (nn.LayerNorm,) if RMSNorm is None else (nn.LayerNorm, RMSNorm)
         for module_name, m in self.named_modules():
             # Preserve native Mamba initialization from mamba_ssm for stability/performance.
@@ -386,17 +391,13 @@ class DualBranchVideoMambaEncoder(nn.Module):
         token_4d = token_4d + spatial_pos + temporal_pos
         token_4d = self.pos_drop(token_4d)
 
-        # Pass through Hierarchical Dual Mamba layers
-        # Each layer: Spatial Scan Branch + Temporal Scan Branch + Gating
+        # Pass through all layers with single CLS token propagation.
+        cls_token = self.cls_token.expand(bsz, -1, -1)
         for layer in self.layers:
-            token_4d = layer(token_4d)
+            token_4d, cls_token = layer(token_4d, cls_token)
 
-        # Final normalization
-        token_4d = self.norm_f(token_4d)
-
-        # Global average pooling over time and space dimensions
-        # (B, T, N, C) -> (B, C)
-        fused = token_4d.mean(dim=(1, 2))
+        # Vim-style readout from propagated global CLS token.
+        fused = self.norm_f(cls_token.squeeze(1))
         return fused
 
 
