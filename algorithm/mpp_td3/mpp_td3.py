@@ -103,7 +103,7 @@ class MPPTD3Agent:
         return [random_base/total, noisy_base/total, clean_base/total]
 
     def compute_adaptive_noise_std(self, obstacle_dist):
-        max_dist = getattr(self.args, 'depth_max_distance', 10.0)
+        max_dist = getattr(self.args, 'depth_max_distance', 15.0)
         normalized_dist = min(obstacle_dist / max_dist, 1.0)
         
         max_noise = 0.5
