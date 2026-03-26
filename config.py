@@ -28,7 +28,7 @@ def get_config(argv=None):
     parser.add_argument("--env_name", type=str, default='AirSimEnv-Gradient-v1', help="要训练的环境名称")  # AirSimEnv-v42  CartPole-v0
 
     # 算法选择 (Algorithm Selection)
-    parser.add_argument("--algorithm_name", type=str, default='CL-td3,CL-aetd3',
+    parser.add_argument("--algorithm_name", type=str, default='CL-ST-DualVimTD3,CL-sac',
                         help="要训练的算法。支持: td3, ddpg, aetd3, per_td3, per_aetd3, cfc_td3, st_mamba_td3, ST-VimTD3, ST-SVimTD3, ST_3DVimTD3, st_cnn_td3, gam_mamba_td3, gam_td3, ST-DualVimTD3, sac, ppo。可以是单个，多个（逗号分隔），或组名 ('all', 'base', 'seq')")
     parser.add_argument("--smooth_window", type=int, default=100, help="平滑窗口大小，用于平滑学习曲线 (仅对移动平均有效)")
     parser.add_argument("--smooth_method", type=str, default="moving", choices=["moving","zero_phase_des"], help="曲线平滑方法: moving=滑动平均, zero_phase_des=零相位双重指数平滑")
@@ -60,7 +60,7 @@ def get_config(argv=None):
     parser.add_argument("--exploration_noise_final", type=float, default=0.01, help="最终探索噪声")
     parser.add_argument("--batch_size", type=int, default=512, help="批次大小")
     parser.add_argument("--gamma", type=float, default=0.98, help="折扣因子") 
-    parser.add_argument("--tau", type=float, default=0.005, help="软更新参数")
+    parser.add_argument("--tau", type=float, default=0.003, help="软更新参数")
     parser.add_argument("--actor_lr", type=float, default=7e-4, help="Actor学习率")
     parser.add_argument("--critic_lr", type=float, default=7e-4, help="Critic学习率")
     parser.add_argument("--policy_noise", type=float, default=0.2, help="策略噪声")
@@ -110,8 +110,8 @@ def get_config(argv=None):
     parser.add_argument("--st_mamba_d_state", type=int, default=16, help="ST-Mamba SSM 状态维度")
     parser.add_argument("--st_mamba_d_conv", type=int, default=4, help="ST-Mamba SSM 卷积宽度")
     parser.add_argument("--st_mamba_expand", type=int, default=2, help="ST-Mamba Block 扩展因子")
-    parser.add_argument("--st_mamba_drop_rate", type=float, default=0.1, help="ST-Mamba Dropout 率 (pos_drop)")
-    parser.add_argument("--st_mamba_drop_path_rate", type=float, default=0.1, help="ST-Mamba Drop Path 率 (stochastic depth)")
+    parser.add_argument("--st_mamba_drop_rate", type=float, default=0.2, help="ST-Mamba Dropout 率 (pos_drop)")
+    parser.add_argument("--st_mamba_drop_path_rate", type=float, default=0.2, help="ST-Mamba Drop Path 率 (stochastic depth)")
     parser.add_argument("--st_mamba_temporal_depth", type=int, default=1, help="ST-Mamba-VimTokens 时序 Mamba Block 数量")
 
     # ST-3DVimTD3 参数 (ST-3DVimTD3 Parameters)

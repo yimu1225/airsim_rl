@@ -79,7 +79,7 @@ class GameHandler:
         settings.game_proc_pid = diff_proc[0]
         
         # 等待游戏进程完全启动（不再创建临时client，连接由AirLearningClient负责）
-        time.sleep(5)
+        time.sleep(25)
         print("Game process started. Ready for AirSim connection.")
         
         """ 
