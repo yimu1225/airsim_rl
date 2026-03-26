@@ -153,9 +153,9 @@ yaw_rate_2_16 = yaw_rate_2_8 * 0.5
 # ---------------------------
 # Apply lightweight sensor noise augmentation on depth images (0-255 range).
 enable_depth_noise = True
-depth_gaussian_sigma = 3.0     # std of Gaussian noise (pixel intensity)
-depth_salt_prob = 0.002        # probability of salt pixels
-depth_pepper_prob = 0.002      # probability of pepper pixels
+depth_gaussian_sigma = 10.0     # std of Gaussian noise (pixel intensity)
+depth_salt_prob = 0.01        # probability of salt pixels
+depth_pepper_prob = 0.01      # probability of pepper pixels
 
 
 # ---------------------------
