@@ -69,7 +69,8 @@ def get_config(argv=None):
     parser.add_argument("--grad_clip", type=float, default=10.0, help="梯度裁剪")
 
     # 可视化 (Visualization)
-    parser.add_argument("--render_window", action='store_true', default=False, help="显示实时可视化窗口 (默认开启，可用 --no-render_window 关闭)")
+    parser.add_argument("--render_window", action='store_true', default=True, help="显示实时可视化窗口 (默认开启，可用 --no-render_window 关闭)")
+    parser.add_argument("--depth_view_scale", type=float, default=2.5, help="深度图显示窗口放大倍数")
     
     
         
@@ -106,12 +107,12 @@ def get_config(argv=None):
     # ST-Mamba 参数
     parser.add_argument("--st_mamba_embed_dim", type=int, default=32, help="ST-Mamba 嵌入维度")
     parser.add_argument("--st_mamba_depth", type=int, default=1, help="ST-Mamba Block 数量")
-    parser.add_argument("--st_mamba_patch_size", type=int, default=16, help="ST-Mamba Patch 大小")
-    parser.add_argument("--st_mamba_d_state", type=int, default=16, help="ST-Mamba SSM 状态维度")
+    parser.add_argument("--st_mamba_patch_size", type=int, default=32, help="ST-Mamba Patch 大小")
+    parser.add_argument("--st_mamba_d_state", type=int, default=32, help="ST-Mamba SSM 状态维度")
     parser.add_argument("--st_mamba_d_conv", type=int, default=4, help="ST-Mamba SSM 卷积宽度")
     parser.add_argument("--st_mamba_expand", type=int, default=2, help="ST-Mamba Block 扩展因子")
-    parser.add_argument("--st_mamba_drop_rate", type=float, default=0.1, help="ST-Mamba Dropout 率 (pos_drop)")
-    parser.add_argument("--st_mamba_drop_path_rate", type=float, default=0.1, help="ST-Mamba Drop Path 率 (stochastic depth)")
+    parser.add_argument("--st_mamba_drop_rate", type=float, default=0.05, help="ST-Mamba Dropout 率 (pos_drop)")
+    parser.add_argument("--st_mamba_drop_path_rate", type=float, default=0.05, help="ST-Mamba Drop Path 率 (stochastic depth)")
     parser.add_argument("--st_mamba_temporal_depth", type=int, default=1, help="ST-Mamba-VimTokens 时序 Mamba Block 数量")
 
     # ST-3DVimTD3 参数 (ST-3DVimTD3 Parameters)
@@ -167,11 +168,11 @@ def get_config(argv=None):
     # AirGym_GradientReward 奖励函数参数 (Gradient Reward Parameters)
     # =============================================================================
     # 核心权重
-    parser.add_argument("--grad_goal_weight", type=float, default=1.0, help="梯度奖励：目标距离项权重")
+    parser.add_argument("--grad_goal_weight", type=float, default=1.2, help="梯度奖励：目标距离项权重")
     parser.add_argument("--grad_heading_weight", type=float, default=0.35, help="梯度奖励：朝向误差项权重")
-    parser.add_argument("--grad_obstacle_weight", type=float, default=0.90, help="梯度奖励：障碍物风险项权重")
+    parser.add_argument("--grad_obstacle_weight", type=float, default=0.50, help="梯度奖励：障碍物风险项权重")
     parser.add_argument("--grad_altitude_weight", type=float, default=0.30, help="梯度奖励：高度误差项权重")
-    parser.add_argument("--grad_progress_weight", type=float, default=5.0, help="梯度奖励：进度项权重")
+    parser.add_argument("--grad_progress_weight", type=float, default=10.0, help="梯度奖励：进度项权重")
     
     # 惩罚与裁剪
     parser.add_argument("--grad_step_penalty", type=float, default=0.1, help="梯度奖励：每步时间成本")
@@ -180,9 +181,10 @@ def get_config(argv=None):
     parser.add_argument("--grad_shaping_gamma", type=float, default=1.0, help="梯度奖励：势能折扣因子")
     
     # 深度图参数
+    parser.add_argument("--depth_max_distance", type=float, default=15.0, help="深度图最大距离(米)")
     parser.add_argument("--grad_safe_depth_m", type=float, default=1.0, help="梯度奖励：安全深度阈值(米)")
     parser.add_argument("--grad_depth_floor_m", type=float, default=0.15, help="梯度奖励：深度最小值(米)")
-    parser.add_argument("--grad_depth_max_m", type=float, default=10.0, help="梯度奖励：深度最大值(米)")
+    parser.add_argument("--grad_depth_max_m", type=float, default=15.0, help="梯度奖励：深度最大值(米)")
     parser.add_argument("--grad_depth_percentile", type=float, default=15.0, help="梯度奖励：深度统计百分位")
     parser.add_argument("--grad_obstacle_decay_m", type=float, default=2.0, help="梯度奖励：障碍物风险衰减距离(米)")
     parser.add_argument("--grad_obstacle_balance_weight", type=float, default=0.25, help="梯度奖励：左右障碍不平衡惩罚权重")
@@ -195,7 +197,7 @@ def get_config(argv=None):
     parser.add_argument("--grad_distance_arena_ratio", type=float, default=0.25, help="梯度奖励：距离与场地比例")
     
     # 平滑控制
-    parser.add_argument("--grad_smoothness_weight", type=float, default=0.5, help="梯度奖励：动作平滑性惩罚权重")
+    parser.add_argument("--grad_smoothness_weight", type=float, default=0.25, help="梯度奖励：动作平滑性惩罚权重")
     parser.add_argument("--grad_smoothness_deadzone", type=float, default=0.15, help="梯度奖励：平滑性死区")
     
     # 终止条件奖励

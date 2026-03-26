@@ -166,7 +166,7 @@ class AirLearningClient(object):
 
         1. 发送 simGetImages 请求获取 DepthPerspective 类型的图像（浮点数据）。
         2. 请求失败时最多重试 max_attempts 次，超过后抛出异常。
-        3. 截断最大深度值 (clip max=10)，并归一化缩放到 0-255 范围。
+        3. 截断最大深度值 (clip max=15)，并归一化缩放到 0-255 范围。
         4. 将数据 reshape 为 2D 图像。
         5. 统一 resize 到 128x128 分辨率。
         
@@ -224,10 +224,13 @@ class AirLearningClient(object):
                 img.append(np.array(res.image_data_float, dtype=float))
             img = np.stack(img, axis=0)
 
-            ## 深度图预处理
-            img = img.clip(max=10)
+            # 深度图预处理
+            # 碰撞后偶发 inf / -inf / nan 或负值，若直接转 uint8 会出现全白等伪影。
+            img = np.nan_to_num(img, nan=15.0, posinf=15.0, neginf=0.0)
+            img = np.clip(img, 0.0, 15.0)
             # 归一化到 0-255 范围
-            img = (img / 10.0) * 255.0
+            img = (img / 15.0) * 255.0
+            img = np.clip(img, 0.0, 255.0)
 
             # 处理有效图像
             img2d = []
