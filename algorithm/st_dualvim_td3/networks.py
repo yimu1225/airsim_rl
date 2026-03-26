@@ -6,29 +6,7 @@ from torch.distributions.utils import _standard_normal
 from timm.models.layers import DropPath, trunc_normal_, to_2tuple
 
 from mamba_ssm import Mamba
-
-
-
-# Fused kernels are intentionally disabled in this merged module.
-layer_norm_fn, rms_norm_fn = None, None
-
-
-class RMSNorm(nn.Module):
-    """Minimal, device-safe RMSNorm implementation."""
-
-    def __init__(self, dim, eps=1e-5):
-        super().__init__()
-        self.weight = nn.Parameter(torch.ones(dim))
-        # Keep LayerNorm-like attribute for compatibility with generic init code.
-        self.bias = None
-        self.eps = eps
-
-    def forward(self, x):
-        orig_dtype = x.dtype
-        x_fp32 = x.float()
-        rms = x_fp32.pow(2).mean(dim=-1, keepdim=True)
-        x_norm = x_fp32 * torch.rsqrt(rms + self.eps)
-        return x_norm.to(orig_dtype) * self.weight.to(orig_dtype)
+from mamba_ssm.ops.triton.layer_norm import RMSNorm, rms_norm_fn
 
 
 class PatchEmbed(nn.Module):
@@ -77,9 +55,9 @@ class VisionMambaBlock(nn.Module):
         self.d_model = int(d_model)
         self.d_inner = int(d_model * expand)
 
-        # Keep these flags for API compatibility with caller configs.
+        # Keep residual_in_fp32 for numerical behavior parity with Vim.
         self.residual_in_fp32 = bool(residual_in_fp32)
-        self.fused_add_norm = bool(fused_add_norm)
+        self.fused_add_norm = True
         self.layer_idx = layer_idx
 
         self.in_proj = nn.Linear(self.d_model, self.d_inner * 2)
@@ -99,14 +77,20 @@ class VisionMambaBlock(nn.Module):
 
         self.out_proj = nn.Linear(self.d_inner, self.d_model)
 
-        use_rms = bool(rms_norm and (RMSNorm is not None))
-        self.norm = RMSNorm(self.d_model) if use_rms else nn.LayerNorm(self.d_model)
+        self.norm = RMSNorm(self.d_model, eps=1e-5)
         self.drop_path = DropPath(drop_path) if drop_path > 0.0 else nn.Identity()
 
     def forward(self, hidden_states):
         # hidden_states: (B, L, d_model)
-        residual = hidden_states
-        hidden_states = self.norm(hidden_states)
+        hidden_states, residual = rms_norm_fn(
+            hidden_states,
+            self.norm.weight,
+            self.norm.bias,
+            residual=None,
+            prenorm=True,
+            residual_in_fp32=self.residual_in_fp32,
+            eps=self.norm.eps,
+        )
 
         xz = self.in_proj(hidden_states)
         x, z = xz.chunk(2, dim=-1)
@@ -115,6 +99,7 @@ class VisionMambaBlock(nn.Module):
         y = (y_forward + y_backward) * F.silu(z)
 
         y = self.out_proj(y)
+        residual = residual.to(dtype=y.dtype)
         return residual + self.drop_path(y)
 
 
@@ -281,14 +266,7 @@ class DualBranchVideoMambaEncoder(nn.Module):
         self.embed_dim = int(embed_dim)
         self.depth = max(1, int(depth))
         self.residual_in_fp32 = bool(residual_in_fp32)
-        self.use_rms_norm = bool(rms_norm and (RMSNorm is not None))
-
-        # If fused kernels are unavailable, gracefully fall back.
-        self.fused_add_norm = bool(
-            fused_add_norm
-            and (layer_norm_fn is not None)
-            and ((not self.use_rms_norm) or (rms_norm_fn is not None))
-        )
+        self.fused_add_norm = True
 
         # Video Mamba style Patch Embedding (3D Conv)
         self.patch_embed = PatchEmbed(
@@ -323,7 +301,7 @@ class DualBranchVideoMambaEncoder(nn.Module):
                 d_conv=d_conv,
                 expand=expand,
                 drop_path=dpr[i],
-                rms_norm=self.use_rms_norm,
+                rms_norm=True,
                 residual_in_fp32=self.residual_in_fp32,
                 fused_add_norm=self.fused_add_norm,
             )
@@ -331,8 +309,7 @@ class DualBranchVideoMambaEncoder(nn.Module):
         ])
 
         # Final normalization
-        norm_cls = RMSNorm if self.use_rms_norm else nn.LayerNorm
-        self.norm_f = norm_cls(self.embed_dim, eps=1e-5)
+        self.norm_f = RMSNorm(self.embed_dim, eps=1e-5)
         self.cls_token = nn.Parameter(torch.zeros(1, 1, self.embed_dim))
 
         self.repr_dim = self.embed_dim
@@ -343,7 +320,7 @@ class DualBranchVideoMambaEncoder(nn.Module):
         trunc_normal_(self.spatial_pos_embed, std=0.02)
         trunc_normal_(self.temporal_pos_embedding, std=0.02)
         trunc_normal_(self.cls_token, std=0.02)
-        norm_types = (nn.LayerNorm,) if RMSNorm is None else (nn.LayerNorm, RMSNorm)
+        norm_types = (nn.LayerNorm, RMSNorm)
         for module_name, m in self.named_modules():
             # Preserve native Mamba initialization from mamba_ssm for stability/performance.
             if "mamba_fwd" in module_name or "mamba_bwd" in module_name:

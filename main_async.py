@@ -309,12 +309,15 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, ba
 
     state = depth_image
     base = base_state
+    depth_view_scale = max(float(getattr(args, "depth_view_scale", 2.5)), 1.0)
+           
 
     print("Start Asynchronous Training Loop...")
 
     if args.render_window:
         cv2.namedWindow("Depth View", cv2.WINDOW_NORMAL)
-        cv2.resizeWindow("Depth View", 256, 256)
+        init_side = int(256 * depth_view_scale)
+        cv2.resizeWindow("Depth View", init_side, init_side)
 
     while total_timesteps < max_timesteps:
         # Collect steps_per_update
@@ -398,11 +401,12 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, ba
                         recurrent_vis = recurrent_vis[:, 0]
                     vis_imgs.extend(list(recurrent_vis))
                 else:
+                    render_depth = next_state
                     # 显示所有堆叠帧 (Show all stacked frames)
-                    if len(next_state.shape) == 3:
-                        vis_imgs.extend([next_state[i] for i in range(next_state.shape[0])])
+                    if len(render_depth.shape) == 3:
+                        vis_imgs.extend([render_depth[i] for i in range(render_depth.shape[0])])
                     else:
-                        vis_imgs.append(next_state)
+                        vis_imgs.append(render_depth)
 
                 # 处理图像列表 (Process image list)
                 processed_imgs = []
@@ -413,16 +417,26 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, ba
                     
                     # 确保 uint8 类型 (Ensure uint8)
                     if img.dtype != np.uint8:
-                        img = img.astype(np.uint8)
+                        img = np.clip(img, 0.0, 255.0).astype(np.uint8)
                     processed_imgs.append(img)
                 
                 # 水平拼接 (Horizontal concatenation)
                 if processed_imgs:
                     vis_concat = np.hstack(processed_imgs)
+                    if depth_view_scale != 1.0:
+                        vis_show = cv2.resize(
+                            vis_concat,
+                            None,
+                            fx=depth_view_scale,
+                            fy=depth_view_scale,
+                            interpolation=cv2.INTER_NEAREST,
+                        )
+                    else:
+                        vis_show = vis_concat
                     # 动态调整窗口大小 (Dynamically resize window)
-                    height, width = vis_concat.shape[:2]
+                    height, width = vis_show.shape[:2]
                     cv2.resizeWindow("Depth View", width, height)
-                    cv2.imshow("Depth View", vis_concat)
+                    cv2.imshow("Depth View", vis_show)
                     cv2.waitKey(1)
 
             episode_reward += reward
@@ -495,7 +509,7 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, ba
                     csv_writer = csv.writer(f)
                     csv_writer.writerow([episode_num, total_timesteps, episode_reward, episode_timesteps, success_rate])
 
-                print(f"[{display_algo_name.upper()}] Episode {episode_num}, Reward: {episode_reward:.2f}, Length: {episode_timesteps}, Success Rate: {success_rate:.2f}, Level: {env.level}, Total Timesteps: {total_timesteps}, Total Successes: {env.success_count}")
+                print(f"[{display_algo_name.upper()}] Episode {episode_num}, Reward: {episode_reward:.2f}, Length: {episode_timesteps}, Success Rate: {success_rate:.3f}, Level: {env.level}, Total Timesteps: {total_timesteps}, Total Successes: {env.success_count}")
                 
                 # Periodic CUDA memory cleanup
                 if episode_num % 50 == 0:

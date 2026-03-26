@@ -159,7 +159,7 @@ class AirSimEnv(gym.Env):
         self.success = False
         
         # 使用训练配置中的 seed 初始化随机数生成器，确保首次环境采样可复现
-        self.success_deque = collections.deque(maxlen=100)
+        self.success_deque = collections.deque(maxlen=256)
 
         self.ue4_rpc_fail_count = 0
         self.ue4_rpc_fail_threshold = getattr(config, "ue4_rpc_fail_threshold", 2) 
@@ -602,7 +602,10 @@ class AirSimEnv(gym.Env):
             altitude_violation = True
             # print(f"[最大高度越界] 当前高度: {current_altitude:.2f}m，最大高度: {self.max_altitude}m")
 
-        if distance < settings.success_distance_to_goal:
+        success_altitude_max = 2.0
+        success_altitude_ok = current_altitude <= success_altitude_max
+
+        if distance < settings.success_distance_to_goal and success_altitude_ok:
             self.success_count += 1
             done = True
             self.print_msg_of_inspiration()
