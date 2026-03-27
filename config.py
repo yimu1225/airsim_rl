@@ -28,7 +28,7 @@ def get_config(argv=None):
     parser.add_argument("--env_name", type=str, default='AirSimEnv-Gradient-v1', help="要训练的环境名称")  # AirSimEnv-v42  CartPole-v0
 
     # 算法选择 (Algorithm Selection)
-    parser.add_argument("--algorithm_name", type=str, default='CL-ST-DualVimTD3,CL-sac',
+    parser.add_argument("--algorithm_name", type=str, default='CL-ST-DualVimTD3,CL-td3',
                         help="要训练的算法。支持: td3, ddpg, aetd3, per_td3, per_aetd3, cfc_td3, st_mamba_td3, ST-VimTD3, ST-SVimTD3, ST_3DVimTD3, st_cnn_td3, gam_mamba_td3, gam_td3, ST-DualVimTD3, sac, ppo。可以是单个，多个（逗号分隔），或组名 ('all', 'base', 'seq')")
     parser.add_argument("--smooth_window", type=int, default=100, help="平滑窗口大小，用于平滑学习曲线 (仅对移动平均有效)")
     parser.add_argument("--smooth_method", type=str, default="moving", choices=["moving","zero_phase_des"], help="曲线平滑方法: moving=滑动平均, zero_phase_des=零相位双重指数平滑")
@@ -69,7 +69,7 @@ def get_config(argv=None):
     parser.add_argument("--grad_clip", type=float, default=10.0, help="梯度裁剪")
 
     # 可视化 (Visualization)
-    parser.add_argument("--render_window", action='store_true', default=True, help="显示实时可视化窗口 (默认开启，可用 --no-render_window 关闭)")
+    parser.add_argument("--render_window", action='store_true', default=False, help="显示实时可视化窗口 (默认开启，可用 --no-render_window 关闭)")
     parser.add_argument("--depth_view_scale", type=float, default=2.5, help="深度图显示窗口放大倍数")
     
     
@@ -175,9 +175,9 @@ def get_config(argv=None):
     parser.add_argument("--grad_progress_weight", type=float, default=10.0, help="梯度奖励：进度项权重")
     
     # 惩罚与裁剪
-    parser.add_argument("--grad_step_penalty", type=float, default=0.1, help="梯度奖励：每步时间成本")
+    parser.add_argument("--grad_step_penalty", type=float, default=0.2, help="梯度奖励：每步时间成本")
     parser.add_argument("--grad_reward_clip", type=float, default=8.0, help="梯度奖励：奖励裁剪上限")
-    parser.add_argument("--grad_cost_clip", type=float, default=3.0, help="梯度奖励：代价裁剪上限")
+    parser.add_argument("--grad_cost_clip", type=float, default=5.0, help="梯度奖励：代价裁剪上限")
     parser.add_argument("--grad_shaping_gamma", type=float, default=1.0, help="梯度奖励：势能折扣因子")
     
     # 深度图参数
