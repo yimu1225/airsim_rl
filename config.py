@@ -25,7 +25,7 @@ def get_config(argv=None):
     # get the parameters
     parser = argparse.ArgumentParser(description='AirSim_RL')
     # 环境 (Environment)
-    parser.add_argument("--env_name", type=str, default='AirSimEnv-Gradient-v1', help="要训练的环境名称")  # AirSimEnv-v42  CartPole-v0
+    parser.add_argument("--env_name", type=str, default='AirSimEnv-v42', help="要训练的环境名称")  # AirSimEnv-v42  CartPole-v0
 
     # 算法选择 (Algorithm Selection)
     parser.add_argument("--algorithm_name", type=str, default='CL-ST-DualVimTD3,CL-td3',
@@ -49,14 +49,14 @@ def get_config(argv=None):
     parser.add_argument("--n_training_threads", type=int, default=1, help="训练线程数")
     parser.add_argument("--n_rollout_threads", type=int, default=1, help="Rollout线程数（在AirSim环境中必须为1）")
     parser.add_argument("--max_timesteps", type=int, default=100000, help='要训练的环境步数 (默认: 10e6)')
-    parser.add_argument("--buffer_size", type=int, default=30000, help='经验池大小 (注意内存占用: 30000步约占用4GB)')
+    parser.add_argument("--buffer_size", type=int, default=10000, help='经验池大小 (注意内存占用: 30000步约占用4GB)')
     parser.add_argument("--learning_starts", type=int, default=2000, help="训练开始前的时间步数 (兼容 start_timesteps)")
     parser.add_argument("--gradient_steps", type=float, default=1.0, help="每次收集数据后的梯度更新倍数")
     parser.add_argument("--episode_length", type=int, default=200, help='每个环境中的最大回合长度')
     parser.add_argument("--eval_freq", type=int, default=5000, help="评估频率")
     parser.add_argument("--hidden_dim", type=int, default=128, help="隐藏层维度")
     parser.add_argument("--base_feature_dim", type=int, default=32, help="基础状态先映射到该维度，再与视觉特征拼接")
-    parser.add_argument("--exploration_noise", type=float, default=0.3, help="探索噪声")
+    parser.add_argument("--exploration_noise", type=float, default=0.15, help="探索噪声")
     parser.add_argument("--exploration_noise_final", type=float, default=0.01, help="最终探索噪声")
     parser.add_argument("--batch_size", type=int, default=512, help="批次大小")
     parser.add_argument("--gamma", type=float, default=0.98, help="折扣因子") 

@@ -24,7 +24,7 @@ unreal_exec = mds.unreal_exe_path
 # ---------------------------
 
 easy_range_dic = { "End": ["Mutable"],
-                                      "MinimumDistance": [5,10],
+                                      "MinimumDistance": [4,8],
                                       "EnvType": ["Indoor"],
                                       "ArenaSize": [[27, 27, 10],[30,30,10]],
                                       "PlayerStart": [[0, 0, 0]],
@@ -33,7 +33,7 @@ easy_range_dic = { "End": ["Mutable"],
                                       "Seed": list(range(0, 10000)),
                                       "VelocityRange": [[0, 2]],
                                       "Name": ["Name"],
-                                      "NumberOfObjects": list(range(5, 15))}
+                                      "NumberOfObjects": list(range(10, 20))}
 medium_range_dic = { "End": ["Mutable"],
                                       "MinimumDistance": [4,8],
                                       "EnvType": ["Indoor"],
