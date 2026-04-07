@@ -65,7 +65,7 @@ def main():
     shutil.copy("./settings_folder/settings.py", str(run_dir / 'settings.py'))
 
     ##You need first start Unreal Editor, then the initialization can be completed
-    env = AirSimEnv(need_render=False, config=args)
+    env = AirSimEnv(config=args)
     env.seed(args.seed)
 
     #Policy network

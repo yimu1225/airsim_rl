@@ -77,7 +77,7 @@ class MambaBlock(nn.Module):
         self.mamba = Mamba(d_model=dim, d_state=d_state, d_conv=d_conv, expand=expand)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return x + self.mamba(self.norm(x))
+        return self.mamba(self.norm(x))
 
 
 class ConvGAMMambaEncoder(nn.Module):
@@ -100,28 +100,38 @@ class ConvGAMMambaEncoder(nn.Module):
     ):
         super().__init__()
 
-        f1, f2, f3, f4, f5 = 4, 8, 16, 32, 16
+        f1, f2, f3, f4, f5 = 8, 16, 24, 32, 32
 
         self.conv_backbone = nn.Sequential(
-            nn.Conv2d(input_channels, f1, kernel_size=5, stride=2, padding=2),
-            nn.BatchNorm2d(f1),
+            # 第一层: 128x128 -> 32x32 (stride=4, 下采样4倍)
+            nn.Conv2d(input_channels, f1, kernel_size=8, stride=4, padding=2),
+            # nn.BatchNorm2d(f1),
             nn.ReLU(inplace=True),
-            GAMAttention(f1),
-            nn.MaxPool2d(kernel_size=2, stride=2),
-            nn.Conv2d(f1, f2, kernel_size=3, stride=2, padding=1),
-            nn.BatchNorm2d(f2),
+            
+            # 第二层: 32x32 -> 16x16 (stride=2, 下采样2倍)
+            nn.Conv2d(f1, f2, kernel_size=4, stride=2, padding=1),
+            # nn.BatchNorm2d(f2),
             nn.ReLU(inplace=True),
-            nn.MaxPool2d(kernel_size=2, stride=2),
-            nn.Conv2d(f2, f3, kernel_size=3, stride=1, padding=1),
-            nn.BatchNorm2d(f3),
+            
+            # 第三层: 16x16 -> 8x8 (stride=2, 下采样2倍)
+            nn.Conv2d(f2, f3, kernel_size=4, stride=2, padding=1),
+            # nn.BatchNorm2d(f3),
             nn.ReLU(inplace=True),
-            nn.MaxPool2d(kernel_size=2, stride=2),
-            nn.Conv2d(f3, f4, kernel_size=3, stride=1, padding=1),
-            nn.BatchNorm2d(f4),
+
+            GAMAttention(f3),
+
+            # 第四层: 8x8 -> 4x4 (stride=2, 下采样2倍)
+            nn.Conv2d(f3, f4, kernel_size=4, stride=2, padding=1),
+            # nn.BatchNorm2d(f4),
             nn.ReLU(inplace=True),
-            nn.Conv2d(f4, f5, kernel_size=1),
-            nn.BatchNorm2d(f5),
-            nn.ReLU(inplace=True),
+
+            # Global Average Pooling: HxW -> 1x1
+            nn.AdaptiveAvgPool2d((1, 1)),
+            
+            # # 第五层 1x1 conv (保持空间维度)
+            # nn.Conv2d(f4, f5, kernel_size=1),
+            # # nn.BatchNorm2d(f5),
+            # nn.ReLU(inplace=True),
         )
 
         # self.gam = GAMAttention(f5)  # Removed, now embedded in conv_backbone

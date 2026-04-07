@@ -645,7 +645,7 @@ def sac(ac,device,goal_share, seed=100, total_steps=int(5000), replay_size=int(1
         update_after=10000, update_every=50, save_freq=3000, sattn= True):
 
 
-    env = AirSimEnv(need_render=False)
+    env = AirSimEnv()
 
     # Freeze target networks with respect to optimizers (only update via polyak averaging)
     for p in ac.parameters():

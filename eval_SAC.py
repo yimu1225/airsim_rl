@@ -366,7 +366,7 @@ def sac(device, seed=100, total_steps=int(5000), replay_size=int(1e5), gamma=0.9
     torch.manual_seed(seed)
     np.random.seed(seed)
 
-    env = AirSimEnv(need_render=False)
+    env = AirSimEnv()
     env.seed(seed)
 
     model_dir = Path('./results') / 'AirSimEnv-v42'/ 'SAC'/ 'run7'/'models'

@@ -4,10 +4,12 @@ import numpy as np
 class ReplayBuffer:
     """Replay buffer with pre-allocated numpy arrays."""
 
-    def __init__(self, max_size: int):
+    def __init__(self, max_size: int, seed: int = None):
         self.max_size = int(max_size)
         self.ptr = 0
         self.current_size = 0
+        if seed is not None:
+            np.random.seed(seed)
 
         self.base_buf = None
         self.depth_buf = None

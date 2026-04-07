@@ -135,7 +135,7 @@ class GAMMambaTD3Agent:
         return torch.cat([base_features, depth_features], dim=1)
 
     def _get_current_noise(self, progress_ratio: float) -> float:
-        current_noise = self.exploration_noise * (1 - progress_ratio) + self.exploration_noise_final * progress_ratio
+        current_noise = self.exploration_noise
         return current_noise
 
     def select_action(self, base_state, depth, noise: bool = True, progress_ratio: float = 0.0):

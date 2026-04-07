@@ -99,7 +99,7 @@ class PERAETD3Agent:
         return self.adaptive_reg_initial * (1.0 - clamped_progress) + self.adaptive_reg_final * clamped_progress
 
     def _get_current_noise(self, progress_ratio: float) -> float:
-        current_noise = self.exploration_noise * (1 - progress_ratio) + self.exploration_noise_final * progress_ratio
+        current_noise = self.exploration_noise
         return current_noise
 
     def select_action(self, base_state, depth, noise: bool = True, progress_ratio: float = 0.0):

@@ -7,10 +7,11 @@ import os
 
 # Set CUDA memory allocator configuration to reduce fragmentation
 os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'expandable_segments:True'
-os.environ.setdefault('CUBLAS_WORKSPACE_CONFIG', ':4096:8')
+os.environ.setdefault('CUBLAS_WORKSPACE_CONFIG', ':4096:8')  
 
 
 # 设置环境变量，获得更详细的错误信息
+
 # os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
 # os.environ['TORCH_USE_CUDA_DSA'] = '1'
 
@@ -144,9 +145,7 @@ def create_env_from_name(args, n_frames):
     # Local aliases (instantiate directly to avoid wrapper surprises).
     env_aliases = {
         "AirSimEnv-v42": AirSimEnv,
-        "AirSimEnv": AirSimEnv,
         "AirSimEnv-Gradient-v1": AirSimEnvGradientReward,
-        "AirSimEnvGradientReward": AirSimEnvGradientReward,
     }
     env_cls = env_aliases.get(env_name)
     if env_cls is not None:
@@ -166,6 +165,13 @@ def create_env_from_name(args, n_frames):
             f"Unsupported --env_name '{env_name}'. "
             f"Supported aliases: {supported_aliases}; or pass a valid gymnasium env id."
         ) from e
+
+
+def _get_env_core(env):
+    """
+    Return the underlying custom env even when gym wrappers are present.
+    """
+    return env.unwrapped if hasattr(env, "unwrapped") else env
 
 def main():
     args = get_config()
@@ -496,8 +502,9 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, ba
                 # Calculate Success Rate based on recent history
                 # env.success_deque is populated in env.step()
                 success_rate = 0.0
-                if len(env.success_deque) > 0:
-                    success_rate = sum(env.success_deque) / len(env.success_deque)
+                env_core = _get_env_core(env)
+                if len(env_core.success_deque) > 0:
+                    success_rate = sum(env_core.success_deque) / len(env_core.success_deque)
                 
                 # Log to TensorBoard (use total_timesteps as x-axis)
                 writer.add_scalar('train/episode_reward', episode_reward, total_timesteps)
@@ -509,7 +516,7 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, ba
                     csv_writer = csv.writer(f)
                     csv_writer.writerow([episode_num, total_timesteps, episode_reward, episode_timesteps, success_rate])
 
-                print(f"[{display_algo_name.upper()}] Episode {episode_num}, Reward: {episode_reward:.2f}, Length: {episode_timesteps}, Success Rate: {success_rate:.3f}, Level: {env.level}, Total Timesteps: {total_timesteps}, Total Successes: {env.success_count}")
+                print(f"[{display_algo_name.upper()}] Episode {episode_num}, Reward: {episode_reward:.2f}, Length: {episode_timesteps}, Success Rate: {success_rate:.3f}, Level: {env_core.level}, Total Timesteps: {total_timesteps}, Total Successes: {env_core.success_count}")
                 
                 # Periodic CUDA memory cleanup
                 if episode_num % 50 == 0:
@@ -527,21 +534,23 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, ba
                 if total_timesteps >= next_restart:
                     print(f"Restarting game to refresh UE4 memory at total_timesteps {total_timesteps}...")
                     # Save success stats and level before restart
-                    old_success_count = env.success_count
-                    old_success_deque = env.success_deque
-                    old_level = env.level
-                    old_game_config_handler = env.game_config_handler
+                    env_core = _get_env_core(env)
+                    old_success_count = env_core.success_count
+                    old_success_deque = env_core.success_deque
+                    old_level = env_core.level
+                    old_game_config_handler = env_core.game_config_handler
                     # Close current environment
-                    if hasattr(env, 'game_handler') and env.game_handler is not None:
-                        env.game_handler.kill_game_in_editor()
+                    if hasattr(env_core, 'game_handler') and env_core.game_handler is not None:
+                        env_core.game_handler.kill_game_in_editor()
                         time.sleep(2)  # Wait for kill
                     # Reinitialize environment
                     env = create_env_from_name(args, n_frames)
                     # Restore success stats and level
-                    env.success_count = old_success_count
-                    env.success_deque = old_success_deque
-                    env.level = old_level
-                    env.game_config_handler = old_game_config_handler
+                    new_env_core = _get_env_core(env)
+                    new_env_core.success_count = old_success_count
+                    new_env_core.success_deque = old_success_deque
+                    new_env_core.level = old_level
+                    new_env_core.game_config_handler = old_game_config_handler
                     next_restart += restart_interval
 
                 # Reset

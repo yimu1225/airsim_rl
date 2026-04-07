@@ -95,9 +95,7 @@ def create_env_from_name(args, n_frames):
     # Local aliases (instantiate directly to avoid wrapper surprises).
     env_aliases = {
         "AirSimEnv-v42": AirSimEnv,
-        "AirSimEnv": AirSimEnv,
         "AirSimEnv-Gradient-v1": AirSimEnvGradientReward,
-        "AirSimEnvGradientReward": AirSimEnvGradientReward,
     }
     env_cls = env_aliases.get(env_name)
     if env_cls is not None:
@@ -117,6 +115,13 @@ def create_env_from_name(args, n_frames):
             f"Unsupported --env_name '{env_name}'. "
             f"Supported aliases: {supported_aliases}; or pass a valid gymnasium env id."
         ) from e
+
+
+def _get_env_core(env):
+    """
+    Return the underlying custom env even when gym wrappers are present.
+    """
+    return env.unwrapped if hasattr(env, "unwrapped") else env
 
 
 def train_ppo_algorithm(env, agent, args, algo_name, device, base_state, depth_image, n_frames):
@@ -263,8 +268,9 @@ def train_ppo_algorithm(env, agent, args, algo_name, device, base_state, depth_i
             if done:
                 # Calculate success rate
                 success_rate = 0.0
-                if len(env.success_deque) > 0:
-                    success_rate = sum(env.success_deque) / len(env.success_deque)
+                env_core = _get_env_core(env)
+                if len(env_core.success_deque) > 0:
+                    success_rate = sum(env_core.success_deque) / len(env_core.success_deque)
                 
                 # Log to TensorBoard
                 writer.add_scalar('train/episode_reward', episode_reward, total_timesteps)
@@ -276,7 +282,7 @@ def train_ppo_algorithm(env, agent, args, algo_name, device, base_state, depth_i
                     csv_writer = csv.writer(f)
                     csv_writer.writerow([episode_num, total_timesteps, episode_reward, episode_timesteps, success_rate])
 
-                print(f"[{display_algo_name.upper()}] Episode {episode_num}, Reward: {episode_reward:.2f}, Length: {episode_timesteps}, Success Rate: {success_rate:.2f}, Level: {env.level}, Total Timesteps: {total_timesteps}, Total Successes: {env.success_count}")
+                print(f"[{display_algo_name.upper()}] Episode {episode_num}, Reward: {episode_reward:.2f}, Length: {episode_timesteps}, Success Rate: {success_rate:.2f}, Level: {env_core.level}, Total Timesteps: {total_timesteps}, Total Successes: {env_core.success_count}")
                 
                 episode_num += 1
                 episode_reward = 0
@@ -285,20 +291,22 @@ def train_ppo_algorithm(env, agent, args, algo_name, device, base_state, depth_i
                 # Check restart
                 if total_timesteps >= next_restart:
                     print(f"Restarting game to refresh UE4 memory at total_timesteps {total_timesteps}...")
-                    old_success_count = env.success_count
-                    old_success_deque = env.success_deque
-                    old_level = env.level
-                    old_game_config_handler = env.game_config_handler
+                    env_core = _get_env_core(env)
+                    old_success_count = env_core.success_count
+                    old_success_deque = env_core.success_deque
+                    old_level = env_core.level
+                    old_game_config_handler = env_core.game_config_handler
                     
-                    if hasattr(env, 'game_handler') and env.game_handler is not None:
-                        env.game_handler.kill_game_in_editor()
+                    if hasattr(env_core, 'game_handler') and env_core.game_handler is not None:
+                        env_core.game_handler.kill_game_in_editor()
                         time.sleep(2)
                     
                     env = create_env_from_name(args, n_frames)
-                    env.success_count = old_success_count
-                    env.success_deque = old_success_deque
-                    env.level = old_level
-                    env.game_config_handler = old_game_config_handler
+                    new_env_core = _get_env_core(env)
+                    new_env_core.success_count = old_success_count
+                    new_env_core.success_deque = old_success_deque
+                    new_env_core.level = old_level
+                    new_env_core.game_config_handler = old_game_config_handler
                     next_restart += restart_interval
 
                 # Reset environment

@@ -22,7 +22,7 @@ import numpy as np
 
 # ==================== 用户配置区域 ====================
 # 修改这里的数字来切换测试等级: 0, 1, 2, 3
-TEST_LEVEL = 1
+TEST_LEVEL = 2
 # ====================================================
 
 # 导入项目相关模块
@@ -95,7 +95,7 @@ def main():
     # 根据等级采样不同的参数
     if TEST_LEVEL == 3:
         # Level 3: 包含动态障碍物
-        game_config.sample("Seed", "ArenaSize", "NumberOfObjects", "NumberOfDynamicObjects", "End", "Walls1", np_random=np_random)
+        game_config.sample("Seed", "ArenaSize", "NumberOfObjects", "End", "Walls1", np_random=np_random)
     else:
         # Level 0-2: 不包含动态障碍物
         game_config.sample("Seed", "ArenaSize", "NumberOfObjects", "End", "Walls1", np_random=np_random)

@@ -162,7 +162,7 @@ class DualBranchVideoMambaTD3Agent:
             当前噪声强度
         """
         # 线性递减：从初始噪声到最终噪声
-        current_noise = self.exploration_noise * (1 - progress_ratio) + self.exploration_noise_final * progress_ratio
+        current_noise = self.exploration_noise
         return current_noise
 
     def select_action(self, base_state, depth, noise: bool = True, progress_ratio: float = 0.0):

@@ -129,7 +129,7 @@ class CFCTD3Agent:
         self.total_it = 0
 
     def _get_current_noise(self, progress_ratio: float) -> float:
-        current_noise = self.exploration_noise * (1 - progress_ratio) + self.exploration_noise_final * progress_ratio
+        current_noise = self.exploration_noise
         return current_noise
 
     def select_action(self, base_seq, depth_seq, noise=True, progress_ratio: float = 0.0):
