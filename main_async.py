@@ -7,10 +7,11 @@ import os
 
 # Set CUDA memory allocator configuration to reduce fragmentation
 os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'expandable_segments:True'
-os.environ.setdefault('CUBLAS_WORKSPACE_CONFIG', ':4096:8')
+os.environ.setdefault('CUBLAS_WORKSPACE_CONFIG', ':4096:8')  
 
 
 # 设置环境变量，获得更详细的错误信息
+
 # os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
 # os.environ['TORCH_USE_CUDA_DSA'] = '1'
 

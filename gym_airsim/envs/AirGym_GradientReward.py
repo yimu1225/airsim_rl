@@ -62,7 +62,6 @@ class AirSimEnvGradientReward(gym.Env):
 
         self.depth_stack = collections.deque(maxlen=self.stack_frames)
 
-
         # 速度需要大于 2 或者持续时间大于 0.4
         # 否则效果不佳！
         if (settings.control_mode == "moveByVelocity"):
@@ -171,6 +170,10 @@ class AirSimEnvGradientReward(gym.Env):
         self._last_window_check_ts = 0.0
         self._cached_process_alive = True
         self._cached_window_alive = None
+
+        self.takeoff_obstacle_threshold_m = float(getattr(config, "takeoff_obstacle_threshold_m", 3.0))
+        self.takeoff_obstacle_reset_retries = max(0, int(getattr(config, "takeoff_obstacle_reset_retries", 3)))
+        self.takeoff_lidar_name = str(getattr(config, "takeoff_lidar_name", "LidarSensor1")).strip()
         
         # Gradient-map reward hyperparameters (从config读取)
         # 设计目标：
@@ -646,7 +649,7 @@ class AirSimEnvGradientReward(gym.Env):
         """
         梯度奖励主体：
         1. 代价下降量（核心）
-        2. 每步时间成本
+        2. 时间惩罚（0.01 * stepN）
         3. 平滑惩罚
         """
         del velocity_after
@@ -666,9 +669,11 @@ class AirSimEnvGradientReward(gym.Env):
         if prev_xy is not None:
             move_distance = float(np.linalg.norm(np.array([now[0] - prev_xy[0], now[1] - prev_xy[1]], dtype=np.float32)))
 
+        time_penalty = 0.01 * float(self.stepN)
+
         reward = (
             self.grad_progress_weight * progress
-            - self.grad_step_penalty
+            - time_penalty
             - smoothness_penalty
         )
         reward = float(np.clip(reward, -self.grad_reward_clip, self.grad_reward_clip))
@@ -678,6 +683,7 @@ class AirSimEnvGradientReward(gym.Env):
             **terms,
             "progress": progress,
             "move_distance": move_distance,
+            "time_penalty": time_penalty,
             "smoothness_penalty": smoothness_penalty,
             "reward": reward,
         }
@@ -915,21 +921,20 @@ class AirSimEnvGradientReward(gym.Env):
         self.check_ue4_status()
         
         # 取消暂停，确保重置和起飞命令可以执行
-        self.airgym.client.simPause(False)
+        self.airgym.client.simPause(False) 
 
         # 课程学习等级升级（仅在启用课程学习时）
         if self.use_curriculum and len(self.success_deque)>0:
             succes_rate=sum(self.success_deque) / len(self.success_deque)
-            if succes_rate>0.6 and self.level==0 and self.success_count>500:
+            if succes_rate>0.5 and self.level==0 and self.success_count>300:
                 self.level=1
                 self.game_config_handler=GameConfigHandler(range_dic_name="settings.medium_range_dic")
-            elif succes_rate > 0.7 and self.level == 1 and self.success_count>800:
+            elif succes_rate > 0.6 and self.level == 1 and self.success_count>600:
                 self.level = 2
                 self.game_config_handler = GameConfigHandler(range_dic_name="settings.hard_range_dic")
-            # elif succes_rate > 0.8 and self.level == 2 and self.success_count > 900:
-            #     self.level = 3
-            #     self.game_config_handler = GameConfigHandler(range_dic_name="settings.dynamic_obstacles_dic")
-            
+            elif succes_rate > 0.7 and self.level == 2 and self.success_count > 900:
+                self.level = 3
+                self.game_config_handler = GameConfigHandler(range_dic_name="settings.dynamic_obstacles_dic")
 
         print("--- Resetting Episode ---")
         
@@ -968,46 +973,85 @@ class AirSimEnvGradientReward(gym.Env):
 
         # 4. 检查起飞结果并自旋重试 (如果失败)
         # Check takeoff status and retry if failed
-        start_time = time.time()
-        now = None
-        collision_info = None
-
-        # Robust check for drone position and collision info
         def _get_takeoff_status():
             return self.airgym.drone_pos(), self.airgym.client.simGetCollisionInfo()
 
-        try:
-            now, collision_info = _get_takeoff_status()
-        except Exception as e:
-            # If getting status fails, try to reconnect heavily
-            print(f"Status check failed after reset: {e}. Retrying with hard reset...")
-            self.check_ue4_status(force_restart=True, reason="takeoff_status_query_failed")
-            self.airgym.AirSim_reset()
-            now, collision_info = _get_takeoff_status()
-
-        max_takeoff_retries = 5
-        retry_count = 0
-        while ((-now[2]) < 0.5 or collision_info.has_collided) and retry_count < max_takeoff_retries:
-            print(f"Takeoff attempt {retry_count+1} failed! Height: {-now[2]:.2f}, Collided: {collision_info.has_collided}")
-
-            # 多次失败直接重启游戏（最简单兜底）
-            if retry_count == max_takeoff_retries - 1:
-                print("Takeoff failed multiple times. Restarting game...")
-                self.check_ue4_status(force_restart=True, reason="takeoff_failed_max_retry")
+        def _ensure_takeoff_ok():
+            start_time = time.time()
+            now = None
+            collision_info = None
+            try:
+                now, collision_info = _get_takeoff_status()
+            except Exception as e:
+                # If getting status fails, try to reconnect heavily
+                print(f"Status check failed after reset: {e}. Retrying with hard reset...")
+                self.check_ue4_status(force_restart=True, reason="takeoff_status_query_failed")
                 self.airgym.AirSim_reset()
                 now, collision_info = _get_takeoff_status()
+
+            max_takeoff_retries = 5
+            retry_count = 0
+            while ((-now[2]) < 0.5 or collision_info.has_collided) and retry_count < max_takeoff_retries:
+                print(f"Takeoff attempt {retry_count+1} failed! Height: {-now[2]:.2f}, Collided: {collision_info.has_collided}")
+
+                # 多次失败直接重启游戏（最简单兜底）
+                if retry_count == max_takeoff_retries - 1:
+                    print("Takeoff failed multiple times. Restarting game...")
+                    self.check_ue4_status(force_restart=True, reason="takeoff_failed_max_retry")
+                    self.airgym.AirSim_reset()
+                    now, collision_info = _get_takeoff_status()
+                    retry_count += 1
+                    break
+
+                # 失败次数尚未达到阈值，先尝试软重置
+                self.game_config_handler.sample('Seed', change_counter=-(retry_count + 1), base_seed=self.base_seed)
+                self.airgym.unreal_reset()
+                self.airgym.AirSim_reset()
+
+                now, collision_info = _get_takeoff_status()
                 retry_count += 1
+
+            print(f"Takeoff check completed. Total time: {time.time() - start_time:.2f}s, Retries: {retry_count}")
+            return now
+
+        now = _ensure_takeoff_ok()
+
+        # 起飞后激光雷达避障检查：若最近障碍距离 < 阈值，重置环境并重新起飞。
+        obstacle_retry_count = 0
+        while True:
+            try:
+                too_close, min_distance, per_direction = self.airgym.is_obstacle_too_close_lidar(
+                    threshold_m=self.takeoff_obstacle_threshold_m,
+                    lidar_name=self.takeoff_lidar_name,
+                    max_attempts=3,
+                    retry_sleep=0.1,
+                )
+            except Exception as e:
+                print(f"Takeoff obstacle check failed, skip reset-by-obstacle this episode: {e}")
                 break
 
-            # 失败次数尚未达到阈值，先尝试软重置
-            self.game_config_handler.sample('Seed', change_counter=-(retry_count + 1), base_seed=self.base_seed)
-            self.airgym.unreal_reset()
+            if not too_close:
+                break
+
+            print(
+                f"Takeoff obstacle too close: min={min_distance:.2f}m < {self.takeoff_obstacle_threshold_m:.2f}m, "
+                f"per_direction={per_direction}"
+            )
+
+            if obstacle_retry_count >= self.takeoff_obstacle_reset_retries:
+                print("Reached max obstacle reset retries after takeoff, continue with current episode.")
+                break
+
+            obstacle_retry_count += 1
+            try:
+                # 近障后优先刷新环境，而不是只重置无人机。
+                self.game_config_handler.sample('Seed', change_counter=-(100 + obstacle_retry_count), base_seed=self.base_seed)
+                self.airgym.unreal_reset()
+            except Exception as e:
+                print(f"Takeoff obstacle env refresh failed, fallback to drone reset only: {e}")
+
             self.airgym.AirSim_reset()
-
-            now, collision_info = _get_takeoff_status()
-            retry_count += 1
-
-        print(f"Takeoff check completed. Total time: {time.time() - start_time:.2f}s, Retries: {retry_count}")
+            now = _ensure_takeoff_ok()
 
         # 确保处于目标高度
         if abs(now[2] - self.airgym.z) > 0.1:

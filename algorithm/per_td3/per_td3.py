@@ -136,7 +136,7 @@ class PERTD3Agent:
         return torch.cat([base_features, depth_features], dim=1)
 
     def _get_current_noise(self, progress_ratio: float) -> float:
-        return self.exploration_noise * (1 - progress_ratio) + self.exploration_noise_final * progress_ratio
+        return self.exploration_noise
 
     def _get_current_beta(self, progress_ratio: float) -> float:
         p = float(np.clip(progress_ratio, 0.0, 1.0))

@@ -255,6 +255,99 @@ class AirLearningClient(object):
 
         raise RuntimeError(f"getScreenDepth failed after {max_attempts} attempts")
 
+    def get_lidar_min_distance(self, lidar_name="", max_attempts=3, retry_sleep=0.1):
+        """
+        使用激光雷达点云估计无人机周围四个方向的最近障碍距离（米）。
+
+        Args:
+            lidar_name (str): 雷达名称。空字符串时使用默认雷达。
+            max_attempts (int): RPC 重试次数。
+            retry_sleep (float): 重试间隔秒数。
+
+        Returns:
+            tuple: (global_min_distance_m, per_direction_min_distance_dict)
+        """
+        max_attempts = max(1, int(max_attempts))
+
+        for attempt in range(1, max_attempts + 1):
+            try:
+                lidar_data = self.client.getLidarData(lidar_name=lidar_name, vehicle_name='SimpleFlight')
+            except Exception as e:
+                if attempt < max_attempts:
+                    print(f"get_lidar_min_distance RPC error (attempt {attempt}/{max_attempts}): {e}, retrying...")
+                    time.sleep(retry_sleep)
+                    continue
+                raise RuntimeError(f"get_lidar_min_distance failed after {max_attempts} attempts: {e}") from e
+
+            point_cloud = np.array(lidar_data.point_cloud, dtype=np.float32)
+            if point_cloud.size < 3:
+                if attempt < max_attempts:
+                    print(f"get_lidar_min_distance empty point cloud (attempt {attempt}/{max_attempts}), retrying...")
+                    time.sleep(retry_sleep)
+                    continue
+                raise RuntimeError("get_lidar_min_distance failed: empty point cloud")
+
+            points = point_cloud.reshape(-1, 3)
+            points = points[np.isfinite(points).all(axis=1)]
+            if points.shape[0] == 0:
+                if attempt < max_attempts:
+                    print(f"get_lidar_min_distance invalid point cloud (attempt {attempt}/{max_attempts}), retrying...")
+                    time.sleep(retry_sleep)
+                    continue
+                raise RuntimeError("get_lidar_min_distance failed: invalid point cloud")
+
+            xy = points[:, :2]
+            distances = np.linalg.norm(points, axis=1)
+            angles = np.degrees(np.arctan2(xy[:, 1], xy[:, 0]))
+
+            masks = {
+                "front": np.logical_and(angles >= -45.0, angles < 45.0),
+                "right": np.logical_and(angles >= 45.0, angles < 135.0),
+                "left": np.logical_and(angles >= -135.0, angles < -45.0),
+                "back": np.logical_or(angles >= 135.0, angles < -135.0),
+            }
+
+            per_direction = {}
+            for direction, mask in masks.items():
+                if np.any(mask):
+                    per_direction[direction] = float(np.min(distances[mask]))
+
+            if len(per_direction) == 0:
+                # 回退：若方位划分后为空，直接使用全局最小距离。
+                global_min = float(np.min(distances))
+                per_direction = {
+                    "front": global_min,
+                    "right": global_min,
+                    "back": global_min,
+                    "left": global_min,
+                }
+            else:
+                global_min = min(per_direction.values())
+
+            return global_min, per_direction
+
+        raise RuntimeError(f"get_lidar_min_distance failed after {max_attempts} attempts")
+
+    def is_obstacle_too_close_lidar(
+        self,
+        threshold_m=3.0,
+        lidar_name="",
+        max_attempts=3,
+        retry_sleep=0.1,
+    ):
+        """
+        使用激光雷达检查周围障碍距离是否低于阈值。
+
+        Returns:
+            tuple: (is_too_close, global_min_distance_m, per_direction_min_distance_dict)
+        """
+        min_distance, per_direction = self.get_lidar_min_distance(
+            lidar_name=lidar_name,
+            max_attempts=max_attempts,
+            retry_sleep=retry_sleep,
+        )
+        return min_distance < float(threshold_m), min_distance, per_direction
+
 
     def get_ryp(self):
         """
@@ -423,24 +516,24 @@ class AirLearningClient(object):
         Returns:
             bool: 碰撞状态
         """
-        
+
         v_forward = float(action[0])
         v_z = float(action[1])
-        yaw_rate = float(action[2]) # rad/s 
+        yaw_rate = float(action[2]) # rad/s
 
         # 获取当前偏航角
         pitch, roll, yaw = airsim.to_eularian_angles(self.client.simGetVehiclePose().orientation)
-        
+
         # 将机体坐标系的前向速度分解为世界坐标系的 vx, vy
         vx = math.cos(yaw) * v_forward
         vy = math.sin(yaw) * v_forward
-        
+
         # 使用 moveByVelocityAsync
         # yaw_mode: is_rate=True, yaw_or_rate=yaw_rate (deg/s)
         # AirSim Python API expected degrees for yaw_or_rate
-        
-        yaw_mode = airsim.YawMode(is_rate=True, yaw_or_rate=math.degrees(yaw_rate)) 
-        
+
+        yaw_mode = airsim.YawMode(is_rate=True, yaw_or_rate=math.degrees(yaw_rate))
+
         # 使用 moveByVelocityAsync 控制 3D 速度 (vx, vy, vz)
         try:
              self.client.moveByVelocityAsync(vx, vy, v_z, duration, airsim.DrivetrainType.MaxDegreeOfFreedom, yaw_mode).join()

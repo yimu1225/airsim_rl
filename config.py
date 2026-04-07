@@ -25,10 +25,10 @@ def get_config(argv=None):
     # get the parameters
     parser = argparse.ArgumentParser(description='AirSim_RL')
     # 环境 (Environment)
-    parser.add_argument("--env_name", type=str, default='AirSimEnv-v42', help="要训练的环境名称")  # AirSimEnv-v42  CartPole-v0
+    parser.add_argument("--env_name", type=str, default='AirSimEnv-v42', help="要训练的环境名称")  # AirSimEnv-v42  AirSimEnv-Gradient-v1
 
     # 算法选择 (Algorithm Selection)
-    parser.add_argument("--algorithm_name", type=str, default='CL-ST-DualVimTD3,CL-td3',
+    parser.add_argument("--algorithm_name", type=str, default='CL-ST-VimTD3,CL-ST-DualVimTD3,CL-td3',
                         help="要训练的算法。支持: td3, ddpg, aetd3, per_td3, per_aetd3, cfc_td3, st_mamba_td3, ST-VimTD3, ST-SVimTD3, ST_3DVimTD3, st_cnn_td3, gam_mamba_td3, gam_td3, ST-DualVimTD3, sac, ppo。可以是单个，多个（逗号分隔），或组名 ('all', 'base', 'seq')")
     parser.add_argument("--smooth_window", type=int, default=100, help="平滑窗口大小，用于平滑学习曲线 (仅对移动平均有效)")
     parser.add_argument("--smooth_method", type=str, default="moving", choices=["moving","zero_phase_des"], help="曲线平滑方法: moving=滑动平均, zero_phase_des=零相位双重指数平滑")
@@ -40,7 +40,7 @@ def get_config(argv=None):
     parser.add_argument("--ci_type", type=str, default="std", choices=["std", "sem"], help="阴影区域类型: std=标准差, sem=标准误差")
 
     # 训练设置 (Training Setup)
-    parser.add_argument("--seed", type=str, default="12,13,14", help="随机种子 (支持逗号分隔多个种子)")
+    parser.add_argument("--seed", type=str, default="33", help="随机种子 (支持逗号分隔多个种子)")
     parser.add_argument("--curriculum_start_level", type=int, default=0, choices=[0, 1, 2, 3], help="课程学习起始等级 (0-3, 默认: 0)。注意：算法名以 'CL-' 前缀开头时自动启用课程学习")
     parser.add_argument("--non_curriculum_level", type=int, default=2, choices=[0, 1, 2, 3], help="非课程学习时的固定难度等级 (0-3, 默认: 3)")
     parser.add_argument("--steps_per_update", type=int, default=100, help='每次更新前收集的步数')
@@ -49,24 +49,23 @@ def get_config(argv=None):
     parser.add_argument("--n_training_threads", type=int, default=1, help="训练线程数")
     parser.add_argument("--n_rollout_threads", type=int, default=1, help="Rollout线程数（在AirSim环境中必须为1）")
     parser.add_argument("--max_timesteps", type=int, default=100000, help='要训练的环境步数 (默认: 10e6)')
-    parser.add_argument("--buffer_size", type=int, default=10000, help='经验池大小 (注意内存占用: 30000步约占用4GB)')
+    parser.add_argument("--buffer_size", type=int, default=20000, help='经验池大小 (注意内存占用: 30000步约占用4GB)')
     parser.add_argument("--learning_starts", type=int, default=2000, help="训练开始前的时间步数 (兼容 start_timesteps)")
-    parser.add_argument("--gradient_steps", type=float, default=1.0, help="每次收集数据后的梯度更新倍数")
-    parser.add_argument("--episode_length", type=int, default=200, help='每个环境中的最大回合长度')
+    parser.add_argument("--gradient_steps", type=float, default=0.5, help="每次收集数据后的梯度更新倍数")
+    parser.add_argument("--episode_length", type=int, default=300, help='每个环境中的最大回合长度')
     parser.add_argument("--eval_freq", type=int, default=5000, help="评估频率")
     parser.add_argument("--hidden_dim", type=int, default=128, help="隐藏层维度")
     parser.add_argument("--base_feature_dim", type=int, default=32, help="基础状态先映射到该维度，再与视觉特征拼接")
-    parser.add_argument("--exploration_noise", type=float, default=0.15, help="探索噪声")
-    parser.add_argument("--exploration_noise_final", type=float, default=0.01, help="最终探索噪声")
-    parser.add_argument("--batch_size", type=int, default=512, help="批次大小")
+    parser.add_argument("--exploration_noise", type=float, default=0.2, help="探索噪声")
+    parser.add_argument("--batch_size", type=int, default=256, help="批次大小")
     parser.add_argument("--gamma", type=float, default=0.98, help="折扣因子") 
     parser.add_argument("--tau", type=float, default=0.003, help="软更新参数")
     parser.add_argument("--actor_lr", type=float, default=7e-4, help="Actor学习率")
     parser.add_argument("--critic_lr", type=float, default=7e-4, help="Critic学习率")
     parser.add_argument("--policy_noise", type=float, default=0.2, help="策略噪声")
-    parser.add_argument("--noise_clip", type=float, default=0.2, help="噪声裁剪")
+    parser.add_argument("--noise_clip", type=float, default=0.5, help="噪声裁剪")
     parser.add_argument("--policy_freq", type=int, default=2, help="策略更新频率")
-    parser.add_argument("--grad_clip", type=float, default=10.0, help="梯度裁剪")
+    parser.add_argument("--grad_clip", type=float, default=5.0, help="梯度裁剪")
 
     # 可视化 (Visualization)
     parser.add_argument("--render_window", action='store_true', default=False, help="显示实时可视化窗口 (默认开启，可用 --no-render_window 关闭)")
@@ -77,12 +76,6 @@ def get_config(argv=None):
     # 图像帧数参数 (所有算法统一的帧堆叠/序列长度)
     parser.add_argument("--n_frames", type=int, default=4, help="图像帧数（非时序算法为堆叠帧数，时序算法为序列长度）")
 
-    # TD3 的 OU 噪声 (OU Noise for TD3)
-    parser.add_argument("--ou_theta", type=float, default=0.15, help="OU噪声的theta参数")
-    parser.add_argument("--ou_sigma", type=float, default=0.1, help="OU噪声的sigma参数")
-    parser.add_argument("--ou_sigma_min", type=float, default=0.01, help="OU噪声的最小sigma")
-    parser.add_argument("--ou_dt", type=float, default=1.0, help="OU噪声的时间步长")
-    
     # SAC 参数 (Soft Actor-Critic)
     parser.add_argument("--auto_entropy_tuning", action='store_true', default=True, help="SAC: 是否自动调整熵温度系数")
     parser.add_argument("--alpha", type=float, default=0.2, help="SAC: 固定的熵温度系数 (当auto_entropy_tuning=False时使用)")
@@ -163,6 +156,9 @@ def get_config(argv=None):
     parser.add_argument("--min_altitude_penalty", type=float, default=0.5, help="低于最小高度的惩罚")
     parser.add_argument("--max_altitude_penalty", type=float, default=3.5, help="高于最大高度的惩罚")
     parser.add_argument("--altitude_penalty_value", type=float, default=0.5, help="飞出高度惩罚范围时的固定惩罚值")
+    parser.add_argument("--takeoff_obstacle_threshold_m", type=float, default=2.0, help="起飞后四向避障最小安全距离阈值 (米)")
+    parser.add_argument("--takeoff_lidar_name", type=str, default="LidarSensor1", help="起飞后避障检查使用的激光雷达名称")
+    parser.add_argument("--takeoff_obstacle_reset_retries", type=int, default=3, help="起飞后近障触发重置的最大重试次数")
 
     # =============================================================================
     # AirGym_GradientReward 奖励函数参数 (Gradient Reward Parameters)
@@ -172,12 +168,12 @@ def get_config(argv=None):
     parser.add_argument("--grad_heading_weight", type=float, default=0.35, help="梯度奖励：朝向误差项权重")
     parser.add_argument("--grad_obstacle_weight", type=float, default=0.50, help="梯度奖励：障碍物风险项权重")
     parser.add_argument("--grad_altitude_weight", type=float, default=0.30, help="梯度奖励：高度误差项权重")
-    parser.add_argument("--grad_progress_weight", type=float, default=10.0, help="梯度奖励：进度项权重")
+    parser.add_argument("--grad_progress_weight", type=float, default=8.0, help="梯度奖励：进度项权重")
     
     # 惩罚与裁剪
     parser.add_argument("--grad_step_penalty", type=float, default=0.2, help="梯度奖励：每步时间成本")
     parser.add_argument("--grad_reward_clip", type=float, default=8.0, help="梯度奖励：奖励裁剪上限")
-    parser.add_argument("--grad_cost_clip", type=float, default=5.0, help="梯度奖励：代价裁剪上限")
+    parser.add_argument("--grad_cost_clip", type=float, default=8.0, help="梯度奖励：代价裁剪上限")
     parser.add_argument("--grad_shaping_gamma", type=float, default=1.0, help="梯度奖励：势能折扣因子")
     
     # 深度图参数

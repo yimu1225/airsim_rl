@@ -19,7 +19,6 @@ msgpack-rpc-python==0.4
 
 pip install numpy msgpack-rpc-python
 pip install airsim --no-build-isolation
-
 tornado==4.5.3
 msgpack==0.6.2
 
