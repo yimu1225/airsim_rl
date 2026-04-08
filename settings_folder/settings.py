@@ -68,7 +68,7 @@ unreal_exec = mds.unreal_exe_path
 #                                       "Name": ["Name"],
 #                                       "NumberOfObjects": list(range(75, 85))}
 easy_range_dic = { "End": ["Mutable"],
-                                      "MinimumDistance": [5,10],
+                                      "MinimumDistance": [3,6],
                                       "EnvType": ["Indoor"],
                                       "ArenaSize": [[27, 27, 10],[30,30,10]],
                                       "PlayerStart": [[0, 0, 0]],
@@ -79,7 +79,7 @@ easy_range_dic = { "End": ["Mutable"],
                                       "Name": ["Name"],
                                       "NumberOfObjects": list(range(8, 12))}
 medium_range_dic = { "End": ["Mutable"],
-                                      "MinimumDistance": [5,10],
+                                      "MinimumDistance": [3,6],
                                       "EnvType": ["Indoor"],
                                       "ArenaSize": [[40, 40, 10],[45, 45, 10],[55, 55, 10],[50, 50, 10]],
                                       "PlayerStart": [[0, 0, 0]],
@@ -90,7 +90,7 @@ medium_range_dic = { "End": ["Mutable"],
                                       "Name": ["Name"],
                                       "NumberOfObjects": list(range(15, 22))}
 hard_range_dic = { "End": ["Mutable"],
-                                      "MinimumDistance": [5,10],
+                                      "MinimumDistance": [2,4],
                                       "EnvType": ["Indoor"],
                                       "ArenaSize": [[65, 65, 10],[55, 55, 10],[60, 60, 10]],
                                       "PlayerStart": [[0, 0, 0]],
@@ -99,7 +99,7 @@ hard_range_dic = { "End": ["Mutable"],
                                       "Seed": list(range(0, 10000)),
                                       "VelocityRange": [[0, 5]],
                                       "Name": ["Name"],
-                                      "NumberOfObjects": list(range(25, 35))}
+                                      "NumberOfObjects": list(range(35, 45))}
 default_range_dic = easy_range_dic
 # ------------------------------------------------------------
 #-game related-
