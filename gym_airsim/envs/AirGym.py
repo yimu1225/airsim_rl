@@ -175,15 +175,6 @@ class AirSimEnv(gym.Env):
         self.takeoff_obstacle_reset_retries = max(0, int(getattr(config, "takeoff_obstacle_reset_retries", 3)))
         self.takeoff_lidar_name = str(getattr(config, "takeoff_lidar_name", "LidarSensor1")).strip()
 
-        # 基于相机深度图的静态障碍惩罚参数（不依赖激光雷达）
-        self.enable_static_obstacle_penalty = bool(getattr(config, "enable_static_obstacle_penalty", True))
-        self.depth_max_m = float(getattr(config, "depth_max_m", 15.0))
-        self.static_obstacle_threshold_m = float(getattr(config, "static_obstacle_threshold_m", 2.0))
-        self.static_obstacle_ratio_weight = float(getattr(config, "static_obstacle_ratio_weight", 1.0))
-        self.static_obstacle_min_weight = float(getattr(config, "static_obstacle_min_weight", 1.0))
-        self.static_obstacle_max_penalty = float(getattr(config, "static_obstacle_max_penalty", 2.0))
-        self.static_obstacle_penalty = 0.0
-        
         # Initialize previous action for jerk penalty calculation
         if hasattr(self.action_space, 'shape') and self.action_space.shape:
             self.prev_action = np.zeros(self.action_space.shape, dtype=np.float32)
@@ -433,60 +424,17 @@ class AirSimEnv(gym.Env):
         return inform
 
 
-    def _compute_static_obstacle_penalty_from_depth(self, depth_img):
-        """
-        基于前向深度图估计静态障碍惩罚（仅相机，不依赖激光雷达）。
-        """
-        if (not self.enable_static_obstacle_penalty) or depth_img is None:
-            return 0.0
-
-        depth = np.asarray(depth_img, dtype=np.float32)
-        if depth.ndim == 3:
-            # depth stack: use latest frame
-            depth = depth[-1]
-
-        if depth.ndim != 2 or depth.size == 0:
-            return 0.0
-
-        depth = np.nan_to_num(depth, nan=255.0, posinf=255.0, neginf=0.0)
-        depth = np.clip(depth, 0.0, 255.0)
-
-        # getScreenDepth has been normalized to [0, 255], where 255 ~= depth_max_m meters.
-        depth_m = (depth / 255.0) * self.depth_max_m
-
-        # Use a central ROI to reduce floor/edge artifacts.
-        h, w = depth_m.shape
-        y0, y1 = int(0.20 * h), int(0.85 * h)
-        x0, x1 = int(0.20 * w), int(0.80 * w)
-        roi = depth_m[y0:y1, x0:x1] if (y1 > y0 and x1 > x0) else depth_m
-
-        near_mask = roi < self.static_obstacle_threshold_m
-        near_ratio = float(np.mean(near_mask))
-
-        min_depth = float(np.min(roi))
-        min_depth_term = max(
-            (self.static_obstacle_threshold_m - min_depth) / max(self.static_obstacle_threshold_m, 1e-6),
-            0.0,
-        )
-
-        penalty = (
-            self.static_obstacle_ratio_weight * near_ratio
-            + self.static_obstacle_min_weight * min_depth_term
-        )
-        return float(np.clip(penalty, 0.0, self.static_obstacle_max_penalty))
-
-
-
     def computeReward(self, now, action, velocity_after=None):
         """
         计算每一步的奖励。
         
         奖励函数组成：
-        1. 距离惩罚：距离目标越远，惩罚越大。
-        2. 朝向奖励：如果朝向目标飞行 (cos(r_yaw) > 0)，给予速度相关的奖励。
-        3. jerk_penalty：带死区的动作连续性平方惩罚。
+        1. reward_vel：NavRL风格速度投影奖励（可为负值）。
+        2. base_reward：常数基础项 +1.0。
+        3. smooth_penalty：NavRL风格速度平滑惩罚 ||v_t - v_{t-1}||。
         4. curvature_penalty：带速度门控和角度死区的轨迹曲率平方惩罚。
-        5. step_penalty：每步小惩罚。
+        5. step_penalty：每步惩罚（沿用你的配置）。
+        6. step_count_penalty：步数惩罚，当前步数 × 0.05。
         
         Args:
             now (np.array): 当前位置·
@@ -497,40 +445,37 @@ class AirSimEnv(gym.Env):
             float: 计算出的奖励值
         """
 
-        distance_now = np.sqrt(np.power((self.goal[0] - now[0]), 2)
-                               + np.power((self.goal[1] - now[1]), 2)
-                               )
-        now_pos = self.airgym.drone_pos()[:2]
-        r_yaw = self.airgym.goal_direction(self.goal, now_pos)
+        # NavRL-style velocity reward (r_vel): projection of velocity on goal direction.
+        goal_vec = np.array([self.goal[0] - now[0], self.goal[1] - now[1]], dtype=np.float32)
+        goal_dist = float(np.linalg.norm(goal_vec))
 
-        r = -distance_now*0.03#0.02
+        # Keep old distance term as comment only, as requested.
+        # r = -goal_dist * 0.03
 
-        speed_toward_goal = 0.0
-        if math.cos(r_yaw) >= 0:
-            speed_toward_goal = self.speed * math.cos(r_yaw)
-            r += speed_toward_goal
-
-        # Jerk penalty with deadzone: suppress exploration noise, punish real action jumps.
-        if self.config is not None and hasattr(self.action_space, 'shape') and len(self.action_space.shape) > 0:
-            action_diff = np.abs(action - self.prev_action)
-            action_range = np.array([
-                self.config.max_forward_speed - self.config.min_forward_speed,
-                self.config.max_vertical_speed - (-self.config.max_vertical_speed),  # z velocity range
-                self.config.max_yaw_rate - (-self.config.max_yaw_rate)  # yaw rate range
-            ], dtype=np.float32)
-            action_range = np.maximum(action_range, 1e-6)
-            delta_norm = action_diff / action_range
-
-            delta_action = 0.15  # 15% action deadzone
-            delta_excess = np.maximum(delta_norm - delta_action, 0.0)
-
-            # Per-dimension weights: yaw should be more expensive than translational channels.
-            # Order: [forward, z, yaw]
-            jerk_weights = np.array([0.05, 0.10, 0.05], dtype=np.float32)
-            jerk_penalty = float(np.sum(jerk_weights * np.square(delta_excess)))
-            jerk_penalty = float(np.clip(jerk_penalty, 0.0, 1.0))
+        if goal_dist > 1e-6:
+            goal_dir = goal_vec / goal_dist
         else:
-            jerk_penalty = 0.0
+            goal_dir = np.zeros(2, dtype=np.float32)
+
+        if velocity_after is not None:
+            vel_xy = np.asarray(velocity_after[:2], dtype=np.float32)
+            reward_vel = float(np.dot(vel_xy, goal_dir))
+        else:
+            now_pos = self.airgym.drone_pos()[:2]
+            r_yaw = self.airgym.goal_direction(self.goal, now_pos)
+            reward_vel = float(self.speed * math.cos(r_yaw))
+
+        # Match NavRL base term: reward_vel + 1
+        r = reward_vel 
+
+        # NavRL-style smoothness penalty: ||v_t - v_{t-1}||
+        if velocity_after is not None:
+            curr_v = np.asarray(velocity_after, dtype=np.float32)
+            prev_v = np.asarray(self.prev_velocity, dtype=np.float32)
+            smooth_penalty = float(np.linalg.norm(curr_v - prev_v))
+        else:
+            smooth_penalty = 0.0
+        smooth_penalty_weight = 0.1
 
         # Curvature penalty with speed gating and angle deadzone.
         curvature_penalty = 0.0
@@ -555,10 +500,13 @@ class AirSimEnv(gym.Env):
                  curvature_weight = 20.0
                  curvature_penalty = curvature_weight * (angle_excess ** 2) * (v_xy_after / max_fwd_speed)
                  curvature_penalty = float(np.clip(curvature_penalty, 0.0, 1.0))
-
+        step_penalty = self.stepN * 0.01
         # Add penalties to reward
-        r -= jerk_penalty + curvature_penalty + self.config.step_penalty
-        # print(f"Reward breakdown: base={-distance_now*0.01:.3f}, speed_toward_goal={speed_toward_goal:.3f}, jerk_penalty={jerk_penalty:.3f}, curvature_penalty={curvature_penalty:.3f}, step_penalty={self.config.step_penalty:.3f}, total_reward={r:.3f}")
+        r -= smooth_penalty * smooth_penalty_weight + curvature_penalty + step_penalty
+        # print(f"Reward components: vel={reward_vel:.3f}, smooth_penalty={smooth_penalty:.3f}, curvature_penalty={curvature_penalty:.3f}, step_penalty={step_penalty:.3f}, total_reward={r:.3f}")
+
+        # Step count penalty: current step number * 0.05
+         
 
         return r
 
@@ -586,8 +534,6 @@ class AirSimEnv(gym.Env):
         """
 
         self.stepN += 1
-        self.static_obstacle_penalty = 0.0
-
         if self.check_ue4_status():
             state = self.get_obs()
             self.success = False
@@ -595,8 +541,7 @@ class AirSimEnv(gym.Env):
                 "has_collided": False,
                 "altitude_violation": False,
                 "is_success": False,
-                "ue4_restarted": True,
-                "static_obstacle_penalty": 0.0,
+                "ue4_restarted": True
             }
             return state, 0.0, True, False, info
         
@@ -716,23 +661,13 @@ class AirSimEnv(gym.Env):
         info = {
             "has_collided": bool(collided),
             "altitude_violation": bool(altitude_violation),
-            "is_success": bool(self.success),
-            "static_obstacle_penalty": float(self.static_obstacle_penalty)
+            "is_success": bool(self.success)
         }
         return state, reward, done, False, info
 
 
     def on_episode_end(self):
-        # Print episode summary
-        # print("="*60)
-        # print(f"Episode {self.episodeN} Summary:")
-        # print(f"  Start Position: [0.0, 0.0, 0.0]")
-        # print(f"  Goal Position: {self.goal}")
-        # print(f"  Total Steps: {self.stepN}")
-        # print(f"  Cumulative Reward: {self.episode_reward:.4f}")
-        # print(f"  Success: {self.success}")
-        # print(f"  Total Successes: {self.success_count}")
-        # print("="*60)
+        
         pass
 
 

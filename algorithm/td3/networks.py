@@ -2,9 +2,9 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torchvision import models
 from torch import distributions as pyd
 from torch.distributions.utils import _standard_normal
-from ..cnn_modules import CNN
 
 
 class TruncatedNormal(pyd.Normal):
@@ -34,12 +34,41 @@ class TruncatedNormal(pyd.Normal):
 # RunningMeanStd removed — wasn't integrated in agent pipeline.
 
 
-class Encoder(CNN):
+class Encoder(nn.Module):
     """
-    Encoder that uses the unified CNN from cnn_modules.
+    TD3 visual encoder backed by ResNet18.
     """
     def __init__(self, input_height, input_width, input_channels=1):
-        super().__init__(input_height, input_width, input_channels)
+        del input_height, input_width  # ResNet18 supports dynamic spatial resolution.
+        super().__init__()
+
+        # Build a vanilla ResNet18 (no pretrained weights by default).
+        try:
+            backbone = models.resnet18(weights=None)
+        except TypeError:
+            # Backward compatibility for older torchvision versions.
+            backbone = models.resnet18(pretrained=False)
+
+        # Adapt first conv to arbitrary input channels (e.g., stacked depth frames).
+        if input_channels != 3:
+            backbone.conv1 = nn.Conv2d(
+                input_channels,
+                backbone.conv1.out_channels,
+                kernel_size=backbone.conv1.kernel_size,
+                stride=backbone.conv1.stride,
+                padding=backbone.conv1.padding,
+                bias=False,
+            )
+
+        # Drop final FC head and keep global pooled 512-d features.
+        self.backbone = nn.Sequential(*list(backbone.children())[:-1])
+        self.repr_dim = 512
+
+    def forward(self, x):
+        if x.dim() == 3:
+            x = x.unsqueeze(1)
+        feat = self.backbone(x)
+        return feat.view(feat.size(0), -1)
    
 
 class Actor(nn.Module):
