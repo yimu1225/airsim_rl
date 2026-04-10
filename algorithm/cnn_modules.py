@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torchvision import models
 
 
 class BaseStateExpander(nn.Module):
@@ -30,63 +31,45 @@ class BaseStateExpander(nn.Module):
 
 class CNN(nn.Module):
     """
-    Unified CNN for processing single input channel.
-    Can be used for depth, motion, or any single-channel input.
-    Used by all algorithms for consistent feature extraction.
-    Ends with Global Average Pooling (GAP).
+    Unified visual encoder based on MobileNetV2.
+    Accepts arbitrary input channels and returns 32-d projected features.
     """
-    def __init__(self, input_height, input_width, input_channels=1):
+    def __init__(self, input_height, input_width, input_channels=1, output_dim=128):
+        del input_height, input_width  # MobileNetV2 supports dynamic spatial resolution.
         super().__init__()
 
-        # Feature expansion factors
-        f1 = 8
-        f2 = 16
-        f3 = 24
-        f4 = 32
-        # f5 = 48
-        f5 = 8
+        width_mult = 0.5
+        try:
+            mobilenet = models.mobilenet_v2(weights=None, width_mult=width_mult)
+        except TypeError:
+            mobilenet = models.mobilenet_v2(pretrained=False, width_mult=width_mult)
 
-        self.net = nn.Sequential(
-            # 第一层: 128x128 -> 32x32 (stride=4, 下采样4倍)
-            nn.Conv2d(input_channels, f1, kernel_size=8, stride=4, padding=2),
-            # nn.BatchNorm2d(f1),
-            nn.ReLU(inplace=True),
-           
-            # 第二层: 32x32 -> 16x16 (stride=2, 下采样2倍)
-            nn.Conv2d(f1, f2, kernel_size=4, stride=2, padding=1),
-            # nn.BatchNorm2d(f2),
-            nn.ReLU(inplace=True),
+        self.net = mobilenet.features
 
-            # 第三层: 16x16 -> 8x8 (stride=2, 下采样2倍)
-            nn.Conv2d(f2, f3, kernel_size=4, stride=2, padding=1),
-            # nn.BatchNorm2d(f3),
-            nn.ReLU(inplace=True),
+        if input_channels != 3:
+            first_conv = self.net[0][0]
+            self.net[0][0] = nn.Conv2d(
+                input_channels,
+                first_conv.out_channels,
+                kernel_size=first_conv.kernel_size,
+                stride=first_conv.stride,
+                padding=first_conv.padding,
+                bias=first_conv.bias is not None,
+            )
 
-            # 第四层: 8x8 -> 4x4 (stride=2, 下采样2倍)
-            nn.Conv2d(f3, f4, kernel_size=4, stride=2, padding=1),
-            # nn.BatchNorm2d(f4),
+        self.pool = nn.AdaptiveAvgPool2d((1, 1))
+        self.proj = nn.Sequential(
+            nn.Linear(mobilenet.last_channel, output_dim),
+            nn.LayerNorm(output_dim),
             nn.ReLU(inplace=True),
-
-            # Global Average Pooling: HxW -> 1x1
-            nn.AdaptiveAvgPool2d((1, 1)),
-            
-            # # 第五层 1x1 conv (保持空间维度)
-            # nn.Conv2d(f4, f5, kernel_size=1),
-            # # nn.BatchNorm2d(f5),
-            # nn.ReLU(inplace=True),
         )
-
-        # Calculate flattened size
-        with torch.no_grad():
-            dummy_input = torch.zeros(1, input_channels, input_height, input_width)
-            dummy_output = self.net(dummy_input)
-            self.n_flatten = dummy_output.view(1, -1).size(1)
-
-        self.repr_dim = self.n_flatten
+        self.repr_dim = output_dim
 
     def forward(self, x):
         if x.dim() == 3:
             x = x.unsqueeze(1)  # Add channel dimension if needed
         x = self.net(x)
-        x = x.view(x.size(0), -1)  # Flatten directly
+        x = self.pool(x)
+        x = x.view(x.size(0), -1)
+        x = self.proj(x)
         return x
