@@ -621,7 +621,7 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, ba
             gc.collect()
 
         # Checkpointing
-        if total_timesteps % 100000 == 0:
+        if total_timesteps % 10000 == 0:
             agent.save(f"./models/{algo_name}_async_{total_timesteps}.pth")
             print(f"Model saved at timestep {total_timesteps}")
         
