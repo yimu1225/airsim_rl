@@ -77,7 +77,7 @@ easy_range_dic = { "End": ["Mutable"],
                                       "Seed": list(range(0, 10000)),
                                       "VelocityRange": [[0, 2]],
                                       "Name": ["Name"],
-                                      "NumberOfObjects": list(range(15, 25))}
+                                      "NumberOfObjects": list(range(30, 40))}
 medium_range_dic = { "End": ["Mutable"],
                                       "MinimumDistance": [3,6],
                                       "EnvType": ["Indoor"],
@@ -88,9 +88,9 @@ medium_range_dic = { "End": ["Mutable"],
                                       "Seed": list(range(0, 10000)),
                                       "VelocityRange": [[0, 4]],
                                       "Name": ["Name"],
-                                      "NumberOfObjects": list(range(35, 45))}
+                                      "NumberOfObjects": list(range(50, 70))}
 hard_range_dic = { "End": ["Mutable"],
-                                      "MinimumDistance": [2,4],
+                                      "MinimumDistance": [2,3],
                                       "EnvType": ["Indoor"],
                                       "ArenaSize": [[80, 80, 10],[85, 85, 10]],
                                       "PlayerStart": [[0, 0, 0]],
@@ -99,7 +99,7 @@ hard_range_dic = { "End": ["Mutable"],
                                       "Seed": list(range(0, 10000)),
                                       "VelocityRange": [[0, 5]],
                                       "Name": ["Name"],
-                                      "NumberOfObjects": list(range(55, 65))}
+                                      "NumberOfObjects": list(range(80, 100))}
 default_range_dic = easy_range_dic
 # ------------------------------------------------------------
 #-game related-

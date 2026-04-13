@@ -475,7 +475,7 @@ class AirSimEnv(gym.Env):
             smooth_penalty = float(np.linalg.norm(curr_v - prev_v))
         else:
             smooth_penalty = 0.0
-        smooth_penalty_weight = 0.1
+        smooth_penalty_weight = 0.3
 
         # Curvature penalty with speed gating and angle deadzone.
         curvature_penalty = 0.0
