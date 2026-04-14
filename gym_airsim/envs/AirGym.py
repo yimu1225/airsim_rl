@@ -174,6 +174,29 @@ class AirSimEnv(gym.Env):
         self.takeoff_obstacle_threshold_m = float(getattr(config, "takeoff_obstacle_threshold_m", 3.0))
         self.takeoff_obstacle_reset_retries = max(0, int(getattr(config, "takeoff_obstacle_reset_retries", 3)))
         self.takeoff_lidar_name = str(getattr(config, "takeoff_lidar_name", "LidarSensor1")).strip()
+        self.reward_lidar_name = str(getattr(config, "reward_lidar_name", self.takeoff_lidar_name)).strip()
+        if self.reward_lidar_name == "":
+            self.reward_lidar_name = self.takeoff_lidar_name
+        self.lidar_safe_distance_m = max(0.05, float(getattr(config, "lidar_safe_distance_m", 2.0)))
+        self.lidar_log_penalty_weight = float(getattr(config, "lidar_log_penalty_weight", 1.0))
+        self.lidar_log_penalty_min = float(getattr(config, "lidar_log_penalty_min", -3.0))
+        self.lidar_penalty_eps = max(1e-6, float(getattr(config, "lidar_penalty_eps", 1e-3)))
+        self.lidar_distance_cap_m = max(
+            self.lidar_safe_distance_m,
+            float(getattr(config, "lidar_distance_cap_m", 20.0)),
+        )
+        self.lidar_query_max_attempts = max(1, int(getattr(config, "lidar_query_max_attempts", 1)))
+        self.lidar_query_retry_sleep = max(0.0, float(getattr(config, "lidar_query_retry_sleep", 0.02)))
+        self.lidar_h_bins = max(4, int(getattr(config, "lidar_h_bins", 36)))
+        self.lidar_v_bins = max(1, int(getattr(config, "lidar_v_bins", 3)))
+        self.lidar_vfov_min_deg = float(getattr(config, "lidar_vfov_min_deg", -10.0))
+        self.lidar_vfov_max_deg = float(getattr(config, "lidar_vfov_max_deg", 20.0))
+        self.last_lidar_obstacle_penalty = 0.0
+        self.last_lidar_scan_distance = np.full(
+            (self.lidar_h_bins, self.lidar_v_bins),
+            self.lidar_distance_cap_m,
+            dtype=np.float32,
+        )
 
         # Initialize previous action for jerk penalty calculation
         if hasattr(self.action_space, 'shape') and self.action_space.shape:
@@ -423,6 +446,61 @@ class AirSimEnv(gym.Env):
         """
         return inform
 
+    def _compute_lidar_scan_log_penalty(self, scan_distance):
+        """
+        NavRL-like safety shaping on lidar beams:
+        use all beams (not only nearest one), with mean(log(distance)) style.
+        Here we anchor to safe distance so penalty <= 0 and equals 0 when all beams >= safe.
+        """
+        if self.lidar_log_penalty_weight <= 0.0:
+            return 0.0
+        if scan_distance is None:
+            return 0.0
+
+        d = np.asarray(scan_distance, dtype=np.float32)
+        if d.size == 0:
+            return 0.0
+        d = d[np.isfinite(d)]
+        if d.size == 0:
+            return 0.0
+
+        safe_dist = max(self.lidar_safe_distance_m, self.lidar_penalty_eps)
+        # Clamp above safe distance: far beams contribute 0 risk.
+        d_clip = np.clip(d, self.lidar_penalty_eps, safe_dist)
+        mean_log_gap = float(np.mean(np.log(d_clip) - math.log(safe_dist)))
+        penalty = self.lidar_log_penalty_weight * mean_log_gap
+        return float(max(penalty, self.lidar_log_penalty_min))
+
+    def _update_lidar_obstacle_distance(self):
+        try:
+            scan_distance, _ = self.airgym.get_lidar_scan_grid(
+                lidar_name=self.reward_lidar_name,
+                horizontal_bins=self.lidar_h_bins,
+                vertical_bins=self.lidar_v_bins,
+                vfov_min_deg=self.lidar_vfov_min_deg,
+                vfov_max_deg=self.lidar_vfov_max_deg,
+                max_range_m=self.lidar_distance_cap_m,
+                max_attempts=self.lidar_query_max_attempts,
+                retry_sleep=self.lidar_query_retry_sleep,
+            )
+        except Exception:
+            self.last_lidar_obstacle_penalty = self._compute_lidar_scan_log_penalty(
+                self.last_lidar_scan_distance
+            )
+            return False
+
+        scan_distance = np.asarray(scan_distance, dtype=np.float32)
+        if scan_distance.ndim != 2 or scan_distance.size == 0:
+            self.last_lidar_obstacle_penalty = self._compute_lidar_scan_log_penalty(
+                self.last_lidar_scan_distance
+            )
+            return False
+
+        self.last_lidar_scan_distance = scan_distance.copy()
+
+        self.last_lidar_obstacle_penalty = self._compute_lidar_scan_log_penalty(scan_distance)
+        return True
+
 
     def computeReward(self, now, action, velocity_after=None):
         """
@@ -432,7 +510,7 @@ class AirSimEnv(gym.Env):
         1. reward_vel：NavRL风格速度投影奖励（可为负值）。
         2. base_reward：常数基础项 +1.0。
         3. smooth_penalty：NavRL风格速度平滑惩罚 ||v_t - v_{t-1}||。
-        4. curvature_penalty：带速度门控和角度死区的轨迹曲率平方惩罚。
+        4. curvature_penalty：轨迹离散曲率平方惩罚 (r_curv = -alpha * kappa^2)。
         5. step_penalty：每步惩罚（沿用你的配置）。
         6. step_count_penalty：步数惩罚，当前步数 × 0.05。
         
@@ -465,8 +543,8 @@ class AirSimEnv(gym.Env):
             r_yaw = self.airgym.goal_direction(self.goal, now_pos)
             reward_vel = float(self.speed * math.cos(r_yaw))
 
-        # Match NavRL base term: reward_vel + 1
-        r = reward_vel 
+        # Match NavRL base term: reward_vel 
+        r = 2*reward_vel 
 
         # NavRL-style smoothness penalty: ||v_t - v_{t-1}||
         if velocity_after is not None:
@@ -475,37 +553,32 @@ class AirSimEnv(gym.Env):
             smooth_penalty = float(np.linalg.norm(curr_v - prev_v))
         else:
             smooth_penalty = 0.0
-        smooth_penalty_weight = 0.3
+        smooth_penalty_weight = 0.05
 
         # Curvature penalty with speed gating and angle deadzone.
         curvature_penalty = 0.0
         if velocity_after is not None:
              v_xy_before = float(self.prev_velocity[2]) # speed is at index 2
              v_xy_after = float(velocity_after[2])
-             max_fwd_speed = max(float(self.config.max_forward_speed), 1e-6)
+             
+             dot_product = np.dot(velocity_after[:2], self.prev_velocity[:2])
+             cos_theta = dot_product / (v_xy_before * v_xy_after + 1e-6)
+             cos_theta = np.clip(cos_theta, -1.0, 1.0)
+             angle_change = float(np.arccos(cos_theta))
 
-             # Adaptive gate for this project: at most 0.5m/s, but not unrealistically high for low-speed setups.
-            #  v_gate = min(0.5, 0.15 * max_fwd_speed)
-            #  v_gate = max(v_gate, 0.1)
-             v_gate = 0.25
-             if v_xy_before > v_gate and v_xy_after > v_gate:
-                 dot_product = np.dot(velocity_after[:2], self.prev_velocity[:2])
-                 cos_theta = dot_product / (v_xy_before * v_xy_after + 1e-6)
-                 cos_theta = np.clip(cos_theta, -1.0, 1.0)
-                 angle_change = float(np.arccos(cos_theta))
+             curvature_weight = 4.0
+             curvature_penalty = curvature_weight * (angle_change ** 2) 
+             curvature_penalty = float(np.clip(curvature_penalty, 0.0, 1.0))
 
-                 delta_angle = math.radians(15.0)
-                 angle_excess = max(angle_change - delta_angle, 0.0)
-
-                 curvature_weight = 20.0
-                 curvature_penalty = curvature_weight * (angle_excess ** 2) * (v_xy_after / max_fwd_speed)
-                 curvature_penalty = float(np.clip(curvature_penalty, 0.0, 1.0))
-        step_penalty = self.stepN * 0.01
+        step_penalty = self.stepN * 0.001
         # Add penalties to reward
-        r -= smooth_penalty * smooth_penalty_weight + curvature_penalty + step_penalty
-        # print(f"Reward components: vel={reward_vel:.3f}, smooth_penalty={smooth_penalty:.3f}, curvature_penalty={curvature_penalty:.3f}, step_penalty={step_penalty:.3f}, total_reward={r:.3f}")
+        r -= smooth_penalty * smooth_penalty_weight  + step_penalty + curvature_penalty
 
-        # Step count penalty: current step number * 0.05
+        lidar_penalty = self._compute_lidar_scan_log_penalty(self.last_lidar_scan_distance)
+        self.last_lidar_obstacle_penalty = float(lidar_penalty)
+        r += 5 * float(lidar_penalty)
+        # print(f"Reward components: r_vel={reward_vel:.3f}, smooth_penalty={smooth_penalty:.3f}, curvature_penalty={curvature_penalty:.3f}, step_penalty={step_penalty:.3f}, lidar_penalty={lidar_penalty:.3f}, total_reward={r:.3f}")
+
          
 
         return r
@@ -541,7 +614,8 @@ class AirSimEnv(gym.Env):
                 "has_collided": False,
                 "altitude_violation": False,
                 "is_success": False,
-                "ue4_restarted": True
+                "ue4_restarted": True,
+                "lidar_obstacle_log_penalty": float(self.last_lidar_obstacle_penalty),
             }
             return state, 0.0, True, False, info
         
@@ -587,6 +661,7 @@ class AirSimEnv(gym.Env):
                 depth_img = np.zeros((128, 128), dtype=np.float32)
         
         self.depth_stack.append(depth_img)
+        self._update_lidar_obstacle_distance()
 
         # Get observation
         state = self.get_obs()
@@ -632,7 +707,11 @@ class AirSimEnv(gym.Env):
             # 获取当前速度用于奖励计算 (vx, vy, speed)
             velocity_after = self.airgym.drone_velocity()
             # 计算基础奖励
-            reward = self.computeReward(now, action, velocity_after=velocity_after)
+            reward = self.computeReward(
+                now,
+                action,
+                velocity_after=velocity_after,
+            )
             done = False
             self.success = False
             
@@ -661,7 +740,8 @@ class AirSimEnv(gym.Env):
         info = {
             "has_collided": bool(collided),
             "altitude_violation": bool(altitude_violation),
-            "is_success": bool(self.success)
+            "is_success": bool(self.success),
+            "lidar_obstacle_log_penalty": float(self.last_lidar_obstacle_penalty),
         }
         return state, reward, done, False, info
 
@@ -675,6 +755,12 @@ class AirSimEnv(gym.Env):
         self.stepN = 0
         self.episodeN += 1
         self.episode_reward = 0  # Reset reward accumulator for new episode
+        self.last_lidar_obstacle_penalty = 0.0
+        self.last_lidar_scan_distance = np.full(
+            (self.lidar_h_bins, self.lidar_v_bins),
+            self.lidar_distance_cap_m,
+            dtype=np.float32,
+        )
 
     def reset(self, *, seed=None, options=None):
         """
@@ -845,6 +931,7 @@ class AirSimEnv(gym.Env):
         start_time = time.time()
         self.on_episode_start()
         state = self.init_state_f()
+        self._update_lidar_obstacle_distance()
         print(f"Initial state acquisition time: {time.time() - start_time:.2f}s")
         
         # # 打印当前 episode 的 JSON 配置
