@@ -841,8 +841,17 @@ class AirSimEnv(gym.Env):
 
         # 4. 检查起飞结果并自旋重试 (如果失败)
         # Check takeoff status and retry if failed
-        def _get_takeoff_status():
-            return self.airgym.drone_pos(), self.airgym.client.simGetCollisionInfo()
+        def _get_takeoff_status(max_attempts=3):
+            for attempt in range(max_attempts):
+                try:
+                    return self.airgym.drone_pos(), self.airgym.client.simGetCollisionInfo()
+                except Exception as e:
+                    print(f"Get takeoff status RPC failed (attempt {attempt + 1}/{max_attempts}): {e}")
+                    if attempt < max_attempts - 1:
+                        self.check_ue4_status(force_restart=True, reason=f"takeoff_status_rpc_failed_attempt_{attempt + 1}")
+                        self.airgym.AirSim_reset()
+                    else:
+                        raise
 
         def _ensure_takeoff_ok():
             start_time = time.time()

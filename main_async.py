@@ -48,6 +48,9 @@ from algorithm.gam_td3.td3 import GAMTD3Agent
 from algorithm.ST_3DVimTD3.agent import ST3DVimTD3Agent
 from algorithm.st_dualvim_td3.agent import DualBranchVideoMambaTD3Agent
 from algorithm.sac.agent import SACAgent
+from algorithm.td3_asym.td3_asym import AsymTD3Agent
+from algorithm.per_td3_asym.per_td3_asym import AsymPERTD3Agent
+from algorithm.ST_VimTD3_asym.agent import AsymSTVimTD3Agent
 
 
 
@@ -91,9 +94,9 @@ def expand_algorithms(algo_str):
     """
     # Predefined algorithm groups
     groups = {
-        'all': ['td3', 'ddpg', 'aetd3', 'per_td3', 'per_aetd3', 'cfc_td3', 'st_mamba_td3', 'ST-VimTD3', 'ST-SVimTD3', 'st_cnn_td3', 'gam_mamba_td3', 'gam_td3', 'ST_3DVimTD3', 'ST-DualVimTD3', 'sac'],
-        'base': ['td3', 'ddpg', 'aetd3', 'per_td3', 'per_aetd3', 'sac'],
-        'seq': ['cfc_td3', 'st_mamba_td3', 'ST-VimTD3', 'ST-SVimTD3', 'st_cnn_td3', 'ST_3DVimTD3', 'ST-DualVimTD3']
+        'all': ['td3', 'ddpg', 'aetd3', 'per_td3', 'per_aetd3', 'cfc_td3', 'st_mamba_td3', 'ST-VimTD3', 'ST-SVimTD3', 'st_cnn_td3', 'gam_mamba_td3', 'gam_td3', 'ST_3DVimTD3', 'ST-DualVimTD3', 'sac', 'td3_asym', 'per_td3_asym', 'ST-VimTD3_asym'],
+        'base': ['td3', 'ddpg', 'aetd3', 'per_td3', 'per_aetd3', 'sac', 'td3_asym', 'per_td3_asym'],
+        'seq': ['cfc_td3', 'st_mamba_td3', 'ST-VimTD3', 'ST-SVimTD3', 'st_cnn_td3', 'ST_3DVimTD3', 'ST-DualVimTD3', 'ST-VimTD3_asym']
     }
     
     # Check if it's a predefined group
@@ -115,13 +118,16 @@ def get_agent_class(algo_name):
     
     agents = {
         'td3': TD3Agent,
+        'td3_asym': AsymTD3Agent,
         'ddpg': DDPGAgent,
         'aetd3': AETD3Agent,
         'per_td3': PERTD3Agent,
+        'per_td3_asym': AsymPERTD3Agent,
         'per_aetd3': PERAETD3Agent,
         'cfc_td3': CFCTD3Agent,
         'st_mamba_td3': ST_Mamba_Agent,
         'ST-VimTD3': STVimTD3Agent,
+        'ST-VimTD3_asym': AsymSTVimTD3Agent,
         'ST-SVimTD3': STSVimTD3Agent,
         'st_cnn_td3': ST_CNN_Agent,
         'gam_mamba_td3': GAMMambaTD3Agent,
@@ -173,6 +179,74 @@ def _get_env_core(env):
     """
     return env.unwrapped if hasattr(env, "unwrapped") else env
 
+
+def _is_asym_algorithm(algo_name: str) -> bool:
+    core_name = algo_name[3:] if algo_name.startswith("CL-") else algo_name
+    return core_name in {"td3_asym", "per_td3_asym", "ST-VimTD3_asym"}
+
+
+def _extract_last_depth_frame(depth_tensor):
+    arr = np.asarray(depth_tensor, dtype=np.float32)
+    if arr.ndim == 4 and arr.shape[1] == 1:
+        return arr[-1, 0]
+    if arr.ndim == 3:
+        return arr[-1]
+    if arr.ndim == 2:
+        return arr
+    return np.zeros((128, 128), dtype=np.float32)
+
+
+def _extract_clean_depth_frame(env_core, fallback_depth):
+    fallback_frame = _extract_last_depth_frame(fallback_depth)
+    raw = getattr(getattr(env_core, "airgym", None), "last_img", None)
+    if raw is None:
+        return fallback_frame
+
+    arr = np.asarray(raw, dtype=np.float32)
+    if arr.ndim == 3:
+        if arr.shape[0] < 1:
+            return fallback_frame
+        frame = arr[0]
+    elif arr.ndim == 2:
+        frame = arr
+    else:
+        return fallback_frame
+
+    if frame.shape != fallback_frame.shape:
+        frame = cv2.resize(frame, (fallback_frame.shape[1], fallback_frame.shape[0]), interpolation=cv2.INTER_AREA)
+    return np.clip(frame, 0.0, 255.0).astype(np.float32)
+
+
+def _build_critic_depth_like(env_core, actor_depth):
+    actor_arr = np.asarray(actor_depth, dtype=np.float32)
+    clean_frame = _extract_clean_depth_frame(env_core, actor_arr)
+
+    if actor_arr.ndim == 2:
+        return clean_frame
+    if actor_arr.ndim == 3:
+        if actor_arr.shape[0] <= 0:
+            return actor_arr
+        return np.repeat(clean_frame[None, ...], actor_arr.shape[0], axis=0).astype(np.float32)
+    if actor_arr.ndim == 4 and actor_arr.shape[1] == 1:
+        tiled = np.repeat(clean_frame[None, None, ...], actor_arr.shape[0], axis=0)
+        return tiled.astype(np.float32)
+    return actor_arr
+
+
+def _extract_critic_privileged_lidar(env_core):
+    scan = getattr(env_core, "last_lidar_scan_distance", None)
+    if scan is None:
+        cfg = getattr(env_core, "config", None)
+        h_bins = int(getattr(env_core, "lidar_h_bins", getattr(cfg, "lidar_h_bins", 36)))
+        v_bins = int(getattr(env_core, "lidar_v_bins", getattr(cfg, "lidar_v_bins", 3)))
+        cap = float(getattr(env_core, "lidar_distance_cap_m", getattr(cfg, "lidar_distance_cap_m", 10.0)))
+        return np.full((v_bins * h_bins,), cap, dtype=np.float32)
+
+    arr = np.asarray(scan, dtype=np.float32)
+    if arr.ndim == 2:
+        arr = arr.T
+    return arr.reshape(-1).astype(np.float32)
+
 def main():
     args = get_config()
     seeds = args.seed if isinstance(args.seed, (list, tuple)) else [args.seed]
@@ -203,7 +277,7 @@ def main():
 
             # Determine properties for this algorithm
             recurrent_algos = [
-                'cfc_td3', 'st_cnn_td3', 'st_mamba_td3', 'ST-VimTD3', 'ST-SVimTD3', 'ST_3DVimTD3'
+                'cfc_td3', 'st_cnn_td3', 'st_mamba_td3', 'ST-VimTD3', 'ST-SVimTD3', 'ST_3DVimTD3', 'ST-VimTD3_asym'
             ]
             
             is_recurrent = actual_algo_name in recurrent_algos
@@ -244,6 +318,11 @@ def main():
             # Initialize Agent
             device = torch.device("cuda" if args.cuda and torch.cuda.is_available() else "cpu")
             AgentClass = get_agent_class(algo_name)
+
+            if _is_asym_algorithm(algo_name):
+                env_core = _get_env_core(env)
+                inferred_priv = _extract_critic_privileged_lidar(env_core)
+                setattr(args, "critic_priv_dim", int(np.asarray(inferred_priv).reshape(-1).shape[0]))
             
             # pass seed to agent so it can create its own RNG
             agent = AgentClass(base_dim, model_depth_shape, action_space, args, device=device, seed=seed)
@@ -272,6 +351,8 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, ba
     # 根据是否使用课程学习修改算法显示名称（用于日志和绘图）
     # algo_name 已经包含了 CL- 前缀（如果启用课程学习），直接使用即可
     display_algo_name = algo_name
+    core_algo_name = algo_name[3:] if algo_name.startswith("CL-") else algo_name
+    is_asym_algo = _is_asym_algorithm(algo_name)
     print(f"Start Asynchronous Training {display_algo_name}...")
 
     # Restart interval for refreshing UE4 memory
@@ -335,6 +416,16 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, ba
                 depth_seq = state
                 if depth_seq.ndim == 3:
                     depth_seq = np.expand_dims(depth_seq, axis=1)
+                actor_depth_current = depth_seq
+            else:
+                actor_depth_current = state
+
+            critic_depth_current = None
+            critic_priv_current = None
+            if is_asym_algo:
+                env_core = _get_env_core(env)
+                critic_depth_current = _build_critic_depth_like(env_core, actor_depth_current)
+                critic_priv_current = _extract_critic_privileged_lidar(env_core)
 
             # Select Action
             if total_timesteps < start_timesteps and args.load_model == "":
@@ -449,13 +540,24 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, ba
 
             # Add to Buffer
             done_bool = float(done)
-            
+
             if is_recurrent:
                 next_depth_seq = next_state
                 if next_depth_seq.ndim == 3:
                     next_depth_seq = np.expand_dims(next_depth_seq, axis=1)
+                actor_depth_next = next_depth_seq
+            else:
+                actor_depth_next = next_state
 
-                if algo_name == 'ST-SVimTD3':
+            critic_depth_next = None
+            critic_priv_next = None
+            if is_asym_algo:
+                env_core = _get_env_core(env)
+                critic_depth_next = _build_critic_depth_like(env_core, actor_depth_next)
+                critic_priv_next = _extract_critic_privileged_lidar(env_core)
+            
+            if is_recurrent:
+                if core_algo_name == 'ST-SVimTD3':
                     has_collided = float(step_info.get("has_collided", False)) if isinstance(step_info, dict) else 0.0
                     agent.replay_buffer.add(
                         base,
@@ -466,6 +568,20 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, ba
                         next_depth_seq,
                         done_bool,
                         has_collided
+                    )
+                elif is_asym_algo:
+                    agent.replay_buffer.add(
+                        base,
+                        depth_seq,
+                        action,
+                        reward,
+                        next_base,
+                        next_depth_seq,
+                        done_bool,
+                        critic_priv=critic_priv_current,
+                        next_critic_priv=critic_priv_next,
+                        critic_depth=critic_depth_current,
+                        next_critic_depth=critic_depth_next,
                     )
                 else:
                     agent.replay_buffer.add(
@@ -478,20 +594,52 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, ba
                         done_bool
                     )
             else:
-                # Non-recurrent buffer
-                add_fn = getattr(agent.replay_buffer, "add", None)
-                supports_success_flag = False
-                if callable(add_fn):
-                    try:
-                        supports_success_flag = "is_success" in inspect.signature(add_fn).parameters
-                    except (TypeError, ValueError):
-                        supports_success_flag = False
-
-                if supports_success_flag:
-                    is_success = float(step_info.get("is_success", False)) if isinstance(step_info, dict) else 0.0
-                    agent.replay_buffer.add(base, state, action, reward, next_base, next_state, done_bool, is_success)
+                if is_asym_algo:
+                    if core_algo_name == "per_td3_asym":
+                        is_success = float(step_info.get("is_success", False)) if isinstance(step_info, dict) else 0.0
+                        agent.replay_buffer.add(
+                            base,
+                            state,
+                            action,
+                            reward,
+                            next_base,
+                            next_state,
+                            done_bool,
+                            is_success,
+                            critic_priv=critic_priv_current,
+                            next_critic_priv=critic_priv_next,
+                            critic_depth=critic_depth_current,
+                            next_critic_depth=critic_depth_next,
+                        )
+                    else:
+                        agent.replay_buffer.add(
+                            base,
+                            state,
+                            action,
+                            reward,
+                            next_base,
+                            next_state,
+                            done_bool,
+                            critic_priv=critic_priv_current,
+                            next_critic_priv=critic_priv_next,
+                            critic_depth=critic_depth_current,
+                            next_critic_depth=critic_depth_next,
+                        )
                 else:
-                    agent.replay_buffer.add(base, state, action, reward, next_base, next_state, done_bool)
+                    # Non-recurrent buffer
+                    add_fn = getattr(agent.replay_buffer, "add", None)
+                    supports_success_flag = False
+                    if callable(add_fn):
+                        try:
+                            supports_success_flag = "is_success" in inspect.signature(add_fn).parameters
+                        except (TypeError, ValueError):
+                            supports_success_flag = False
+
+                    if supports_success_flag:
+                        is_success = float(step_info.get("is_success", False)) if isinstance(step_info, dict) else 0.0
+                        agent.replay_buffer.add(base, state, action, reward, next_base, next_state, done_bool, is_success)
+                    else:
+                        agent.replay_buffer.add(base, state, action, reward, next_base, next_state, done_bool)
 
             # State Update
             state = next_state
@@ -554,7 +702,16 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, ba
                     next_restart += restart_interval
 
                 # Reset
-                obs, _ = env.reset(seed=args.seed + episode_num)
+                try:
+                    obs, _ = env.reset(seed=args.seed + episode_num)
+                except Exception as e:
+                    print(f"CRITICAL ERROR in env.reset: {e}")
+                    print("Checking game status and attempting recovery...")
+                    env_core = _get_env_core(env)
+                    if env_core.check_ue4_status(force_restart=True, reason="env_reset_exception"):
+                        obs, _ = env.reset(seed=args.seed + episode_num)
+                    else:
+                        raise
                 state = obs['depth']
                 base = obs['base']
 
