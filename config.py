@@ -28,7 +28,7 @@ def get_config(argv=None):
     parser.add_argument("--env_name", type=str, default='AirSimEnv-v42', help="要训练的环境名称")  # AirSimEnv-v42  AirSimEnv-Gradient-v1
 
     # 算法选择 (Algorithm Selection)
-    parser.add_argument("--algorithm_name", type=str, default='CL-ST-VimTD3,CL-td3',
+    parser.add_argument("--algorithm_name", type=str, default='CL-ST-VimTD3,CL-td3，CL-per_td3',
                         help="要训练的算法。支持: td3, ddpg, aetd3, per_td3, per_aetd3, cfc_td3, st_mamba_td3, ST-VimTD3, ST-SVimTD3, ST_3DVimTD3, st_cnn_td3, gam_mamba_td3, gam_td3, ST-DualVimTD3, sac, ppo。可以是单个，多个（逗号分隔），或组名 ('all', 'base', 'seq')")
     parser.add_argument("--smooth_window", type=int, default=300, help="平滑窗口大小，用于平滑学习曲线 (仅对移动平均有效)")
     parser.add_argument("--smooth_method", type=str, default="moving", choices=["moving","zero_phase_des"], help="曲线平滑方法: moving=滑动平均, zero_phase_des=零相位双重指数平滑")
@@ -40,7 +40,7 @@ def get_config(argv=None):
     parser.add_argument("--ci_type", type=str, default="std", choices=["std", "sem"], help="阴影区域类型: std=标准差, sem=标准误差")
 
     # 训练设置 (Training Setup)
-    parser.add_argument("--seed", type=str, default="35", help="随机种子 (支持逗号分隔多个种子)")
+    parser.add_argument("--seed", type=str, default="42,43,44", help="随机种子 (支持逗号分隔多个种子)")
     parser.add_argument("--curriculum_start_level", type=int, default=0, choices=[0, 1, 2, 3], help="课程学习起始等级 (0-3, 默认: 0)。注意：算法名以 'CL-' 前缀开头时自动启用课程学习")
     parser.add_argument("--non_curriculum_level", type=int, default=2, choices=[0, 1, 2, 3], help="非课程学习时的固定难度等级 (0-3, 默认: 3)")
     parser.add_argument("--steps_per_update", type=int, default=100, help='每次更新前收集的步数')
@@ -74,7 +74,7 @@ def get_config(argv=None):
     
         
     # 图像帧数参数 (所有算法统一的帧堆叠/序列长度)
-    parser.add_argument("--n_frames", type=int, default=4, help="图像帧数（非时序算法为堆叠帧数，时序算法为序列长度）")
+    parser.add_argument("--n_frames", type=int, default=6, help="图像帧数（非时序算法为堆叠帧数，时序算法为序列长度）")
 
     # SAC 参数 (Soft Actor-Critic)
     parser.add_argument("--auto_entropy_tuning", action='store_true', default=True, help="SAC: 是否自动调整熵温度系数")
@@ -159,6 +159,18 @@ def get_config(argv=None):
     parser.add_argument("--takeoff_obstacle_threshold_m", type=float, default=2.0, help="起飞后四向避障最小安全距离阈值 (米)")
     parser.add_argument("--takeoff_lidar_name", type=str, default="LidarSensor1", help="起飞后避障检查使用的激光雷达名称")
     parser.add_argument("--takeoff_obstacle_reset_retries", type=int, default=3, help="起飞后近障触发重置的最大重试次数")
+    parser.add_argument("--reward_lidar_name", type=str, default="LidarSensor1", help="奖励计算使用的激光雷达名称")
+    parser.add_argument("--lidar_safe_distance_m", type=float, default=2.0, help="激光雷达避障惩罚安全距离阈值 (米)")
+    parser.add_argument("--lidar_log_penalty_weight", type=float, default=1.0, help="激光雷达对数惩罚权重")
+    parser.add_argument("--lidar_log_penalty_min", type=float, default=-3.0, help="激光雷达对数惩罚最小值(下限)")
+    parser.add_argument("--lidar_penalty_eps", type=float, default=1e-3, help="激光雷达惩罚数值稳定项")
+    parser.add_argument("--lidar_distance_cap_m", type=float, default=10.0, help="激光雷达距离裁剪上限 (米)")
+    parser.add_argument("--lidar_query_max_attempts", type=int, default=1, help="每步激光雷达查询最大重试次数")
+    parser.add_argument("--lidar_query_retry_sleep", type=float, default=0.02, help="激光雷达查询重试间隔 (秒)")
+    parser.add_argument("--lidar_h_bins", type=int, default=36, help="激光雷达水平角离散束数（NavRL风格，建议36）")
+    parser.add_argument("--lidar_v_bins", type=int, default=3, help="激光雷达垂直层数（你当前需求建议3）")
+    parser.add_argument("--lidar_vfov_min_deg", type=float, default=-10.0, help="激光雷达垂直视场最小角(度)")
+    parser.add_argument("--lidar_vfov_max_deg", type=float, default=20.0, help="激光雷达垂直视场最大角(度)")
 
     # =============================================================================
     # AirGym_GradientReward 奖励函数参数 (Gradient Reward Parameters)

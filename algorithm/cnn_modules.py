@@ -34,11 +34,11 @@ class CNN(nn.Module):
     Unified visual encoder based on MobileNetV2.
     Accepts arbitrary input channels and returns 32-d projected features.
     """
-    def __init__(self, input_height, input_width, input_channels=1, output_dim=128):
+    def __init__(self, input_height, input_width, input_channels=1, output_dim=192):
         del input_height, input_width  # MobileNetV2 supports dynamic spatial resolution.
         super().__init__()
 
-        width_mult = 0.5
+        width_mult = 0.35
         try:
             mobilenet = models.mobilenet_v2(weights=None, width_mult=width_mult)
         except TypeError:
