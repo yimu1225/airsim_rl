@@ -87,6 +87,8 @@ class AirLearningClient(object):
         self.z = z
 
         self.last_img = np.zeros((1, 128, 128))
+        self.last_depth_clean = np.zeros((128, 128), dtype=np.float32)
+        self.last_depth_noisy = np.zeros((128, 128), dtype=np.float32)
         self.width, self.height=128,128 ## 统一使用128x128分辨率
 
         # Depth noise settings (mild by default, configurable in settings.py).
@@ -248,10 +250,16 @@ class AirLearningClient(object):
             
             if len(img2d_resized) > 1:
                 depth = np.stack(img2d_resized, axis=0).astype(np.float32)
-                return self._add_depth_noise(depth)
+                self.last_depth_clean = np.array(depth, dtype=np.float32, copy=True)
+                noisy_depth = self._add_depth_noise(depth)
+                self.last_depth_noisy = np.array(noisy_depth, dtype=np.float32, copy=True)
+                return noisy_depth
             else:
                 depth = img2d_resized[0].astype(np.float32)
-                return self._add_depth_noise(depth)
+                self.last_depth_clean = np.array(depth, dtype=np.float32, copy=True)
+                noisy_depth = self._add_depth_noise(depth)
+                self.last_depth_noisy = np.array(noisy_depth, dtype=np.float32, copy=True)
+                return noisy_depth
 
         raise RuntimeError(f"getScreenDepth failed after {max_attempts} attempts")
 

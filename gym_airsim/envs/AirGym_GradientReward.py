@@ -61,6 +61,7 @@ class AirSimEnvGradientReward(gym.Env):
         })
 
         self.depth_stack = collections.deque(maxlen=self.stack_frames)
+        self.clean_depth_stack = collections.deque(maxlen=self.stack_frames)
 
         # 速度需要大于 2 或者持续时间大于 0.4
         # 否则效果不佳！
@@ -382,13 +383,27 @@ class AirSimEnvGradientReward(gym.Env):
             "base": inform
         }
 
+    def _get_latest_clean_depth(self, noisy_depth):
+        clean = getattr(self.airgym, "last_depth_clean", None)
+        if clean is None:
+            clean = noisy_depth
+        clean = np.asarray(clean, dtype=np.float32)
+        if clean.ndim == 3:
+            clean = clean[0] if clean.shape[0] > 0 else np.zeros((128, 128), dtype=np.float32)
+        if clean.shape != (128, 128):
+            clean = np.zeros((128, 128), dtype=np.float32)
+        return clean
+
     def init_state_f(self):
         self.depth_stack.clear()
+        self.clean_depth_stack.clear()
         for _ in range(self.stack_frames):
             depth = None
+            depth_fetch_failed = False
             try:
                 depth = self.airgym.getScreenDepth(max_attempts=3)
             except Exception as e:
+                depth_fetch_failed = True
                 print(f"init_state_f: getScreenDepth failed after 3 attempts: {e}. Restarting game...")
                 if self.game_handler:
                     self.game_handler.restart_game()
@@ -400,17 +415,23 @@ class AirSimEnvGradientReward(gym.Env):
                     )
                     try:
                         depth = self.airgym.getScreenDepth(max_attempts=3)
+                        depth_fetch_failed = False
                     except Exception as e2:
                         print(f"init_state_f: still failed after restart: {e2}. Using zero depth.")
                         depth = np.zeros((128, 128), dtype=np.float32)
+                        depth_fetch_failed = True
                 else:
                     print("init_state_f: no game handler available. Using zero depth.")
                     depth = np.zeros((128, 128), dtype=np.float32)
+                    depth_fetch_failed = True
 
             if depth is None or depth.shape != (128, 128):
                 print("init_state_f: invalid depth shape, using zero depth.")
                 depth = np.zeros((128, 128), dtype=np.float32)
+                depth_fetch_failed = True
+            clean_depth = np.asarray(depth, dtype=np.float32) if depth_fetch_failed else self._get_latest_clean_depth(depth)
             self.depth_stack.append(depth)
+            self.clean_depth_stack.append(clean_depth)
             time.sleep(0.03)
         return self.get_obs()
 
@@ -769,9 +790,11 @@ class AirSimEnvGradientReward(gym.Env):
 
         # Update stacks: max 3 attempts in getScreenDepth; restart immediately on failure.
         depth_img = None
+        depth_fetch_failed = False
         try:
             depth_img = self.airgym.getScreenDepth(max_attempts=3)
         except Exception as e:
+            depth_fetch_failed = True
             print(f"Failed to fetch images after 3 attempts: {e}. Restarting game...")
             if self.game_handler:
                 self.game_handler.restart_game()
@@ -785,14 +808,22 @@ class AirSimEnvGradientReward(gym.Env):
                 # 重启后再尝试一次（同样最多3次）
                 try:
                     depth_img = self.airgym.getScreenDepth(max_attempts=3)
+                    depth_fetch_failed = False
                 except Exception as e2:
                     print(f"Still failed after restart: {e2}. Using zero arrays.")
                     depth_img = np.zeros((128, 128), dtype=np.float32)
+                    depth_fetch_failed = True
             else:
                 print("No game handler available. Using zero arrays.")
                 depth_img = np.zeros((128, 128), dtype=np.float32)
+                depth_fetch_failed = True
         
+        if depth_img is None or depth_img.shape != (128, 128):
+            depth_img = np.zeros((128, 128), dtype=np.float32)
+            depth_fetch_failed = True
+        clean_depth_img = np.asarray(depth_img, dtype=np.float32) if depth_fetch_failed else self._get_latest_clean_depth(depth_img)
         self.depth_stack.append(depth_img)
+        self.clean_depth_stack.append(clean_depth_img)
 
         # Get observation
         state = self.get_obs()
