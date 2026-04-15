@@ -119,7 +119,7 @@ class AirSimEnvGradientReward(gym.Env):
         
         # 立即采样并写入 JSON，使用确定性采样（change_counter=0 表示初始环境）
         # 这必须在 UE4 启动之前完成！
-        sample_vars = ["Seed", "ArenaSize", "NumberOfObjects", "End", "Walls1"]
+        sample_vars = ["Seed", "ArenaSize", "NumberOfObjects", "End", "Walls1", "MinimumDistance"]
         # Always sample dynamic object count to avoid carrying stale values from previous runs.
         # For non-dynamic levels, the configured range is [0], so this deterministically clears dynamics.
         sample_vars.append("NumberOfDynamicObjects")
