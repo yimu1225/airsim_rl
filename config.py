@@ -28,13 +28,13 @@ def get_config(argv=None):
     parser.add_argument("--env_name", type=str, default='AirSimEnv-v42', help="要训练的环境名称")  # AirSimEnv-v42  AirSimEnv-Gradient-v1
 
     # 算法选择 (Algorithm Selection)
-    parser.add_argument("--algorithm_name", type=str, default='CL-ST-VimTD3,CL-td3,CL-per_td3',
+    parser.add_argument("--algorithm_name", type=str, default='CL-ST_VimTD3_asym,CL-td3',
                         help="要训练的算法。支持: td3, ddpg, aetd3, per_td3, per_aetd3, cfc_td3, st_mamba_td3, ST-VimTD3, ST-SVimTD3, ST_3DVimTD3, st_cnn_td3, gam_mamba_td3, gam_td3, ST-DualVimTD3, sac, ppo。可以是单个，多个（逗号分隔），或组名 ('all', 'base', 'seq')")
     parser.add_argument("--smooth_window", type=int, default=300, help="平滑窗口大小，用于平滑学习曲线 (仅对移动平均有效)")
     parser.add_argument("--smooth_method", type=str, default="moving", choices=["moving","zero_phase_des"], help="曲线平滑方法: moving=滑动平均, zero_phase_des=零相位双重指数平滑")
     parser.add_argument("--smooth_alpha", type=float, default=0.05, help="零相位双重指数平滑的水平平滑因子 (0-1)，越大越关注近期数据")
     parser.add_argument("--smooth_beta", type=float, default=0.3, help="零相位双重指数平滑的趋势平滑因子 (0-1)，越大越关注近期趋势变化")
-    parser.add_argument("--plot_cl", action='store_true', default=False, help="绘图时是否检索带 CL- 前缀的算法 (默认: True)")
+    parser.add_argument("--plot_cl", action='store_true', default=False, help="绘图时是0否检索带 CL- 前缀的算法 (默认: True)")
     parser.add_argument("--plot_non_cl", action='store_true', default=True, help="绘图时是否检索常规算法 (默认: True)")
     parser.add_argument("--use_percentile", action='store_true', default=False, help="使用四分位范围作为阴影带而不是均值加置信区间")
     parser.add_argument("--ci_type", type=str, default="std", choices=["std", "sem"], help="阴影区域类型: std=标准差, sem=标准误差")
@@ -60,11 +60,11 @@ def get_config(argv=None):
     parser.add_argument("--batch_size", type=int, default=256, help="批次大小")
     parser.add_argument("--gamma", type=float, default=0.98, help="折扣因子") 
     parser.add_argument("--tau", type=float, default=0.003, help="软更新参数")
-    parser.add_argument("--actor_lr", type=float, default=5e-4, help="Actor学习率")
-    parser.add_argument("--critic_lr", type=float, default=5e-4, help="Critic学习率")
+    parser.add_argument("--actor_lr", type=float, default=7e-4, help="Actor学习率")
+    parser.add_argument("--critic_lr", type=float, default=7e-4, help="Critic学习率")
     parser.add_argument("--policy_noise", type=float, default=0.2, help="策略噪声")
     parser.add_argument("--noise_clip", type=float, default=0.5, help="噪声裁剪")
-    parser.add_argument("--policy_freq", type=int, default=5, help="策略更新频率")
+    parser.add_argument("--policy_freq", type=int, default=2, help="策略更新频率")
     parser.add_argument("--grad_clip", type=float, default=4.0, help="梯度裁剪")
 
     # 可视化 (Visualization)
@@ -164,7 +164,7 @@ def get_config(argv=None):
     parser.add_argument("--lidar_log_penalty_weight", type=float, default=1.0, help="激光雷达对数惩罚权重")
     parser.add_argument("--lidar_log_penalty_min", type=float, default=-3.0, help="激光雷达对数惩罚最小值(下限)")
     parser.add_argument("--lidar_penalty_eps", type=float, default=1e-3, help="激光雷达惩罚数值稳定项")
-    parser.add_argument("--lidar_distance_cap_m", type=float, default=10.0, help="激光雷达距离裁剪上限 (米)")
+    parser.add_argument("--lidar_distance_cap_m", type=float, default=5.0, help="激光雷达距离裁剪上限 (米)")
     parser.add_argument("--lidar_query_max_attempts", type=int, default=1, help="每步激光雷达查询最大重试次数")
     parser.add_argument("--lidar_query_retry_sleep", type=float, default=0.02, help="激光雷达查询重试间隔 (秒)")
     parser.add_argument("--lidar_h_bins", type=int, default=36, help="激光雷达水平角离散束数（NavRL风格，建议36）")
