@@ -288,22 +288,37 @@ class AsymSTVimTD3Agent:
             actor_action = self.actor(actor_input)
             self._assert_finite_tensor("train.actor_action_raw", actor_action)
 
-            with torch.no_grad():
-                q_visual = self.critic_encoder(critic_depth)
-            self._assert_finite_tensor("train.q_visual", q_visual)
-            q_base = self.critic_base_net(state)
-            q_priv = self.critic_priv_net(self._prepare_priv(critic_priv))
-            q_input = torch.cat([q_visual, q_base, q_priv], dim=-1)
-            actor_loss = -self.critic_1(q_input, actor_action).mean()
-            self._assert_finite_tensor("train.actor_loss", actor_loss)
-
-            self.actor_optimizer.zero_grad()
-            actor_loss.backward()
-            nn.utils.clip_grad_norm_(
-                list(self.actor_encoder.parameters()) + list(self.actor_base_net.parameters()) + list(self.actor.parameters()),
-                self.grad_clip
+            critic_params = (
+                list(self.critic_encoder.parameters())
+                + list(self.critic_base_net.parameters())
+                + list(self.critic_priv_net.parameters())
+                + list(self.critic_1.parameters())
+                + list(self.critic_2.parameters())
             )
-            self.actor_optimizer.step()
+            critic_requires_grad = [p.requires_grad for p in critic_params]
+            for p in critic_params:
+                p.requires_grad_(False)
+
+            try:
+                with torch.no_grad():
+                    q_visual = self.critic_encoder(critic_depth)
+                    q_base = self.critic_base_net(state)
+                    q_priv = self.critic_priv_net(self._prepare_priv(critic_priv))
+                self._assert_finite_tensor("train.q_visual", q_visual)
+                q_input = torch.cat([q_visual, q_base, q_priv], dim=-1)
+                actor_loss = -self.critic_1(q_input, actor_action).mean()
+                self._assert_finite_tensor("train.actor_loss", actor_loss)
+
+                self.actor_optimizer.zero_grad()
+                actor_loss.backward()
+                nn.utils.clip_grad_norm_(
+                    list(self.actor_encoder.parameters()) + list(self.actor_base_net.parameters()) + list(self.actor.parameters()),
+                    self.grad_clip
+                )
+                self.actor_optimizer.step()
+            finally:
+                for p, req in zip(critic_params, critic_requires_grad):
+                    p.requires_grad_(req)
 
             self.soft_update(self.actor_encoder, self.actor_encoder_target, self.tau)
             self.soft_update(self.actor_base_net, self.actor_base_net_target, self.tau)
