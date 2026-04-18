@@ -32,9 +32,9 @@ class BaseStateExpander(nn.Module):
 class CNN(nn.Module):
     """
     Unified visual encoder based on MobileNetV2.
-    Accepts arbitrary input channels and returns 32-d projected features.
+    Accepts arbitrary input channels and returns 128-d projected features.
     """
-    def __init__(self, input_height, input_width, input_channels=1, output_dim=192):
+    def __init__(self, input_height, input_width, input_channels=1, output_dim=128):
         del input_height, input_width  # MobileNetV2 supports dynamic spatial resolution.
         super().__init__()
 

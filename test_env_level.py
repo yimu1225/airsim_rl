@@ -18,6 +18,7 @@
 import os
 import sys
 import time
+import shutil
 import numpy as np
 
 # ==================== 用户配置区域 ====================
@@ -48,6 +49,23 @@ LEVEL_NAMES = {
 }
 
 
+def save_json_snapshot(level_name, source_json_path):
+    """保存本次运行生成的 JSON 快照，避免每次都只看到同一路径文件。"""
+    snapshot_dir = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)),
+        "results",
+        "test_env_level_json"
+    )
+    os.makedirs(snapshot_dir, exist_ok=True)
+
+    timestamp = time.strftime("%Y%m%d_%H%M%S")
+    snapshot_name = f"EnvGenConfig_{level_name}_{timestamp}_{os.getpid()}.json"
+    snapshot_path = os.path.join(snapshot_dir, snapshot_name)
+
+    shutil.copy2(source_json_path, snapshot_path)
+    return snapshot_path
+
+
 def main():
     """主函数"""
     print("=" * 60)
@@ -66,39 +84,48 @@ def main():
     print(f"配置: {config_name}")
     print("-" * 60)
     
+    # 先生成并写入 JSON，确保 UE4 启动时读取的是本次新配置
+    print(f"\n[1/4] 初始化环境配置并生成 JSON (Level {TEST_LEVEL})...")
+    game_config = GameConfigHandler(range_dic_name=config_name)
+
+    # 随机化环境并写入 JSON
+    print("随机化环境参数并写入 JSON...")
+    run_seed = (time.time_ns() ^ (os.getpid() << 16)) & 0xFFFFFFFF
+    np_random = np.random.RandomState(seed=run_seed)
+
+    sample_vars = [
+        "Seed",
+        "ArenaSize",
+        "NumberOfObjects",
+        "NumberOfDynamicObjects",
+        "End",
+        "Walls1",
+        "MinimumDistance",
+    ]
+    game_config.sample(*sample_vars, np_random=np_random)
+
+    snapshot_path = save_json_snapshot(level_name, settings.json_file_addr)
+    print(f"本次 JSON 快照: {snapshot_path}")
+    print("环境配置初始化完成")
+
     # 初始化游戏处理器（启动UE4）
-    print("\n[1/3] 正在启动 UE4 环境...")
+    print("\n[2/4] 正在启动 UE4 环境...")
     game_handler = GameHandler()
     game_handler.restart_game()
     print("UE4 启动完成")
-    
+
     # 等待游戏完全加载
     print("等待游戏稳定...")
     time.sleep(5)
     
-    # 初始化环境配置处理器
-    print(f"\n[2/3] 初始化环境配置 (Level {TEST_LEVEL})...")
-    game_config = GameConfigHandler(range_dic_name=config_name)
-    print("环境配置初始化完成")
-    
     # 初始化 AirSim 客户端
-    print("\n[3/3] 连接 AirSim 客户端...")
+    print("\n[3/4] 连接 AirSim 客户端...")
     client_ip = getattr(settings, 'ip', '127.0.0.1')
     client_port = getattr(settings, 'airsim_port', 41451)
     airgym = AirLearningClient(z=-0.9, ip=client_ip, port=client_port)
     print("AirSim 客户端连接成功")
-    
-    # 随机化环境并应用
-    print("\n随机化环境参数...")
-    np_random = np.random.RandomState(seed=int(time.time()) % 10000)
-    
-    # 根据等级采样不同的参数
-    if TEST_LEVEL == 3:
-        # Level 3: 包含动态障碍物
-        game_config.sample("Seed", "ArenaSize", "NumberOfObjects", "End", "Walls1", np_random=np_random)
-    else:
-        # Level 0-2: 不包含动态障碍物
-        game_config.sample("Seed", "ArenaSize", "NumberOfObjects", "End", "Walls1", np_random=np_random)
+
+    print("\n[4/4] 同步环境到 UE4/无人机...")
     
     # 显示当前环境配置
     print("\n当前环境配置:")

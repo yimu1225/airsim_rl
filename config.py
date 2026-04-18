@@ -28,8 +28,8 @@ def get_config(argv=None):
     parser.add_argument("--env_name", type=str, default='AirSimEnv-v42', help="要训练的环境名称")  # AirSimEnv-v42  AirSimEnv-Gradient-v1
 
     # 算法选择 (Algorithm Selection)
-    parser.add_argument("--algorithm_name", type=str, default='CL-ST_VimTD3_asym,CL-td3',
-                        help="要训练的算法。支持: td3, ddpg, aetd3, per_td3, per_aetd3, cfc_td3, st_mamba_td3, ST-VimTD3, ST-SVimTD3, ST_3DVimTD3, st_cnn_td3, gam_mamba_td3, gam_td3, ST-DualVimTD3, sac, ppo。可以是单个，多个（逗号分隔），或组名 ('all', 'base', 'seq')")
+    parser.add_argument("--algorithm_name", type=str, default='CL-ST-DualVimTD3',
+                        help="要训练的算法。支持: td3, noisy_td3, noisy_td3_type2, ddpg, aetd3, per_td3, per_aetd3, cfc_td3, st_mamba_td3, ST-VimTD3, ST-SVimTD3, ST_3DVimTD3, st_cnn_td3, gam_mamba_td3, gam_td3, ST-DualVimTD3, sac, ppo。可以是单个，多个（逗号分隔），或组名 ('all', 'base', 'seq')")
     parser.add_argument("--smooth_window", type=int, default=300, help="平滑窗口大小，用于平滑学习曲线 (仅对移动平均有效)")
     parser.add_argument("--smooth_method", type=str, default="moving", choices=["moving","zero_phase_des"], help="曲线平滑方法: moving=滑动平均, zero_phase_des=零相位双重指数平滑")
     parser.add_argument("--smooth_alpha", type=float, default=0.05, help="零相位双重指数平滑的水平平滑因子 (0-1)，越大越关注近期数据")
@@ -58,13 +58,14 @@ def get_config(argv=None):
     parser.add_argument("--base_feature_dim", type=int, default=32, help="基础状态先映射到该维度，再与视觉特征拼接")
     parser.add_argument("--exploration_noise", type=float, default=0.2, help="探索噪声")
     parser.add_argument("--batch_size", type=int, default=256, help="批次大小")
-    parser.add_argument("--gamma", type=float, default=0.98, help="折扣因子") 
-    parser.add_argument("--tau", type=float, default=0.003, help="软更新参数")
+    parser.add_argument("--gamma", type=float, default=0.99, help="折扣因子") 
+    parser.add_argument("--tau", type=float, default=0.005, help="软更新参数")
     parser.add_argument("--actor_lr", type=float, default=7e-4, help="Actor学习率")
     parser.add_argument("--critic_lr", type=float, default=7e-4, help="Critic学习率")
     parser.add_argument("--policy_noise", type=float, default=0.2, help="策略噪声")
     parser.add_argument("--noise_clip", type=float, default=0.5, help="噪声裁剪")
     parser.add_argument("--policy_freq", type=int, default=2, help="策略更新频率")
+    parser.add_argument("--noisy_td3_sigma_init", type=float, default=0.5, help="NoisyTD3: NoisyLinear 初始噪声系数")
     parser.add_argument("--grad_clip", type=float, default=4.0, help="梯度裁剪")
 
     # 可视化 (Visualization)
@@ -74,7 +75,7 @@ def get_config(argv=None):
     
         
     # 图像帧数参数 (所有算法统一的帧堆叠/序列长度)
-    parser.add_argument("--n_frames", type=int, default=6, help="图像帧数（非时序算法为堆叠帧数，时序算法为序列长度）")
+    parser.add_argument("--n_frames", type=int, default=4, help="图像帧数（非时序算法为堆叠帧数，时序算法为序列长度）")
 
     # SAC 参数 (Soft Actor-Critic)
     parser.add_argument("--auto_entropy_tuning", action='store_true', default=True, help="SAC: 是否自动调整熵温度系数")
