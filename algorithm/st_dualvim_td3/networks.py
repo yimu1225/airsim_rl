@@ -248,6 +248,7 @@ class DualBranchVideoMambaEncoder(nn.Module):
         input_height,
         input_width,
         input_channels=1,
+        num_frames=None,
         embed_dim=48,
         depth=2,
         patch_size=8,
@@ -262,7 +263,9 @@ class DualBranchVideoMambaEncoder(nn.Module):
     ):
         super().__init__()
 
-        self.num_frames = max(1, int(input_channels))
+        if num_frames is None:
+            num_frames = input_channels
+        self.num_frames = max(1, int(num_frames))
         self.embed_dim = int(embed_dim)
         self.depth = max(1, int(depth))
         self.residual_in_fp32 = bool(residual_in_fp32)

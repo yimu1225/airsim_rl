@@ -33,6 +33,8 @@ from gym_airsim.envs import AirSimEnv, AirSimEnvGradientReward
 
 # Algorithm Imports
 from algorithm.td3.td3 import TD3Agent
+from algorithm.noisy_td3.noisy_td3 import NoisyTD3Agent
+from algorithm.noisy_td3_type2.noisy_td3_type2 import NoisyTD3Type2Agent
 from algorithm.ddpg.ddpg import DDPGAgent
 from algorithm.aetd3.aetd3 import AETD3Agent
 from algorithm.per_td3.per_td3 import PERTD3Agent
@@ -94,8 +96,8 @@ def expand_algorithms(algo_str):
     """
     # Predefined algorithm groups
     groups = {
-        'all': ['td3', 'ddpg', 'aetd3', 'per_td3', 'per_aetd3', 'cfc_td3', 'st_mamba_td3', 'ST-VimTD3', 'ST-SVimTD3', 'st_cnn_td3', 'gam_mamba_td3', 'gam_td3', 'ST_3DVimTD3', 'ST-DualVimTD3', 'sac', 'td3_asym', 'per_td3_asym', 'ST_VimTD3_asym'],
-        'base': ['td3', 'ddpg', 'aetd3', 'per_td3', 'per_aetd3', 'sac', 'td3_asym', 'per_td3_asym'],
+        'all': ['td3', 'noisy_td3', 'noisy_td3_type2', 'ddpg', 'aetd3', 'per_td3', 'per_aetd3', 'cfc_td3', 'st_mamba_td3', 'ST-VimTD3', 'ST-SVimTD3', 'st_cnn_td3', 'gam_mamba_td3', 'gam_td3', 'ST_3DVimTD3', 'ST-DualVimTD3', 'sac', 'td3_asym', 'per_td3_asym', 'ST_VimTD3_asym'],
+        'base': ['td3', 'noisy_td3', 'noisy_td3_type2', 'ddpg', 'aetd3', 'per_td3', 'per_aetd3', 'sac', 'td3_asym', 'per_td3_asym'],
         'seq': ['cfc_td3', 'st_mamba_td3', 'ST-VimTD3', 'ST-SVimTD3', 'st_cnn_td3', 'ST_3DVimTD3', 'ST-DualVimTD3', 'ST_VimTD3_asym']
     }
     
@@ -118,6 +120,8 @@ def get_agent_class(algo_name):
     
     agents = {
         'td3': TD3Agent,
+        'noisy_td3': NoisyTD3Agent,
+        'noisy_td3_type2': NoisyTD3Type2Agent,
         'td3_asym': AsymTD3Agent,
         'ddpg': DDPGAgent,
         'aetd3': AETD3Agent,

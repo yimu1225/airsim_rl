@@ -1,7 +1,6 @@
 import numpy as np
 import torch
 import torch.nn.functional as F
-from torch import nn
 from torch.optim import Adam
 
 from ..state_adapter import StateAdapter
@@ -9,26 +8,31 @@ from .networks import Actor, Critic, Encoder
 from .buffer import ReplayBuffer
 
 
-class DualBranchVideoMambaTD3Agent:
+class NoisyTD3Type2Agent:
+    """Noisy TD3（第二种实现）。
+
+    本仓库里的第二种定义：
+    - 与环境交互时，Actor 使用 NoisyNet（`use_noise=True`）做探索。
+    - 训练中也使用 noisy actor（`use_noise=True`），包括：
+      1) target action 计算；
+      2) actor_loss 更新。
+    - 因而优化目标更接近对噪声期望的 Monte Carlo 近似：
+      E[-Q(s, pi(s, xi))]。
+    """
+
     def __init__(self, base_dim: int, depth_shape, action_space, args, device=None, seed=None):
         self.device = torch.device(device if device is not None else ("cuda" if torch.cuda.is_available() else "cpu"))
-        print(f"Dual-Branch-VideoMamba-TD3 Agent using device: {self.device}")
-       
-        # RNG for this agent: used for action noise and buffer sampling
-        self.rng = np.random.default_rng(seed)
-        
-        # 设置 PyTorch 随机种子以确保网络初始化确定性
+
+        # Set PyTorch random seed for deterministic init.
         if seed is not None:
             torch.manual_seed(seed)
 
         self.base_dim = base_dim
         self.base_feature_dim = getattr(args, "base_feature_dim", 32)
-        self.depth_shape = depth_shape  # (C, H, W)
+        self.depth_shape = depth_shape
         self.action_dim = action_space.shape[0]
         self.max_action = np.array(action_space.high, dtype=np.float32)
         self.min_action = np.array(action_space.low, dtype=np.float32)
-        self.max_action_tensor = torch.from_numpy(self.max_action).float().to(self.device)
-        self.min_action_tensor = torch.from_numpy(self.min_action).float().to(self.device)
 
         scale = (self.max_action - self.min_action) / 2.0
         bias = (self.max_action + self.min_action) / 2.0
@@ -37,50 +41,17 @@ class DualBranchVideoMambaTD3Agent:
 
         self.grad_clip = getattr(args, "grad_clip", 1.0)
 
-        # Encoder
-        C, depth_h, depth_w = depth_shape
-        temporal_frames = max(1, int(getattr(args, "n_frames", C)))
-        encoder_kwargs = dict(
-            num_frames=temporal_frames,
-            embed_dim=getattr(args, "st_mamba_embed_dim", 48),
-            depth=getattr(args, "st_mamba_depth", 2),
-            patch_size=getattr(args, "st_mamba_patch_size", 8),
-            d_state=getattr(args, "st_mamba_d_state", 16),
-            d_conv=getattr(args, "st_mamba_d_conv", 4),
-            expand=getattr(args, "st_mamba_expand", 2),
-            drop_rate=getattr(args, "st_mamba_drop_rate", 0.0),
-            drop_path_rate=getattr(args, "st_mamba_drop_path_rate", 0.1),
-        )
-        
-        # Split Encoders for Actor and Critic
-        self.actor_encoder = Encoder(
-            input_height=depth_h,
-            input_width=depth_w,
-            input_channels=C,
-            **encoder_kwargs,
-        ).to(self.device)
-        self.critic_encoder = Encoder(
-            input_height=depth_h,
-            input_width=depth_w,
-            input_channels=C,
-            **encoder_kwargs,
-        ).to(self.device)
-        
-        # Target Encoders (Soft Update)
-        self.actor_encoder_target = Encoder(
-            input_height=depth_h,
-            input_width=depth_w,
-            input_channels=C,
-            **encoder_kwargs,
-        ).to(self.device)
+        c, depth_h, depth_w = depth_shape
+
+        # Split encoders for actor and critic.
+        self.actor_encoder = Encoder(input_height=depth_h, input_width=depth_w, input_channels=c).to(self.device)
+        self.critic_encoder = Encoder(input_height=depth_h, input_width=depth_w, input_channels=c).to(self.device)
+
+        # Target encoders.
+        self.actor_encoder_target = Encoder(input_height=depth_h, input_width=depth_w, input_channels=c).to(self.device)
         self.actor_encoder_target.load_state_dict(self.actor_encoder.state_dict())
-        
-        self.critic_encoder_target = Encoder(
-            input_height=depth_h,
-            input_width=depth_w,
-            input_channels=C,
-            **encoder_kwargs,
-        ).to(self.device)
+
+        self.critic_encoder_target = Encoder(input_height=depth_h, input_width=depth_w, input_channels=c).to(self.device)
         self.critic_encoder_target.load_state_dict(self.critic_encoder.state_dict())
 
         self.actor_base_adapter = StateAdapter(self.base_dim, self.base_feature_dim).to(self.device)
@@ -89,26 +60,32 @@ class DualBranchVideoMambaTD3Agent:
         self.actor_base_adapter_target.load_state_dict(self.actor_base_adapter.state_dict())
         self.critic_base_adapter_target = StateAdapter(self.base_dim, self.base_feature_dim).to(self.device)
         self.critic_base_adapter_target.load_state_dict(self.critic_base_adapter.state_dict())
-        
-        # State dim = base_dim + encoder.repr_dim
+
         self.state_dim = self.base_feature_dim + self.actor_encoder.repr_dim
-        
-        # Actor & Critic
-        self.actor = Actor(self.state_dim, action_space.shape, args.hidden_dim).to(self.device)
-        self.actor_target = Actor(self.state_dim, action_space.shape, args.hidden_dim).to(self.device)
+        noisy_sigma_init = float(getattr(args, "noisy_td3_sigma_init", 0.5))
+
+        # Actor and critic.
+        self.actor = Actor(self.state_dim, action_space.shape, args.hidden_dim, noisy_sigma_init=noisy_sigma_init).to(
+            self.device
+        )
+        self.actor_target = Actor(self.state_dim, action_space.shape, args.hidden_dim, noisy_sigma_init=noisy_sigma_init).to(
+            self.device
+        )
         self.actor_target.load_state_dict(self.actor.state_dict())
-        
+
         self.critic = Critic(self.state_dim, action_space.shape, args.hidden_dim).to(self.device)
         self.critic_target = Critic(self.state_dim, action_space.shape, args.hidden_dim).to(self.device)
         self.critic_target.load_state_dict(self.critic.state_dict())
 
-        # Optimizers
-        # Combine Actor + Actor Encoder parameters
-        self.actor_params = list(self.actor.parameters()) + list(self.actor_encoder.parameters()) + list(self.actor_base_adapter.parameters())
+        # Optimizers.
+        self.actor_params = (
+            list(self.actor.parameters()) + list(self.actor_encoder.parameters()) + list(self.actor_base_adapter.parameters())
+        )
         self.actor_optimizer = Adam(self.actor_params, lr=args.actor_lr)
-        
-        # Combine Critic + Critic Encoder parameters
-        self.critic_params = list(self.critic.parameters()) + list(self.critic_encoder.parameters()) + list(self.critic_base_adapter.parameters())
+
+        self.critic_params = (
+            list(self.critic.parameters()) + list(self.critic_encoder.parameters()) + list(self.critic_base_adapter.parameters())
+        )
         self.critic_optimizer = Adam(self.critic_params, lr=args.critic_lr)
 
         self.replay_buffer = ReplayBuffer(args.buffer_size, seed=seed)
@@ -120,161 +97,101 @@ class DualBranchVideoMambaTD3Agent:
         self.policy_freq = args.policy_freq
         self.batch_size = args.batch_size
 
-        self.exploration_noise = args.exploration_noise
-        self.exploration_noise_final = getattr(args, "exploration_noise_final", 0.05)
-        
         self.total_it = 0
 
     def _encode(self, depth_batch: torch.Tensor, encoder_net) -> torch.Tensor:
-        # Preferred layout:
-        # - single sample: (T, H, W)
-        # - batched: (B, T, H, W)
-        # Legacy layout from recurrent pipeline is also accepted: (B, T, 1, H, W).
         if depth_batch.dim() == 3:
             depth_batch = depth_batch.unsqueeze(0)
-        elif depth_batch.dim() == 5 and depth_batch.shape[2] == 1:
-            depth_batch = depth_batch.squeeze(2)
-
-        if depth_batch.dim() != 4:
-            raise ValueError(
-                f"Expected depth tensor with 3/4 dims (or 5 dims with channel=1), got {tuple(depth_batch.shape)}"
-            )
         return encoder_net(depth_batch)
 
-    def _concat_state(self, base: torch.Tensor, depth: torch.Tensor, encoder_net, base_adapter, detach_encoder: bool = False) -> torch.Tensor:
+    def _concat_state(self, base: torch.Tensor, depth: torch.Tensor, encoder_net, base_adapter) -> torch.Tensor:
         base_features = base_adapter(base)
         depth_features = self._encode(depth, encoder_net)
-        if detach_encoder:
-            depth_features = depth_features.detach()
-        if base_features.shape[0] != depth_features.shape[0]:
-            raise ValueError(
-                "Base/depth batch size mismatch after encoding. "
-                f"base_features={tuple(base_features.shape)}, depth_features={tuple(depth_features.shape)}, "
-                f"depth_input={tuple(depth.shape)}. "
-                "Expected depth as (T,H,W) for single sample or (B,T,H,W) for batch."
-            )
         return torch.cat([base_features, depth_features], dim=1)
 
-    def _get_current_noise(self, progress_ratio: float) -> float:
-        """
-        计算当前步骤的线性递减噪声强度
-        Args:
-            progress_ratio: 训练进度比例 (0.0 到 1.0)
-        Returns:
-            当前噪声强度
-        """
-        # 线性递减：从初始噪声到最终噪声
-        current_noise = self.exploration_noise
-        return current_noise
-
     def select_action(self, base_state, depth, noise: bool = True, progress_ratio: float = 0.0):
+        del progress_ratio  # NoisyTD3Type2 不使用外部动作噪声衰减调度。
+
         base_tensor = torch.as_tensor(base_state, dtype=torch.float32, device=self.device).view(1, -1)
         depth_tensor = torch.as_tensor(depth, dtype=torch.float32, device=self.device)
-        # Recurrent env may emit single-sample depth as (T, 1, H, W); normalize to (T, H, W).
-        if depth_tensor.dim() == 4 and depth_tensor.shape[1] == 1:
-            depth_tensor = depth_tensor.squeeze(1)
-        with torch.no_grad():
-            # Use Actor Encoder
-            state = self._concat_state(base_tensor, depth_tensor, self.actor_encoder, self.actor_base_adapter)
-            # Actor returns normalized action (-1, 1)
-            action = self.actor(state).cpu().numpy().flatten()
 
-        if noise:
-            # 使用线性递减的噪声强度
-            current_noise = self._get_current_noise(progress_ratio)
-            noise = self.rng.normal(0, current_noise, size=self.action_dim)
-            action = action + noise
-        
-        # Clip to (-1, 1)
+        with torch.no_grad():
+            state = self._concat_state(base_tensor, depth_tensor, self.actor_encoder, self.actor_base_adapter)
+            # 第二种：探索来自 Actor 的 NoisyLinear。
+            if noise:
+                self.actor.reset_noise()
+            action = self.actor(state, use_noise=bool(noise)).cpu().numpy().flatten()
+
         action = np.clip(action, -1.0, 1.0)
-        
-        # Scale to real action space
         real_action = self.action_scale.cpu().numpy() * action + self.action_bias.cpu().numpy()
         return real_action
 
     def train(self, progress_ratio=0.0):
+        del progress_ratio
+
         self.total_it += 1
 
         if self.replay_buffer.size() < self.batch_size:
-            return
+            return {}
 
         base_states, depths, actions, rewards, next_base_states, next_depths, dones = self.replay_buffer.sample(self.batch_size)
 
         base_states = torch.as_tensor(base_states, dtype=torch.float32, device=self.device)
         depths = torch.as_tensor(depths, dtype=torch.float32, device=self.device)
-        # Actions from buffer are real actions, normalize them for training
+
+        # Actions in buffer are real-space actions; convert to normalized actor space.
         real_actions = torch.as_tensor(actions, dtype=torch.float32, device=self.device)
         actions = (real_actions - self.action_bias) / self.action_scale
-        
+
         rewards = torch.as_tensor(rewards, dtype=torch.float32, device=self.device).view(-1, 1)
         next_base_states = torch.as_tensor(next_base_states, dtype=torch.float32, device=self.device)
         next_depths = torch.as_tensor(next_depths, dtype=torch.float32, device=self.device)
         dones = torch.as_tensor(dones, dtype=torch.float32, device=self.device).view(-1, 1)
 
-        # Encode current observations (Critic Encoder)
         encoded_depths_critic = self._encode(depths, self.critic_encoder)
         base_features_critic = self.critic_base_adapter(base_states)
         states_critic = torch.cat([base_features_critic, encoded_depths_critic], dim=1)
 
         with torch.no_grad():
-            # Encode next observations (Critic Target Encoder)
             next_encoded_depths_critic = self._encode(next_depths, self.critic_encoder_target)
             next_base_features_critic = self.critic_base_adapter_target(next_base_states)
             next_states_critic = torch.cat([next_base_features_critic, next_encoded_depths_critic], dim=1)
-            
-            # Encode next observations (Actor Target Encoder) for Action Selection
+
             next_encoded_depths_actor = self._encode(next_depths, self.actor_encoder_target)
             next_base_features_actor = self.actor_base_adapter_target(next_base_states)
             next_states_actor = torch.cat([next_base_features_actor, next_encoded_depths_actor], dim=1)
-            
-            noise = (torch.randn_like(actions) * self.policy_noise).clamp(-self.noise_clip, self.noise_clip)
-            # Target actor returns normalized action (-1, 1)
-            next_actions = (self.actor_target(next_states_actor) + noise).clamp(-1.0, 1.0)
 
-            target_Q1, target_Q2 = self.critic_target(next_states_critic, next_actions)
-            target_Q = torch.min(target_Q1, target_Q2)
-            target_Q = rewards + (1 - dones) * self.gamma * target_Q
+            # 第二种：训练阶段的 target actor 也使用 noisy 前向。
+            self.actor_target.reset_noise()
+            target_noise = (torch.randn_like(actions) * self.policy_noise).clamp(-self.noise_clip, self.noise_clip)
+            next_actions = (self.actor_target(next_states_actor, use_noise=True) + target_noise).clamp(-1.0, 1.0)
 
-        current_Q1, current_Q2 = self.critic(states_critic, actions)
-        critic_loss = F.mse_loss(current_Q1, target_Q) + F.mse_loss(current_Q2, target_Q)
+            target_q1, target_q2 = self.critic_target(next_states_critic, next_actions)
+            target_q = torch.min(target_q1, target_q2)
+            target_q = rewards + (1 - dones) * self.gamma * target_q
 
-        # Optimize Critic (and Critic Encoder)
+        current_q1, current_q2 = self.critic(states_critic, actions)
+        critic_loss = F.mse_loss(current_q1, target_q) + F.mse_loss(current_q2, target_q)
+
         self.critic_optimizer.zero_grad()
         critic_loss.backward()
         torch.nn.utils.clip_grad_norm_(self.critic_params, max_norm=self.grad_clip)
         self.critic_optimizer.step()
 
-        actor_loss = 0.0
         if self.total_it % self.policy_freq == 0:
-            # Encode current observations (Actor Encoder)
             encoded_depths_actor = self._encode(depths, self.actor_encoder)
             base_features_actor = self.actor_base_adapter(base_states)
             states_actor = torch.cat([base_features_actor, encoded_depths_actor], dim=1)
-            
-            # We need Q value for actor loss. 
-            # Standard TD3: Actor optimizes Q(s, pi(s)).
-            # But which Critic Encoder to use? The Critic's.
-            # However, gradients must flow through Actor -> Actor Encoder.
-            # And Actor -> Q -> Critic -> Critic Encoder?
-            # Typically, we freeze Critic for Actor update.
-            # So: state_actor -> Actor -> action
-            #     state_critic -> Critic(action) -> Q
-            # But state_critic depends on Critic Encoder. state_actor depends on Actor Encoder.
-            # Ideally: q = critic(concat(base, critic_encoder(depth)), actor(concat(base, actor_encoder(depth))))
-            # We want to optimize Actor parameters (including actor_encoder).
-            # Critic parameters (including critic_encoder) are fixed.
-            
-            # Re-compute critic state features detached (or use critic encoder in eval mode / no grad)
-            # Actually, `self.critic` is used. We just need to pass the same depth to critic encoder.
-            # BUT, we want gradients to flow from Q to Action to Actor to ActorEncoder.
-            # We DO NOT want gradients to flow into Critic Encoder here (it's fixed for actor update).
-            
+
             with torch.no_grad():
-                encoded_depths_critic_fixed = self._encode(depths, self.critic_encoder)
+                encoded_depths_critic_fixed = self.critic_encoder(depths)
                 base_features_critic_fixed = self.critic_base_adapter(base_states)
                 states_critic_fixed = torch.cat([base_features_critic_fixed, encoded_depths_critic_fixed], dim=1)
 
-            q1, _ = self.critic(states_critic_fixed, self.actor(states_actor))
+            # 第二种：actor_loss 也使用 noisy actor 前向。
+            self.actor.reset_noise()
+            sampled_actions = self.actor(states_actor, use_noise=True)
+            q1, _ = self.critic(states_critic_fixed, sampled_actions)
             actor_loss = -q1.mean()
 
             self.actor_optimizer.zero_grad()
@@ -282,7 +199,6 @@ class DualBranchVideoMambaTD3Agent:
             torch.nn.utils.clip_grad_norm_(self.actor_params, max_norm=self.grad_clip)
             self.actor_optimizer.step()
 
-            # Soft update targets
             for param, target_param in zip(self.actor.parameters(), self.actor_target.parameters()):
                 target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
             for param, target_param in zip(self.actor_encoder.parameters(), self.actor_encoder_target.parameters()):
@@ -329,41 +245,36 @@ class DualBranchVideoMambaTD3Agent:
             self.actor_target.load_state_dict(checkpoint["actor_target"])
         if "critic_target" in checkpoint:
             self.critic_target.load_state_dict(checkpoint["critic_target"])
-        
+
         self.actor_optimizer.load_state_dict(checkpoint["actor_optimizer"])
         self.critic_optimizer.load_state_dict(checkpoint["critic_optimizer"])
-        
-        # Backward compatibility or new structure loading
+
         if "actor_encoder" in checkpoint:
             self.actor_encoder.load_state_dict(checkpoint["actor_encoder"])
             self.critic_encoder.load_state_dict(checkpoint["critic_encoder"])
-            actor_encoder_target_sd = checkpoint.get("actor_encoder_target", checkpoint["actor_encoder"])
-            critic_encoder_target_sd = checkpoint.get("critic_encoder_target", checkpoint["critic_encoder"])
-            self.actor_encoder_target.load_state_dict(actor_encoder_target_sd)
-            self.critic_encoder_target.load_state_dict(critic_encoder_target_sd)
+            self.actor_encoder_target.load_state_dict(checkpoint["actor_encoder_target"])
+            self.critic_encoder_target.load_state_dict(checkpoint["critic_encoder_target"])
             if "actor_base_adapter" in checkpoint:
                 self.actor_base_adapter.load_state_dict(checkpoint["actor_base_adapter"])
             if "critic_base_adapter" in checkpoint:
                 self.critic_base_adapter.load_state_dict(checkpoint["critic_base_adapter"])
-            actor_adapter_target_sd = checkpoint.get("actor_base_adapter_target", checkpoint.get("actor_base_adapter"))
-            critic_adapter_target_sd = checkpoint.get("critic_base_adapter_target", checkpoint.get("critic_base_adapter"))
-            if actor_adapter_target_sd is not None:
-                self.actor_base_adapter_target.load_state_dict(actor_adapter_target_sd)
-            if critic_adapter_target_sd is not None:
-                self.critic_base_adapter_target.load_state_dict(critic_adapter_target_sd)
+            if "actor_base_adapter_target" in checkpoint:
+                self.actor_base_adapter_target.load_state_dict(checkpoint["actor_base_adapter_target"])
+            if "critic_base_adapter_target" in checkpoint:
+                self.critic_base_adapter_target.load_state_dict(checkpoint["critic_base_adapter_target"])
         elif "encoder" in checkpoint:
-             # If loading old model with shared encoder, load key 'encoder' to both
-             self.actor_encoder.load_state_dict(checkpoint["encoder"])
-             self.critic_encoder.load_state_dict(checkpoint["encoder"])
-             self.actor_encoder_target.load_state_dict(checkpoint["encoder"])
-             self.critic_encoder_target.load_state_dict(checkpoint["encoder"])
+            self.actor_encoder.load_state_dict(checkpoint["encoder"])
+            self.critic_encoder.load_state_dict(checkpoint["encoder"])
+            self.actor_encoder_target.load_state_dict(checkpoint["encoder"])
+            self.critic_encoder_target.load_state_dict(checkpoint["encoder"])
+
         self.total_it = checkpoint.get("total_it", 0)
 
 
-def make_agent(env, initial_obs, args, device=None) -> DualBranchVideoMambaTD3Agent:
+def make_agent(env, initial_obs, args, device=None) -> NoisyTD3Type2Agent:
     base_state = initial_obs["base"]
     depth = initial_obs["depth"]
-    agent = DualBranchVideoMambaTD3Agent(
+    agent = NoisyTD3Type2Agent(
         base_dim=base_state.shape[0],
         depth_shape=depth.shape,
         action_space=env.action_space,
