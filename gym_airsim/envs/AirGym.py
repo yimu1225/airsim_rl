@@ -159,7 +159,7 @@ class AirSimEnv(gym.Env):
         self.success = False
         
         # 使用训练配置中的 seed 初始化随机数生成器，确保首次环境采样可复现
-        self.success_deque = collections.deque(maxlen=256)
+        self.success_deque = collections.deque(maxlen=512)
 
         self.ue4_rpc_fail_count = 0
         self.ue4_rpc_fail_threshold = getattr(config, "ue4_rpc_fail_threshold", 2) 
@@ -574,7 +574,7 @@ class AirSimEnv(gym.Env):
             smooth_penalty = float(np.linalg.norm(curr_v - prev_v))
         else:
             smooth_penalty = 0.0
-        smooth_penalty_weight = 0.05
+        smooth_penalty_weight = 0.08
 
         # Curvature penalty with speed gating and angle deadzone.
         curvature_penalty = 0.0
@@ -587,7 +587,7 @@ class AirSimEnv(gym.Env):
              cos_theta = np.clip(cos_theta, -1.0, 1.0)
              angle_change = float(np.arccos(cos_theta))
 
-             curvature_weight = 4.0
+             curvature_weight = 5.0
              curvature_penalty = curvature_weight * (angle_change ** 2) 
              curvature_penalty = float(np.clip(curvature_penalty, 0.0, 1.0))
 
@@ -597,7 +597,7 @@ class AirSimEnv(gym.Env):
 
         lidar_penalty = self._compute_lidar_scan_log_penalty(self.last_lidar_scan_distance)
         self.last_lidar_obstacle_penalty = float(lidar_penalty)
-        r += 5 * float(lidar_penalty)
+        r += 6 * float(lidar_penalty)
         # print(f"Reward components: r_vel={reward_vel:.3f}, smooth_penalty={smooth_penalty:.3f}, curvature_penalty={curvature_penalty:.3f}, step_penalty={step_penalty:.3f}, lidar_penalty={lidar_penalty:.3f}, total_reward={r:.3f}")
 
          
