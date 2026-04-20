@@ -413,6 +413,10 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, ba
     # Logging
     if not os.path.exists("./results"): os.makedirs("./results")
     if not os.path.exists("./models"): os.makedirs("./models")
+
+    # Save checkpoints by algorithm and seed: ./models/<algorithm>/seed<seed>/
+    model_dir = os.path.join("./models", display_algo_name, f"seed{args.seed}")
+    os.makedirs(model_dir, exist_ok=True)
     
     # 移除时间戳，固定文件夹名称以实现覆盖 (Remove timestamp to use fixed folder for overwriting)
     # 使用 display_algo_name（带 CL- 前缀）用于日志目录和文件名
@@ -434,6 +438,7 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, ba
         csv_writer.writerow(['episode', 'total_timesteps', 'reward', 'episode_length', 'success_rate'])
     
     print(f"Logging to {csv_filename}")
+    print(f"Model checkpoints will be saved to {model_dir}")
 
     # Training parameters
     max_timesteps = args.max_timesteps
@@ -478,17 +483,21 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, ba
                 critic_depth_current = _build_critic_depth_like(env_core, actor_depth_current)
                 critic_priv_current = _extract_critic_privileged_lidar(env_core)
 
+            env_core_for_signal = _get_env_core(env)
+            success_rate_signal = 0.0
+            if len(env_core_for_signal.success_deque) > 0:
+                success_rate_signal = sum(env_core_for_signal.success_deque) / len(env_core_for_signal.success_deque)
+
             # Select Action
             if total_timesteps < start_timesteps and args.load_model == "":
                 action = env.action_space.sample()
                 # print(f"Random action at timestep {total_timesteps}: {action}")
             else:
-                progress_ratio = total_timesteps / max_timesteps
                 if is_recurrent:
-                    action = agent.select_action(base, depth_seq, progress_ratio=progress_ratio)
+                    action = agent.select_action(base, depth_seq, progress_ratio=success_rate_signal)
                 else:
                     # Non-recurrent: state is (4, H, W)
-                    action = agent.select_action(base, state, progress_ratio=progress_ratio)
+                    action = agent.select_action(base, state, progress_ratio=success_rate_signal)
 
                 _raise_if_non_finite(
                     "actor.action",
@@ -830,8 +839,9 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, ba
 
         # Checkpointing
         if total_timesteps % 10000 == 0:
-            agent.save(f"./models/{algo_name}_async_{total_timesteps}.pth")
-            print(f"Model saved at timestep {total_timesteps}")
+            model_path = os.path.join(model_dir, f"async_{total_timesteps}.pth")
+            agent.save(model_path)
+            print(f"Model saved at timestep {total_timesteps}: {model_path}")
         
         # Periodic CUDA memory cleanup every 5000 steps
         if total_timesteps % 5000 == 0:
@@ -846,8 +856,9 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, ba
                 torch.cuda.empty_cache()
             gc.collect()
 
-    agent.save(f"./models/{algo_name}_async_final.pth")
-    print("Training completed.")
+    final_model_path = os.path.join(model_dir, "async_final.pth")
+    agent.save(final_model_path)
+    print(f"Training completed. Final model saved to {final_model_path}")
     
     if args.render_window:
         cv2.destroyAllWindows()
