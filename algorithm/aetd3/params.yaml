@@ -1,0 +1,6 @@
+# aetd3 algorithm-specific parameters
+# Shared/common parameters stay in config.py
+adaptive_k: 5  # AETD3 集成 critic 数量
+adaptive_reg: 0.001  # AETD3 自适应正则初始值
+adaptive_reg_final: 0.0001  # AETD3 自适应正则末值（随训练衰减）
+adaptive_meta_lr: 0.001  # AETD3 元网络学习率

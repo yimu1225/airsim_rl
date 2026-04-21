@@ -4,6 +4,7 @@ import torch.nn.functional as F
 from torch.optim import Adam
 
 from ..state_adapter import StateAdapter
+from ..config_loader import get_algo_param
 from .networks import Actor, Critic, Encoder, MetaFusion, MetaNet
 from .buffer import ReplayBuffer
 
@@ -67,9 +68,9 @@ class AETD3Agent:
         self.critic_target.load_state_dict(self.critic.state_dict())
 
         # Adaptive ensemble
-        self.adaptive_k = int(args.adaptive_k)
-        self.adaptive_reg_initial = float(args.adaptive_reg)
-        self.adaptive_reg_final = float(getattr(args, "adaptive_reg_final", self.adaptive_reg_initial))
+        self.adaptive_k = int(get_algo_param(args, "adaptive_k"))
+        self.adaptive_reg_initial = float(get_algo_param(args, "adaptive_reg"))
+        self.adaptive_reg_final = float(get_algo_param(args, "adaptive_reg_final", self.adaptive_reg_initial))
         self.meta_fusion = MetaFusion(self.state_dim, q_stats_dim=2, q_hidden_dim=64).to(self.device)
         self.meta_net = MetaNet(self.state_dim * 2, self.adaptive_k).to(self.device)
 
@@ -83,7 +84,7 @@ class AETD3Agent:
         self.meta_optimizer = Adam(
             list(self.meta_net.parameters())
             + list(self.meta_fusion.parameters()),
-            lr=args.adaptive_meta_lr,
+            lr=get_algo_param(args, "adaptive_meta_lr"),
         )
 
         self.discount = args.gamma

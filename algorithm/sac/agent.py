@@ -5,6 +5,7 @@ from torch import nn
 from torch.optim import Adam
 
 from ..state_adapter import StateAdapter
+from ..config_loader import get_algo_param
 from .networks import Actor, Critic, Encoder
 from .buffer import ReplayBuffer
 
@@ -47,7 +48,7 @@ class SACAgent:
         self.grad_clip = getattr(args, "grad_clip", 1.0)
         
         # Entropy temperature parameters
-        self.auto_entropy_tuning = getattr(args, "auto_entropy_tuning", True)
+        self.auto_entropy_tuning = get_algo_param(args, "auto_entropy_tuning", True)
         self.target_entropy = -self.action_dim  # Heuristic: -dim(A)
         
         # Initialize temperature (alpha)
@@ -56,7 +57,7 @@ class SACAgent:
             self.alpha = self.log_alpha.exp()
             self.alpha_optimizer = Adam([self.log_alpha], lr=args.actor_lr)
         else:
-            self.alpha = getattr(args, "alpha", 0.2)
+            self.alpha = get_algo_param(args, "alpha", 0.2)
 
         C, depth_h, depth_w = depth_shape
         

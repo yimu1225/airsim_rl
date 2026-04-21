@@ -17,6 +17,7 @@ os.environ.setdefault('CUBLAS_WORKSPACE_CONFIG', ':4096:8')
 
 import time
 import random
+import copy
 import numpy as np
 import torch
 import csv
@@ -27,6 +28,7 @@ from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 
 from config import get_config
+from algorithm.config_loader import apply_algorithm_params
 import gymnasium as gym
 import gym_airsim  # noqa: F401 - ensure env ids are registered
 from gym_airsim.envs import AirSimEnv, AirSimEnvGradientReward
@@ -303,22 +305,29 @@ def _extract_critic_privileged_lidar(env_core):
     return arr.reshape(-1).astype(np.float32)
 
 def main():
-    args = get_config()
-    seeds = args.seed if isinstance(args.seed, (list, tuple)) else [args.seed]
+    base_args = get_config()
+    seeds = base_args.seed if isinstance(base_args.seed, (list, tuple)) else [base_args.seed]
 
     # Expand algorithm names
-    algorithms = expand_algorithms(args.algorithm_name)
+    algorithms = expand_algorithms(base_args.algorithm_name)
     print(f"Training algorithms: {algorithms}")
 
     for seed in seeds:
-        args.seed = seed
-        _configure_reproducibility(seed, args)
+        seed_args = copy.deepcopy(base_args)
+        seed_args.seed = seed
+        _configure_reproducibility(seed, seed_args)
 
         # Run training for each algorithm
         for algo_name in algorithms:
+            args = copy.deepcopy(seed_args)
+            params_path, loaded_keys = apply_algorithm_params(args, algo_name)
             print(f"\n{'='*50}")
             print(f"Training algorithm: {algo_name} (seed={seed})")
             print(f"{'='*50}")
+            if loaded_keys:
+                print(f"  [Algo Params] Loaded {len(loaded_keys)} params from {params_path}")
+            else:
+                print(f"  [Algo Params] Loaded empty params from {params_path}")
 
             # 根据算法名判断是否使用课程学习
             # 算法名以 "CL-" 开头时启用课程学习

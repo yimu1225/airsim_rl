@@ -5,6 +5,7 @@ from torch import nn
 from torch.optim import Adam
 
 from ..state_adapter import StateAdapter
+from ..config_loader import get_algo_param
 from .networks import Actor, Critic, Encoder
 from .buffer import RolloutBuffer
 
@@ -66,16 +67,16 @@ class PPOAgent:
         self.critic = Critic(self.state_dim, hidden_dim).to(self.device)
         
         # Optimizers - PPO uses a single learning rate (reuse actor_lr from config)
-        lr = getattr(args, 'lr', getattr(args, 'actor_lr', 3e-4))
+        lr = get_algo_param(args, 'lr', getattr(args, 'actor_lr', 3e-4))
         self.encoder_optimizer = Adam(self.encoder.parameters(), lr=lr)
         self.base_encoder_optimizer = Adam(self.base_encoder.parameters(), lr=lr)
         self.actor_optimizer = Adam(self.actor.parameters(), lr=lr)
         self.critic_optimizer = Adam(self.critic.parameters(), lr=lr)
         
         # Rollout buffer
-        buffer_size = getattr(args, 'rollout_buffer_size', 2048)
+        buffer_size = get_algo_param(args, 'rollout_buffer_size', 2048)
         self.gamma = getattr(args, 'gamma', 0.99)
-        self.gae_lambda = getattr(args, 'gae_lambda', 0.95)
+        self.gae_lambda = get_algo_param(args, 'gae_lambda', 0.95)
         
         self.rollout_buffer = RolloutBuffer(
             buffer_size=buffer_size,
@@ -88,13 +89,13 @@ class PPOAgent:
         )
         
         # PPO hyperparameters
-        self.ppo_epochs = getattr(args, 'ppo_epochs', 10)
-        self.batch_size = getattr(args, 'ppo_batch_size', 64)
-        self.clip_range = getattr(args, 'clip_range', 0.2)
-        self.vf_coef = getattr(args, 'vf_coef', 0.5)
-        self.ent_coef = getattr(args, 'ent_coef', 0.0)
-        self.max_grad_norm = getattr(args, 'max_grad_norm', 0.5)
-        self.target_kl = getattr(args, 'target_kl', None)  # Optional early stopping
+        self.ppo_epochs = get_algo_param(args, 'ppo_epochs', 10)
+        self.batch_size = get_algo_param(args, 'ppo_batch_size', 64)
+        self.clip_range = get_algo_param(args, 'clip_range', 0.2)
+        self.vf_coef = get_algo_param(args, 'vf_coef', 0.5)
+        self.ent_coef = get_algo_param(args, 'ent_coef', 0.0)
+        self.max_grad_norm = get_algo_param(args, 'max_grad_norm', 0.5)
+        self.target_kl = get_algo_param(args, 'target_kl', None)  # Optional early stopping
         
         self.total_it = 0
         self.num_updates = 0

@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 
 from Vim.vim.models_mamba import VisionMamba
+from ..config_loader import get_algo_param
 
 
 class VimEncoder(nn.Module):
@@ -13,10 +14,10 @@ class VimEncoder(nn.Module):
 
     def __init__(self, args):
         super().__init__()
-        self.embed_dim = args.st_mamba_embed_dim
-        self.depth = args.st_mamba_depth
-        self.patch_size = args.st_mamba_patch_size
-        self.d_state = args.st_mamba_d_state
+        self.embed_dim = get_algo_param(args, "st_mamba_embed_dim")
+        self.depth = get_algo_param(args, "st_mamba_depth")
+        self.patch_size = get_algo_param(args, "st_mamba_patch_size")
+        self.d_state = get_algo_param(args, "st_mamba_d_state")
         self.seq_len = args.n_frames
 
         depth_shape = args.depth_shape
@@ -25,7 +26,7 @@ class VimEncoder(nn.Module):
         width = depth_shape[2]
 
         # Keep token usage behavior aligned with ST-VimTD3 for fair ablation.
-        self.flatten_all_tokens = bool(getattr(args, "st_vim_flatten_all_tokens", True))
+        self.flatten_all_tokens = bool(get_algo_param(args, "st_vim_flatten_all_tokens", True))
         self.repr_dim = self.embed_dim * self.seq_len if self.flatten_all_tokens else self.embed_dim
 
         self.vim = VisionMamba(
@@ -48,8 +49,8 @@ class VimEncoder(nn.Module):
             final_pool_type="none",
             if_bimamba=True,
             bimamba_type="v2",
-            drop_rate=args.st_mamba_drop_rate,
-            drop_path_rate=args.st_mamba_drop_path_rate,
+            drop_rate=get_algo_param(args, "st_mamba_drop_rate"),
+            drop_path_rate=get_algo_param(args, "st_mamba_drop_path_rate"),
         )
 
     def forward(self, depth_seq):

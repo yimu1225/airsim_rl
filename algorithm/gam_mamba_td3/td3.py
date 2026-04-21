@@ -4,6 +4,7 @@ import torch.nn.functional as F
 from torch.optim import Adam
 
 from ..state_adapter import StateAdapter
+from ..config_loader import get_algo_param
 from .networks import Actor, Critic, Encoder
 from .buffer import ReplayBuffer
 
@@ -36,10 +37,10 @@ class GAMMambaTD3Agent:
         c, depth_h, depth_w = depth_shape
         feature_dim = getattr(args, "hidden_dim", 256)
 
-        mamba_layers = getattr(args, "gam_mamba_layers", 2)
-        mamba_d_state = getattr(args, "gam_mamba_d_state", 16)
-        mamba_d_conv = getattr(args, "gam_mamba_d_conv", 4)
-        mamba_expand = getattr(args, "gam_mamba_expand", 2)
+        mamba_layers = get_algo_param(args, "gam_mamba_layers", 2)
+        mamba_d_state = get_algo_param(args, "gam_mamba_d_state", 16)
+        mamba_d_conv = get_algo_param(args, "gam_mamba_d_conv", 4)
+        mamba_expand = get_algo_param(args, "gam_mamba_expand", 2)
 
         self.actor_encoder = Encoder(
             input_height=depth_h,

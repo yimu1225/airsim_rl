@@ -5,6 +5,7 @@ from torch import nn
 from torch.optim import Adam
 
 from ..state_adapter import StateAdapter
+from ..config_loader import get_algo_param
 from .buffer import DualPrioritizedReplayBuffer
 from .networks import Actor, Critic, Encoder
 
@@ -68,10 +69,10 @@ class PERTD3Agent:
 
         self.replay_buffer = DualPrioritizedReplayBuffer(
             capacity=args.buffer_size,
-            success_capacity_ratio=getattr(args, "per_td3_success_capacity_ratio", 0.3),
-            success_sample_ratio=float(getattr(args, "per_td3_mu_low", 0.15)),
-            alpha=getattr(args, "per_td3_alpha", 0.6),
-            eps=getattr(args, "per_td3_priority_eps", 1e-6),
+            success_capacity_ratio=get_algo_param(args, "per_td3_success_capacity_ratio", 0.3),
+            success_sample_ratio=float(get_algo_param(args, "per_td3_mu_low", 0.15)),
+            alpha=get_algo_param(args, "per_td3_alpha", 0.6),
+            eps=get_algo_param(args, "per_td3_priority_eps", 1e-6),
             seed=seed,
         )
 
@@ -82,15 +83,15 @@ class PERTD3Agent:
         self.policy_freq = args.policy_freq
         self.batch_size = args.batch_size
 
-        self.per_beta_start = getattr(args, "per_td3_beta_start", 0.4)
-        self.per_beta_final = getattr(args, "per_td3_beta_final", 1.0)
+        self.per_beta_start = get_algo_param(args, "per_td3_beta_start", 0.4)
+        self.per_beta_final = get_algo_param(args, "per_td3_beta_final", 1.0)
 
         # Staircase schedule for success-prioritized sampling ratio mu.
-        self.mu_low = float(getattr(args, "per_td3_mu_low", 0.15))
-        self.mu_mid = float(getattr(args, "per_td3_mu_mid", 0.30))
-        self.mu_high = float(getattr(args, "per_td3_mu_high", 0.45))
-        self.mu_step1 = float(getattr(args, "per_td3_mu_step1", 0.25))
-        self.mu_step2 = float(getattr(args, "per_td3_mu_step2", 0.65))
+        self.mu_low = float(get_algo_param(args, "per_td3_mu_low", 0.15))
+        self.mu_mid = float(get_algo_param(args, "per_td3_mu_mid", 0.30))
+        self.mu_high = float(get_algo_param(args, "per_td3_mu_high", 0.45))
+        self.mu_step1 = float(get_algo_param(args, "per_td3_mu_step1", 0.25))
+        self.mu_step2 = float(get_algo_param(args, "per_td3_mu_step2", 0.65))
 
         self.exploration_noise = args.exploration_noise
         self.exploration_noise_final = getattr(args, "exploration_noise_final", 0.05)

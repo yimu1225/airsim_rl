@@ -1,0 +1,6 @@
+# gam_mamba_td3 algorithm-specific parameters
+# Shared/common parameters stay in config.py
+gam_mamba_layers: 2  # GAM-Mamba 模块层数
+gam_mamba_d_state: 16  # GAM-Mamba 的状态维度 d_state
+gam_mamba_d_conv: 4  # GAM-Mamba 的局部卷积宽度 d_conv
+gam_mamba_expand: 2  # GAM-Mamba 的通道扩展倍数 expand

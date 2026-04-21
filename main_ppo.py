@@ -11,6 +11,7 @@ os.environ.setdefault('CUBLAS_WORKSPACE_CONFIG', ':4096:8')
 
 import time
 import random
+import copy
 import numpy as np
 import torch
 import csv
@@ -20,6 +21,7 @@ from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 
 from config import get_config
+from algorithm.config_loader import apply_algorithm_params
 import gymnasium as gym
 import gym_airsim  # noqa: F401 - ensure env ids are registered
 from gym_airsim.envs import AirSimEnv, AirSimEnvGradientReward
@@ -376,21 +378,28 @@ def train_ppo_algorithm(env, agent, args, algo_name, device, base_state, depth_i
 
 
 def main():
-    args = get_config()
-    seeds = args.seed if isinstance(args.seed, (list, tuple)) else [args.seed]
+    base_args = get_config()
+    seeds = base_args.seed if isinstance(base_args.seed, (list, tuple)) else [base_args.seed]
 
     # Expand algorithm names
-    algorithms = expand_algorithms(args.algorithm_name)
+    algorithms = expand_algorithms(base_args.algorithm_name)
     print(f"Training on-policy algorithms: {algorithms}")
 
     for seed in seeds:
-        args.seed = seed
-        _configure_reproducibility(seed, args)
+        seed_args = copy.deepcopy(base_args)
+        seed_args.seed = seed
+        _configure_reproducibility(seed, seed_args)
 
         for algo_name in algorithms:
+            args = copy.deepcopy(seed_args)
+            params_path, loaded_keys = apply_algorithm_params(args, algo_name)
             print(f"\n{'='*50}")
             print(f"Training algorithm: {algo_name} (seed={seed})")
             print(f"{'='*50}")
+            if loaded_keys:
+                print(f"  [Algo Params] Loaded {len(loaded_keys)} params from {params_path}")
+            else:
+                print(f"  [Algo Params] Loaded empty params from {params_path}")
 
             # Handle curriculum learning prefix
             if algo_name.startswith("CL-"):

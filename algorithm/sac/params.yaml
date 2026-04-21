@@ -1,0 +1,4 @@
+# sac algorithm-specific parameters
+# Shared/common parameters stay in config.py
+auto_entropy_tuning: true  # 是否自动调节 SAC 熵温度 alpha
+alpha: 0.2  # SAC 固定熵温度系数（仅 auto_entropy_tuning=false 时生效）

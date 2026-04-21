@@ -7,6 +7,7 @@ from torch.optim import Adam
 from ncps.wirings import AutoNCP
 
 from ..state_adapter import StateAdapter
+from ..config_loader import get_algo_param
 from .networks import Actor, Critic, VisualEncoder, CFCEncoder
 from .buffer import SequenceReplayBuffer
 
@@ -48,8 +49,8 @@ class CFCTD3Agent:
 
         # NCPs Wiring definition
         # cfc_units: total neurons, cfc_motor_units: output neurons
-        self.cfc_units = getattr(args, 'cfc_units', 32)
-        self.cfc_motor_units = getattr(args, 'cfc_motor_units', 8)
+        self.cfc_units = get_algo_param(args, 'cfc_units', 32)
+        self.cfc_motor_units = get_algo_param(args, 'cfc_motor_units', 8)
 
         self.actor_base_adapter = StateAdapter(self.base_dim, self.base_feature_dim).to(self.device)
         self.critic_base_adapter = StateAdapter(self.base_dim, self.base_feature_dim).to(self.device)
@@ -92,7 +93,7 @@ class CFCTD3Agent:
 
         # Optimizers with separate LR for CFC temporal module
         # CFC usually benefits from a larger learning rate (e.g., 1e-3)
-        self.cfc_lr = getattr(args, 'cfc_lr', 1e-3) 
+        self.cfc_lr = get_algo_param(args, 'cfc_lr', 1e-3) 
         
         self.actor_optimizer = Adam([
             {'params': self.actor.parameters(), 'lr': args.actor_lr},
