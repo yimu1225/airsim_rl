@@ -29,7 +29,7 @@ def get_config(argv=None):
 
     # 算法选择 (Algorithm Selection)
     parser.add_argument("--algorithm_name", type=str, default='CL-ST-DualVimTD3,CL-td3,CL-ST-VimTD3,CL-per_td3',
-                        help="要训练的算法。支持: td3, noisy_td3, noisy_td3_type2, ddpg, aetd3, per_td3, per_aetd3, cfc_td3, ST-VimTD3, stv_patch_td3, stv_vim_td3, stv_per_vim_td3, ST-SVimTD3, mamba_td3, ST_3DVimTD3, gam_mamba_td3, gam_td3, ST-DualVimTD3, sac, ppo。可以是单个，多个（逗号分隔），或组名 ('all', 'base', 'seq')")
+                        help="要训练的算法。支持: td3, noisy_td3, noisy_td3_type2, ddpg, aetd3, per_td3, per_aetd3, cfc_td3, ST-VimTD3, stv_patch_td3, stv_vim_td3, st_seq_vim_td3 (或 ST-SeqVimTD3), stv_seq_vim_td3 (或 STV-SeqVimTD3), stv_per_vim_td3, ST-SVimTD3, mamba_td3, ST_3DVimTD3, gam_mamba_td3, gam_td3, ST-DualVimTD3, sac, ppo。可以是单个，多个（逗号分隔），或组名 ('all', 'base', 'seq')")
     parser.add_argument("--smooth_window", type=int, default=300, help="平滑窗口大小，用于平滑学习曲线 (仅对移动平均有效)")
     parser.add_argument("--smooth_method", type=str, default="moving", choices=["moving","zero_phase_des"], help="曲线平滑方法: moving=滑动平均, zero_phase_des=零相位双重指数平滑")
     parser.add_argument("--smooth_alpha", type=float, default=0.05, help="零相位双重指数平滑的水平平滑因子 (0-1)，越大越关注近期数据")
@@ -50,11 +50,11 @@ def get_config(argv=None):
     parser.add_argument("--cuda_deterministic", action='store_false', default=True, help="CUDA是否确定性")
     parser.add_argument("--n_training_threads", type=int, default=1, help="训练线程数")
     parser.add_argument("--n_rollout_threads", type=int, default=1, help="Rollout线程数（在AirSim环境中必须为1）")
-    parser.add_argument("--max_timesteps", type=int, default=60000, help='要训练的环境步数 (默认: 10e6)')
-    parser.add_argument("--buffer_size", type=int, default=20000, help='经验池大小 (注意内存占用: 30000步约占用4GB)')
-    parser.add_argument("--learning_starts", type=int, default=2000, help="训练开始前的时间步数 (兼容 start_timesteps)")
+    parser.add_argument("--max_timesteps", type=int, default=200000, help='要训练的环境步数 (默认: 10e6)')
+    parser.add_argument("--buffer_size", type=int, default=40000, help='经验池大小 (注意内存占用: 30000步约占用4GB)')
+    parser.add_argument("--learning_starts", type=int, default=5000, help="训练开始前的时间步数 (兼容 start_timesteps)")
     parser.add_argument("--gradient_steps", type=float, default=0.5, help="每次收集数据后的梯度更新倍数")
-    parser.add_argument("--episode_length", type=int, default=300, help='每个环境中的最大回合长度')
+    parser.add_argument("--episode_length", type=int, default=1000, help='每个环境中的最大回合长度')
     parser.add_argument("--eval_freq", type=int, default=5000, help="评估频率")
     parser.add_argument("--hidden_dim", type=int, default=128, help="隐藏层维度")
     parser.add_argument("--base_feature_dim", type=int, default=32, help="基础状态先映射到该维度，再与视觉特征拼接")
@@ -88,7 +88,7 @@ def get_config(argv=None):
     parser.add_argument("--max_vertical_speed", type=float, default=0.5, help="最大垂直速度 (m/s)")
     parser.add_argument("--max_yaw_rate", type=float, default=np.pi/3, help="最大偏航角速度 (rad/s)")
     parser.add_argument("--takeoff_height", type=float, default=-2.0, help="起飞目标高度 (NED坐标系中负值为向上)")
-    parser.add_argument("--action_duration", type=float, default=0.5, help="在时钟缩放之前的每个速度指令的基础持续时间 (秒)")
+    parser.add_argument("--action_duration", type=float, default=0.1, help="在时钟缩放之前的每个速度指令的基础持续时间 (秒)")
     parser.add_argument("--clock_speed_factor", type=float, default=1.0, help="AirSim 设置中配置的 ClockSpeed 因子；持续时间将除以此值")
 
     # 飞行高度限制 (Flight Altitude Limits)
@@ -160,7 +160,7 @@ def get_config(argv=None):
     
     # 训练循环参数 (Training Loop Parameters)
     
-    parser.add_argument("--step_penalty", type=float, default=0.5, help="每步惩罚，以鼓励更快完成")
+    parser.add_argument("--step_penalty", type=float, default=0.1, help="每步惩罚，以鼓励更快完成")
 
     # 日志 (Logging)
     parser.add_argument("--log_interval", type=int, default=1, help="日志记录间隔")

@@ -18,6 +18,7 @@ os.environ.setdefault('CUBLAS_WORKSPACE_CONFIG', ':4096:8')
 import time
 import random
 import copy
+import collections
 import numpy as np
 import torch
 import csv
@@ -46,6 +47,8 @@ from algorithm.cfc_td3.cfc_td3 import CFCTD3Agent
 from algorithm.ST_VimTD3.agent import STVimTD3Agent
 from algorithm.stv_patch_td3.agent import VimPatchTD3Agent
 from algorithm.stv_vim_td3.agent import VimTD3Agent
+from algorithm.st_seq_vim_td3.agent import StateSeqVimTD3Agent
+from algorithm.stv_seq_vim_td3.agent import VimStateSeqTD3Agent
 from algorithm.stv_per_vim_td3.agent import PERVimTD3Agent
 from algorithm.ST_SVimTD3.agent import STSVimTD3Agent
 from algorithm.mamba_td3.agent import MambaTD3Agent
@@ -100,9 +103,9 @@ def expand_algorithms(algo_str):
     """
     # Predefined algorithm groups
     groups = {
-        'all': ['td3', 'noisy_td3', 'noisy_td3_type2', 'ddpg', 'aetd3', 'per_td3', 'per_aetd3', 'cfc_td3', 'ST-VimTD3', 'stv_patch_td3', 'stv_vim_td3', 'stv_per_vim_td3', 'ST-SVimTD3', 'mamba_td3', 'gam_mamba_td3', 'gam_td3', 'ST_3DVimTD3', 'ST-DualVimTD3', 'sac', 'td3_asym', 'per_td3_asym', 'ST_VimTD3_asym'],
+        'all': ['td3', 'noisy_td3', 'noisy_td3_type2', 'ddpg', 'aetd3', 'per_td3', 'per_aetd3', 'cfc_td3', 'ST-VimTD3', 'stv_patch_td3', 'stv_vim_td3', 'st_seq_vim_td3', 'stv_seq_vim_td3', 'stv_per_vim_td3', 'ST-SVimTD3', 'mamba_td3', 'gam_mamba_td3', 'gam_td3', 'ST_3DVimTD3', 'ST-DualVimTD3', 'sac', 'td3_asym', 'per_td3_asym', 'ST_VimTD3_asym'],
         'base': ['td3', 'noisy_td3', 'noisy_td3_type2', 'ddpg', 'aetd3', 'per_td3', 'per_aetd3', 'sac', 'td3_asym', 'per_td3_asym'],
-        'seq': ['cfc_td3', 'ST-VimTD3', 'stv_patch_td3', 'stv_vim_td3', 'stv_per_vim_td3', 'ST-SVimTD3', 'mamba_td3', 'ST_3DVimTD3', 'ST-DualVimTD3', 'ST_VimTD3_asym']
+        'seq': ['cfc_td3', 'ST-VimTD3', 'stv_patch_td3', 'stv_vim_td3', 'st_seq_vim_td3', 'stv_seq_vim_td3', 'stv_per_vim_td3', 'ST-SVimTD3', 'mamba_td3', 'ST_3DVimTD3', 'ST-DualVimTD3', 'ST_VimTD3_asym']
     }
     
     # Check if it's a predefined group
@@ -136,6 +139,10 @@ def get_agent_class(algo_name):
         'ST-VimTD3': STVimTD3Agent,
         'stv_patch_td3': VimPatchTD3Agent,
         'stv_vim_td3': VimTD3Agent,
+        'st_seq_vim_td3': StateSeqVimTD3Agent,
+        'ST-SeqVimTD3': StateSeqVimTD3Agent,
+        'stv_seq_vim_td3': VimStateSeqTD3Agent,
+        'STV-SeqVimTD3': VimStateSeqTD3Agent,
         'stv_per_vim_td3': PERVimTD3Agent,
         'ST_VimTD3_asym': AsymSTVimTD3Agent,
         'ST-VimTD3_asym': AsymSTVimTD3Agent,
@@ -342,7 +349,7 @@ def main():
             # Determine properties for this algorithm
             recurrent_algos = [
                 'cfc_td3', 'mamba_td3', 'ST-VimTD3',
-                'stv_patch_td3', 'stv_vim_td3', 'stv_per_vim_td3',
+                'stv_patch_td3', 'stv_vim_td3', 'st_seq_vim_td3', 'ST-SeqVimTD3', 'stv_seq_vim_td3', 'STV-SeqVimTD3', 'stv_per_vim_td3',
                 'ST_VimTD3_asym', 'ST-VimTD3_asym', 'ST-SVimTD3', 'ST_3DVimTD3', 'ST-DualVimTD3'
             ]
             
@@ -467,6 +474,17 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, ba
 
     state = depth_image
     base = base_state
+    base_seq_algos = {"st_seq_vim_td3", "ST-SeqVimTD3", "stv_seq_vim_td3", "STV-SeqVimTD3"}
+    use_base_sequence = bool(is_recurrent and core_algo_name in base_seq_algos)
+    base_seq_deque = None
+    base_seq = None
+    if use_base_sequence:
+        base_seq_deque = collections.deque(maxlen=n_frames)
+        init_base = np.asarray(base, dtype=np.float32)
+        for _ in range(n_frames):
+            base_seq_deque.append(init_base.copy())
+        base_seq = np.stack(list(base_seq_deque), axis=0).astype(np.float32)
+
     depth_view_scale = max(float(getattr(args, "depth_view_scale", 2.5)), 1.0)
            
 
@@ -488,8 +506,10 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, ba
                 if depth_seq.ndim == 3:
                     depth_seq = np.expand_dims(depth_seq, axis=1)
                 actor_depth_current = depth_seq
+                actor_base_current = base_seq if use_base_sequence else base
             else:
                 actor_depth_current = state
+                actor_base_current = base
 
             critic_depth_current = None
             critic_priv_current = None
@@ -509,7 +529,7 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, ba
                 # print(f"Random action at timestep {total_timesteps}: {action}")
             else:
                 if is_recurrent:
-                    action = agent.select_action(base, depth_seq, progress_ratio=success_rate_signal)
+                    action = agent.select_action(actor_base_current, depth_seq, progress_ratio=success_rate_signal)
                 else:
                     # Non-recurrent: state is (4, H, W)
                     action = agent.select_action(base, state, progress_ratio=success_rate_signal)
@@ -624,6 +644,16 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, ba
             else:
                 actor_depth_next = next_state
 
+            next_base_seq = None
+            next_base_seq_deque = None
+            if use_base_sequence:
+                next_base_seq_deque = collections.deque(base_seq_deque, maxlen=n_frames)
+                next_base_seq_deque.append(np.asarray(next_base, dtype=np.float32))
+                next_base_seq = np.stack(list(next_base_seq_deque), axis=0).astype(np.float32)
+
+            base_for_buffer = base_seq if use_base_sequence else base
+            next_base_for_buffer = next_base_seq if use_base_sequence else next_base
+
             critic_depth_next = None
             critic_priv_next = None
             if is_asym_algo:
@@ -635,22 +665,22 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, ba
                 if core_algo_name == 'ST-SVimTD3':
                     has_collided = float(step_info.get("has_collided", False)) if isinstance(step_info, dict) else 0.0
                     agent.replay_buffer.add(
-                        base,
+                        base_for_buffer,
                         depth_seq,
                         action,
                         reward,
-                        next_base,
+                        next_base_for_buffer,
                         next_depth_seq,
                         done_bool,
                         has_collided
                     )
                 elif is_asym_algo:
                     agent.replay_buffer.add(
-                        base,
+                        base_for_buffer,
                         depth_seq,
                         action,
                         reward,
-                        next_base,
+                        next_base_for_buffer,
                         next_depth_seq,
                         done_bool,
                         critic_priv=critic_priv_current,
@@ -670,22 +700,22 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, ba
                     if supports_success_flag:
                         is_success = float(step_info.get("is_success", False)) if isinstance(step_info, dict) else 0.0
                         agent.replay_buffer.add(
-                            base,
+                            base_for_buffer,
                             depth_seq,
                             action,
                             reward,
-                            next_base,
+                            next_base_for_buffer,
                             next_depth_seq,
                             done_bool,
                             is_success,
                         )
                     else:
                         agent.replay_buffer.add(
-                            base,
+                            base_for_buffer,
                             depth_seq,
                             action,
                             reward,
-                            next_base,
+                            next_base_for_buffer,
                             next_depth_seq,
                             done_bool
                         )
@@ -740,6 +770,9 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, ba
             # State Update
             state = next_state
             base = next_base
+            if use_base_sequence:
+                base_seq_deque = next_base_seq_deque
+                base_seq = next_base_seq
 
             # Episode End Handling
             if done:
@@ -810,6 +843,12 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, ba
                         raise
                 state = obs['depth']
                 base = obs['base']
+                if use_base_sequence:
+                    base_seq_deque = collections.deque(maxlen=n_frames)
+                    reset_base = np.asarray(base, dtype=np.float32)
+                    for _ in range(n_frames):
+                        base_seq_deque.append(reset_base.copy())
+                    base_seq = np.stack(list(base_seq_deque), axis=0).astype(np.float32)
 
                 # Memory cleanup after episode end
                 if torch.cuda.is_available():
