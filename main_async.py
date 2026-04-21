@@ -32,7 +32,7 @@ from config import get_config
 from algorithm.config_loader import apply_algorithm_params
 import gymnasium as gym
 import gym_airsim  # noqa: F401 - ensure env ids are registered
-from gym_airsim.envs import AirSimEnv, AirSimEnvGradientReward
+from gym_airsim.envs import AirSimEnv
 
 # Algorithm Imports
 from algorithm.td3.td3 import TD3Agent
@@ -169,7 +169,6 @@ def create_env_from_name(args, n_frames):
     # Local aliases (instantiate directly to avoid wrapper surprises).
     env_aliases = {
         "AirSimEnv-v42": AirSimEnv,
-        "AirSimEnv-Gradient-v1": AirSimEnvGradientReward,
     }
     env_cls = env_aliases.get(env_name)
     if env_cls is not None:
