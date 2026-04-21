@@ -26,16 +26,18 @@ def expand_algorithms(algo_str):
             "per_td3",
             "per_aetd3",
             "cfc_td3",
-            "st_mamba_td3",
             "ST-VimTD3",
+            "stv_patch_td3",
+            "stv_vim_td3",
+            "stv_per_vim_td3",
             "ST-SVimTD3",
-            "st_cnn_td3",
+            "mamba_td3",
             "gam_mamba_td3",
             "gam_td3",
             "ST_3DVimTD3",
         ],
         "base": ["td3", "ddpg", "aetd3", "per_td3", "per_aetd3"],
-        "seq": ["cfc_td3", "st_mamba_td3", "ST-VimTD3", "ST-SVimTD3", "st_cnn_td3", "ST_3DVimTD3"],
+        "seq": ["cfc_td3", "ST-VimTD3", "stv_patch_td3", "stv_vim_td3", "stv_per_vim_td3", "ST-SVimTD3", "mamba_td3", "ST_3DVimTD3"],
     }
 
     if algo_str in groups:

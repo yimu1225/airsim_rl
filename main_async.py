@@ -41,10 +41,12 @@ from algorithm.per_td3.per_td3 import PERTD3Agent
 from algorithm.per_aetd3.per_aetd3 import PERAETD3Agent
 
 from algorithm.cfc_td3.cfc_td3 import CFCTD3Agent
-from algorithm.st_mamba_td3.agent import ST_Mamba_Agent
 from algorithm.ST_VimTD3.agent import STVimTD3Agent
+from algorithm.stv_patch_td3.agent import VimPatchTD3Agent
+from algorithm.stv_vim_td3.agent import VimTD3Agent
+from algorithm.stv_per_vim_td3.agent import PERVimTD3Agent
 from algorithm.ST_SVimTD3.agent import STSVimTD3Agent
-from algorithm.st_cnn_td3.st_cnn_td3 import ST_CNN_Agent
+from algorithm.mamba_td3.agent import MambaTD3Agent
 from algorithm.gam_mamba_td3.td3 import GAMMambaTD3Agent
 from algorithm.gam_td3.td3 import GAMTD3Agent
 from algorithm.ST_3DVimTD3.agent import ST3DVimTD3Agent
@@ -96,9 +98,9 @@ def expand_algorithms(algo_str):
     """
     # Predefined algorithm groups
     groups = {
-        'all': ['td3', 'noisy_td3', 'noisy_td3_type2', 'ddpg', 'aetd3', 'per_td3', 'per_aetd3', 'cfc_td3', 'st_mamba_td3', 'ST-VimTD3', 'ST-SVimTD3', 'st_cnn_td3', 'gam_mamba_td3', 'gam_td3', 'ST_3DVimTD3', 'ST-DualVimTD3', 'sac', 'td3_asym', 'per_td3_asym', 'ST_VimTD3_asym'],
+        'all': ['td3', 'noisy_td3', 'noisy_td3_type2', 'ddpg', 'aetd3', 'per_td3', 'per_aetd3', 'cfc_td3', 'ST-VimTD3', 'stv_patch_td3', 'stv_vim_td3', 'stv_per_vim_td3', 'ST-SVimTD3', 'mamba_td3', 'gam_mamba_td3', 'gam_td3', 'ST_3DVimTD3', 'ST-DualVimTD3', 'sac', 'td3_asym', 'per_td3_asym', 'ST_VimTD3_asym'],
         'base': ['td3', 'noisy_td3', 'noisy_td3_type2', 'ddpg', 'aetd3', 'per_td3', 'per_aetd3', 'sac', 'td3_asym', 'per_td3_asym'],
-        'seq': ['cfc_td3', 'st_mamba_td3', 'ST-VimTD3', 'ST-SVimTD3', 'st_cnn_td3', 'ST_3DVimTD3', 'ST-DualVimTD3', 'ST_VimTD3_asym']
+        'seq': ['cfc_td3', 'ST-VimTD3', 'stv_patch_td3', 'stv_vim_td3', 'stv_per_vim_td3', 'ST-SVimTD3', 'mamba_td3', 'ST_3DVimTD3', 'ST-DualVimTD3', 'ST_VimTD3_asym']
     }
     
     # Check if it's a predefined group
@@ -129,12 +131,14 @@ def get_agent_class(algo_name):
         'per_td3_asym': AsymPERTD3Agent,
         'per_aetd3': PERAETD3Agent,
         'cfc_td3': CFCTD3Agent,
-        'st_mamba_td3': ST_Mamba_Agent,
         'ST-VimTD3': STVimTD3Agent,
+        'stv_patch_td3': VimPatchTD3Agent,
+        'stv_vim_td3': VimTD3Agent,
+        'stv_per_vim_td3': PERVimTD3Agent,
         'ST_VimTD3_asym': AsymSTVimTD3Agent,
         'ST-VimTD3_asym': AsymSTVimTD3Agent,
         'ST-SVimTD3': STSVimTD3Agent,
-        'st_cnn_td3': ST_CNN_Agent,
+        'mamba_td3': MambaTD3Agent,
         'gam_mamba_td3': GAMMambaTD3Agent,
         'gam_td3': GAMTD3Agent,
         'ST_3DVimTD3': ST3DVimTD3Agent,
@@ -328,7 +332,9 @@ def main():
 
             # Determine properties for this algorithm
             recurrent_algos = [
-                'cfc_td3', 'st_cnn_td3', 'st_mamba_td3', 'ST-VimTD3', 'ST_VimTD3_asym', 'ST-VimTD3_asym', 'ST-SVimTD3', 'ST_3DVimTD3', 'ST-DualVimTD3'
+                'cfc_td3', 'mamba_td3', 'ST-VimTD3',
+                'stv_patch_td3', 'stv_vim_td3', 'stv_per_vim_td3',
+                'ST_VimTD3_asym', 'ST-VimTD3_asym', 'ST-SVimTD3', 'ST_3DVimTD3', 'ST-DualVimTD3'
             ]
             
             is_recurrent = actual_algo_name in recurrent_algos
@@ -644,15 +650,36 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, ba
                         next_critic_depth=critic_depth_next,
                     )
                 else:
-                    agent.replay_buffer.add(
-                        base,
-                        depth_seq,
-                        action,
-                        reward,
-                        next_base,
-                        next_depth_seq,
-                        done_bool
-                    )
+                    add_fn = getattr(agent.replay_buffer, "add", None)
+                    supports_success_flag = False
+                    if callable(add_fn):
+                        try:
+                            supports_success_flag = "is_success" in inspect.signature(add_fn).parameters
+                        except (TypeError, ValueError):
+                            supports_success_flag = False
+
+                    if supports_success_flag:
+                        is_success = float(step_info.get("is_success", False)) if isinstance(step_info, dict) else 0.0
+                        agent.replay_buffer.add(
+                            base,
+                            depth_seq,
+                            action,
+                            reward,
+                            next_base,
+                            next_depth_seq,
+                            done_bool,
+                            is_success,
+                        )
+                    else:
+                        agent.replay_buffer.add(
+                            base,
+                            depth_seq,
+                            action,
+                            reward,
+                            next_base,
+                            next_depth_seq,
+                            done_bool
+                        )
             else:
                 if is_asym_algo:
                     if core_algo_name == "per_td3_asym":

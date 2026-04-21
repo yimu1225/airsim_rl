@@ -4,30 +4,32 @@ import torch.nn as nn
 from Vim.vim.models_mamba import VisionMamba
 
 
-class STMambaEncoder(nn.Module):
-    def __init__(self, state_dim, action_dim, args):
+class VimEncoder(nn.Module):
+    """
+    Vim-only encoder:
+    - Per-frame VisionMamba feature extraction
+    - No temporal Mamba stack
+    """
+
+    def __init__(self, args):
         super().__init__()
         self.embed_dim = args.st_mamba_embed_dim
         self.depth = args.st_mamba_depth
         self.patch_size = args.st_mamba_patch_size
         self.d_state = args.st_mamba_d_state
-        self.d_conv = args.st_mamba_d_conv
-        self.expand = args.st_mamba_expand
+        self.seq_len = args.n_frames
 
         depth_shape = args.depth_shape
         in_chans = depth_shape[0]
-        self.seq_len = args.n_frames
-
         height = depth_shape[1]
         width = depth_shape[2]
-        self.grid_h = height // self.patch_size
-        self.grid_w = width // self.patch_size
-        self.tokens_per_frame = self.grid_h * self.grid_w
-        self.num_tokens = self.tokens_per_frame * self.seq_len
 
-        img_size = (height * self.seq_len, width)
+        # Keep token usage behavior aligned with ST-VimTD3 for fair ablation.
+        self.flatten_all_tokens = bool(getattr(args, "st_vim_flatten_all_tokens", True))
+        self.repr_dim = self.embed_dim * self.seq_len if self.flatten_all_tokens else self.embed_dim
+
         self.vim = VisionMamba(
-            img_size=img_size,
+            img_size=(height, width),
             patch_size=self.patch_size,
             stride=self.patch_size,
             depth=self.depth,
@@ -43,32 +45,34 @@ class STMambaEncoder(nn.Module):
             residual_in_fp32=True,
             if_cls_token=True,
             use_middle_cls_token=True,
-            final_pool_type='none',
+            final_pool_type="none",
             if_bimamba=True,
             bimamba_type="v2",
             drop_rate=args.st_mamba_drop_rate,
             drop_path_rate=args.st_mamba_drop_path_rate,
         )
 
-    def forward(self, depth_seq, state_vec, action=None):
+    def forward(self, depth_seq):
         if depth_seq.dim() == 4:
             depth_seq = depth_seq.unsqueeze(0)
 
-        B, T, C, H, W = depth_seq.shape
-        if T != self.seq_len:
-            raise ValueError(f"Expected seq_len={self.seq_len}, got {T}")
+        bsz, seq_len, channels, height, width = depth_seq.shape
+        if seq_len != self.seq_len:
+            raise ValueError(f"Expected seq_len={self.seq_len}, got {seq_len}")
 
-        merged = depth_seq.reshape(B, C, T * H, W)
-        vis_token = self.vim(merged, return_features=True)
+        frames = depth_seq.reshape(bsz * seq_len, channels, height, width)
+        frame_tokens = self.vim(frames, return_features=True).view(bsz, seq_len, self.embed_dim)
 
-        return vis_token
+        if self.flatten_all_tokens:
+            return frame_tokens.reshape(bsz, seq_len * self.embed_dim)
+        return frame_tokens[:, -1, :]
 
 
 class Actor(nn.Module):
     def __init__(self, feature_dim, action_dim, hidden_dim=256):
         super().__init__()
+        self.input_norm = nn.LayerNorm(feature_dim)
         self.net = nn.Sequential(
-            nn.LayerNorm(feature_dim),
             nn.Linear(feature_dim, hidden_dim),
             nn.LayerNorm(hidden_dim),
             nn.ReLU(inplace=True),
@@ -76,56 +80,41 @@ class Actor(nn.Module):
             nn.LayerNorm(hidden_dim),
             nn.ReLU(inplace=True),
             nn.Linear(hidden_dim, action_dim),
-            nn.Tanh()
+            nn.Tanh(),
         )
         self.apply(self._init_weights)
 
-    def _init_weights(self, m):
-        if isinstance(m, nn.Linear):
-            nn.init.kaiming_uniform_(m.weight, mode='fan_in', nonlinearity='relu')
-            if m.bias is not None:
-                nn.init.constant_(m.bias, 0)
+    def _init_weights(self, module):
+        if isinstance(module, nn.Linear):
+            nn.init.kaiming_uniform_(module.weight, mode="fan_in", nonlinearity="relu")
+            if module.bias is not None:
+                nn.init.constant_(module.bias, 0)
 
-    def forward(self, x):
-        return self.net(x)
+    def forward(self, features):
+        return self.net(self.input_norm(features))
 
 
 class Critic(nn.Module):
     def __init__(self, feature_dim, action_dim, hidden_dim=256):
         super().__init__()
         self.input_norm = nn.LayerNorm(feature_dim + action_dim)
-        self.q1_net = nn.Sequential(
+        self.net = nn.Sequential(
             nn.Linear(feature_dim + action_dim, hidden_dim),
             nn.LayerNorm(hidden_dim),
             nn.ReLU(inplace=True),
             nn.Linear(hidden_dim, hidden_dim),
             nn.LayerNorm(hidden_dim),
             nn.ReLU(inplace=True),
-            nn.Linear(hidden_dim, 1)
-        )
-        self.q2_net = nn.Sequential(
-            nn.Linear(feature_dim + action_dim, hidden_dim),
-            nn.LayerNorm(hidden_dim),
-            nn.ReLU(inplace=True),
-            nn.Linear(hidden_dim, hidden_dim),
-            nn.LayerNorm(hidden_dim),
-            nn.ReLU(inplace=True),
-            nn.Linear(hidden_dim, 1)
+            nn.Linear(hidden_dim, 1),
         )
         self.apply(self._init_weights)
 
-    def _init_weights(self, m):
-        if isinstance(m, nn.Linear):
-            nn.init.kaiming_uniform_(m.weight, mode='fan_in', nonlinearity='relu')
-            if m.bias is not None:
-                nn.init.constant_(m.bias, 0)
+    def _init_weights(self, module):
+        if isinstance(module, nn.Linear):
+            nn.init.kaiming_uniform_(module.weight, mode="fan_in", nonlinearity="relu")
+            if module.bias is not None:
+                nn.init.constant_(module.bias, 0)
 
-    def forward(self, x, action):
-        xu = torch.cat([x, action], dim=-1)
-        xu = self.input_norm(xu)
-        return self.q1_net(xu), self.q2_net(xu)
-
-    def q1(self, x, action):
-        xu = torch.cat([x, action], dim=-1)
-        xu = self.input_norm(xu)
-        return self.q1_net(xu)
+    def forward(self, features, action):
+        x = torch.cat([features, action], dim=-1)
+        return self.net(self.input_norm(x))

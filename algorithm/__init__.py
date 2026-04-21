@@ -2,11 +2,14 @@ from .td3 import TD3Agent
 from .aetd3 import AETD3Agent
 from .gam_mamba_td3 import GAMMambaTD3Agent
 from .gam_td3 import GAMTD3Agent
-from .st_cnn_td3.st_cnn_td3 import ST_CNN_Agent
 from .ST_VimTD3.agent import STVimTD3Agent
+from .stv_patch_td3.agent import VimPatchTD3Agent
+from .stv_vim_td3.agent import VimTD3Agent
+from .stv_per_vim_td3.agent import PERVimTD3Agent
 from .ST_SVimTD3.agent import STSVimTD3Agent
+from .mamba_td3.agent import MambaTD3Agent
 from .ST_3DVimTD3.agent import ST3DVimTD3Agent
 from .st_dualvim_td3.agent import DualBranchVideoMambaTD3Agent
 from .ppo import PPOAgent
 
-__all__ = ["TD3Agent", "AETD3Agent", "GAMMambaTD3Agent", "GAMTD3Agent", "ST_CNN_Agent", "STVimTD3Agent", "STSVimTD3Agent", "ST3DVimTD3Agent", "DualBranchVideoMambaTD3Agent", "PPOAgent"]
+__all__ = ["TD3Agent", "AETD3Agent", "GAMMambaTD3Agent", "GAMTD3Agent", "STVimTD3Agent", "VimPatchTD3Agent", "VimTD3Agent", "PERVimTD3Agent", "STSVimTD3Agent", "MambaTD3Agent", "ST3DVimTD3Agent", "DualBranchVideoMambaTD3Agent", "PPOAgent"]

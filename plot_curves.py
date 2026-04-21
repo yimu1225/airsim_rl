@@ -5,152 +5,163 @@ import numpy as np
 import matplotlib.pyplot as plt
 from config import get_config
 
-def smooth_curve(values, window=10):
-    """对曲线进行平滑处理。
+def _prepare_xy(x_values, y_values):
+    """清洗并排序单条曲线，保证 x 严格递增。"""
+    x_arr = np.asarray(x_values, dtype=np.float64).reshape(-1)
+    y_arr = np.asarray(y_values, dtype=np.float64).reshape(-1)
 
-    原来的实现使用 ``np.convolve``+``mode='same'``，该模式会在
-    序列两端假定零填充，因此边缘点会被错误地拉低，尤其在
-    窗口较大时会产生不自然的下降或上升。
-    
-    这里改用 pandas 的滚动平均，``center=True`` 保证窗口
-    居中，``min_periods=1`` 在边缘处仍然返回合理值。结果长度
-   与输入保持一致，不会出现边缘失真。
-    """
-    if window <= 1 or len(values) < window:
-        return values
-    # 使用 pandas rolling 计算居中移动平均，自动处理边界
-    series = pd.Series(values)
-    smoothed = series.rolling(window, center=True, min_periods=1).mean().to_numpy()
-    return smoothed
+    if x_arr.size != y_arr.size or x_arr.size < 2:
+        return None
 
+    finite_mask = np.isfinite(x_arr) & np.isfinite(y_arr)
+    x_arr = x_arr[finite_mask]
+    y_arr = y_arr[finite_mask]
+    if x_arr.size < 2:
+        return None
 
-def zero_phase_double_exponential_smoothing(data, alpha=0.3, beta=0.1):
-    """
-    零相位双重指数平滑（Zero-Phase Double Exponential Smoothing）
-    
-    结合双重指数平滑（Holt's方法）和零相位滤波技术：
-    1. 双重指数平滑：处理带有趋势的时间序列，同时平滑水平和趋势分量
-    2. 零相位滤波：通过前向+后向滤波消除相位延迟
-    
-    参数:
-        data: 输入数据（1D numpy数组或列表）
-        alpha: 水平平滑因子 (0~1)，越大越关注近期数据
-        beta: 趋势平滑因子 (0~1)，越大越关注近期趋势变化
-    
-    返回:
-        平滑后的数据（与输入等长）
-    """
-    data = np.asarray(data, dtype=np.float64)
-    n = len(data)
-    if n <= 1:
-        return data
-    
-    # 第一阶段：正向双重指数平滑
-    s_fwd = np.zeros(n)  # 水平分量
-    b_fwd = np.zeros(n)  # 趋势分量
-    
-    # 初始化
-    s_fwd[0] = data[0]
-    b_fwd[0] = data[1] - data[0] if n > 1 else 0
-    
-    for t in range(1, n):
-        s_fwd[t] = alpha * data[t] + (1 - alpha) * (s_fwd[t-1] + b_fwd[t-1])
-        b_fwd[t] = beta * (s_fwd[t] - s_fwd[t-1]) + (1 - beta) * b_fwd[t-1]
-    
-    # 第二阶段：反向双重指数平滑（消除相位延迟）
-    s_rev = s_fwd[::-1]
-    s_bwd = np.zeros(n)
-    b_bwd = np.zeros(n)
-    
-    s_bwd[0] = s_rev[0]
-    b_bwd[0] = s_rev[1] - s_rev[0] if n > 1 else 0
-    
-    for t in range(1, n):
-        s_bwd[t] = alpha * s_rev[t] + (1 - alpha) * (s_bwd[t-1] + b_bwd[t-1])
-        b_bwd[t] = beta * (s_bwd[t] - s_bwd[t-1]) + (1 - beta) * b_bwd[t-1]
-    
-    return s_bwd[::-1]
+    order = np.argsort(x_arr, kind="mergesort")
+    x_sorted = x_arr[order]
+    y_sorted = y_arr[order]
 
-
-def interpolate_to_grid(x_src, y_src, x_dst):
-    """将单条曲线插值到统一网格，原始范围外填充 NaN。"""
-    x_src = np.asarray(x_src, dtype=np.float64)
-    y_src = np.asarray(y_src, dtype=np.float64)
-    x_dst = np.asarray(x_dst, dtype=np.float64)
-
-    if x_src.size == 0 or y_src.size == 0:
-        return np.full_like(x_dst, np.nan, dtype=np.float64)
-
-    # 保证 x 严格递增且去重，避免 np.interp 在重复点处行为不稳定
-    order = np.argsort(x_src)
-    x_sorted = x_src[order]
-    y_sorted = y_src[order]
     unique_x, unique_idx = np.unique(x_sorted, return_index=True)
     unique_y = y_sorted[unique_idx]
-
-    if unique_x.size == 1:
-        y_interp = np.full_like(x_dst, np.nan, dtype=np.float64)
-        y_interp[np.isclose(x_dst, unique_x[0])] = unique_y[0]
-        return y_interp
-
-    return np.interp(x_dst, unique_x, unique_y, left=np.nan, right=np.nan)
-
-
-def aggregate_seed_curves(smoothed_curves, n_points=1000, ci_type="std", min_valid_count=1):
-    """
-    将多个 seed 曲线对齐到“并集时间轴”，并用 NaN 感知统计量聚合。
-
-    返回:
-        x_common, mean, lower, upper, valid_mask, valid_counts
-    """
-    if not smoothed_curves:
+    if unique_x.size < 2:
         return None
 
-    starts = [timesteps[0] for timesteps, _ in smoothed_curves if len(timesteps) > 0]
-    ends = [timesteps[-1] for timesteps, _ in smoothed_curves if len(timesteps) > 0]
-    if not starts or not ends:
-        return None
+    return unique_x, unique_y
 
-    min_timestep = min(starts)
-    max_timestep = max(ends)
-    if min_timestep >= max_timestep:
-        return None
 
-    x_common = np.linspace(min_timestep, max_timestep, n_points)
-    interpolated_curves = np.array(
-        [interpolate_to_grid(timesteps, values, x_common) for timesteps, values in smoothed_curves],
-        dtype=np.float64,
+def one_sided_ema(xolds, yolds, low=None, high=None, n=512, decay_steps=1.0, low_counts_threshold=1e-8):
+    """baselines 同款单侧 EMA 重采样。"""
+    xolds = np.asarray(xolds, dtype=np.float64)
+    yolds = np.asarray(yolds, dtype=np.float64)
+    n = max(2, int(n))
+    decay_steps = max(float(decay_steps), 1e-6)
+
+    low = float(xolds[0]) if low is None else float(low)
+    high = float(xolds[-1]) if high is None else float(high)
+
+    if low >= high:
+        xnews = np.linspace(low, low + 1.0, n)
+        ys = np.full_like(xnews, yolds.mean(), dtype=np.float64)
+        counts = np.ones_like(xnews, dtype=np.float64)
+        return xnews, ys, counts
+
+    luoi = 0
+    sum_y = 0.0
+    count_y = 0.0
+    xnews = np.linspace(low, high, n)
+    decay_period = (high - low) / (n - 1) * decay_steps
+    interstep_decay = np.exp(-1.0 / decay_steps)
+    sum_ys = np.zeros_like(xnews)
+    count_ys = np.zeros_like(xnews)
+
+    for i, xnew in enumerate(xnews):
+        sum_y *= interstep_decay
+        count_y *= interstep_decay
+
+        while luoi < len(xolds) and xolds[luoi] <= xnew:
+            decay = np.exp(-(xnew - xolds[luoi]) / decay_period)
+            sum_y += decay * yolds[luoi]
+            count_y += decay
+            luoi += 1
+
+        sum_ys[i] = sum_y
+        count_ys[i] = count_y
+
+    ys = np.divide(sum_ys, count_ys, out=np.full_like(sum_ys, np.nan), where=count_ys > 0)
+    ys[count_ys < low_counts_threshold] = np.nan
+    return xnews, ys, count_ys
+
+
+def symmetric_ema(xolds, yolds, low=None, high=None, n=512, decay_steps=1.0, low_counts_threshold=1e-8):
+    """baselines 同款双侧 EMA 重采样（对称平滑）。"""
+    xs, ys1, count_ys1 = one_sided_ema(
+        xolds,
+        yolds,
+        low=low,
+        high=high,
+        n=n,
+        decay_steps=decay_steps,
+        low_counts_threshold=0.0,
     )
+    _, ys2, count_ys2 = one_sided_ema(
+        -xolds[::-1],
+        yolds[::-1],
+        low=-float(high),
+        high=-float(low),
+        n=n,
+        decay_steps=decay_steps,
+        low_counts_threshold=0.0,
+    )
+    ys2 = ys2[::-1]
+    count_ys2 = count_ys2[::-1]
+    count_ys = count_ys1 + count_ys2
+    ys = np.divide(
+        ys1 * count_ys1 + ys2 * count_ys2,
+        count_ys,
+        out=np.full_like(count_ys, np.nan),
+        where=count_ys > 0,
+    )
+    ys[count_ys < low_counts_threshold] = np.nan
+    return xs, ys, count_ys
 
-    valid_counts = np.sum(np.isfinite(interpolated_curves), axis=0)
-    valid_mask = valid_counts >= max(1, int(min_valid_count))
-    if not np.any(valid_mask):
+
+def aggregate_seed_curves(seed_curves, resample_points=512, smooth_step=1.0, ci_type="std"):
+    """baselines 风格：交集区间 + EMA 重采样 + 均值/方差聚合。"""
+    prepared = []
+    for timesteps, values in seed_curves:
+        cleaned = _prepare_xy(timesteps, values)
+        if cleaned is not None:
+            prepared.append(cleaned)
+
+    if not prepared:
         return None
 
-    mean = np.full_like(x_common, np.nan, dtype=np.float64)
-    std = np.full_like(x_common, np.nan, dtype=np.float64)
+    low = max(xvals[0] for xvals, _ in prepared)
+    high = min(xvals[-1] for xvals, _ in prepared)
+    if low >= high:
+        return None
 
-    mean[valid_mask] = (
-        np.nansum(interpolated_curves[:, valid_mask], axis=0) / valid_counts[valid_mask]
-    )
-    centered = interpolated_curves[:, valid_mask] - mean[valid_mask]
-    centered = np.where(np.isfinite(interpolated_curves[:, valid_mask]), centered, np.nan)
-    std[valid_mask] = np.sqrt(
-        np.nansum(centered ** 2, axis=0) / valid_counts[valid_mask]
-    )
+    resample_points = max(2, int(resample_points))
+    smoothed_ys = []
+    usex = None
+    for xvals, yvals in prepared:
+        xs, ys, _ = symmetric_ema(
+            xvals,
+            yvals,
+            low=low,
+            high=high,
+            n=resample_points,
+            decay_steps=smooth_step,
+        )
+        usex = xs
+        smoothed_ys.append(ys)
 
-    if ci_type == "std":
+    ys = np.asarray(smoothed_ys, dtype=np.float64)
+    finite_mask = np.all(np.isfinite(ys), axis=0)
+    if not np.any(finite_mask):
+        return None
+
+    x_common = usex[finite_mask]
+    ys = ys[:, finite_mask]
+
+    mean = np.mean(ys, axis=0)
+    std = np.std(ys, axis=0)
+    stderr = std / np.sqrt(max(1, ys.shape[0]))
+
+    if ci_type == "sem":
+        ci = stderr
+    else:
         ci = std
-    else:  # sem
-        ci = std / np.sqrt(np.maximum(valid_counts, 1))
 
-    upper = mean + ci
     lower = mean - ci
-    return x_common, mean, lower, upper, valid_mask, valid_counts
+    upper = mean + ci
+    return x_common, mean, lower, upper, std, stderr, ys.shape[0]
 
-def plot_curves(algorithms, seeds_to_plot=None, save_path="learning_curves.png", 
+def plot_curves(algorithms, seeds_to_plot=None, save_path="learning_curves.png",
                 smooth_window=10, smooth_method="moving", smooth_alpha=0.6, smooth_beta=0.1,
-                plot_cl=True, plot_non_cl=True, n_interpolate_points=1000, ci_type="std"):
+                plot_cl=True, plot_non_cl=True, n_interpolate_points=512, smooth_step=1.0, ci_type="std"):
     """
     Plots learning curves for specified algorithms on the same figures.
     Reads CSV logs from 'results' directory.
@@ -160,13 +171,14 @@ def plot_curves(algorithms, seeds_to_plot=None, save_path="learning_curves.png",
         algorithms: 算法列表
         seeds_to_plot: 要绘制的随机种子列表（如 ['1', '2', '3']），None 表示绘制所有种子
         save_path: 保存路径
-        smooth_window: 平滑窗口大小（仅对 ``moving`` 方法有效）
-        smooth_method: 平滑方法，"moving" 或 "zero_phase_des"（零相位双重指数平滑）。
-        smooth_alpha: 对于 ``zero_phase_des`` 使用，水平平滑因子 (0~1)，越大越关注近期数据
-        smooth_beta: 对于 ``zero_phase_des`` 使用，趋势平滑因子 (0~1)，越大越关注近期趋势变化
+        smooth_window: 兼容旧参数，baselines 风格聚合中不使用
+        smooth_method: 兼容旧参数，baselines 风格聚合中不使用
+        smooth_alpha: 兼容旧参数，baselines 风格聚合中不使用
+        smooth_beta: 兼容旧参数，baselines 风格聚合中不使用
         plot_cl: 是否绘制带 CL- 前缀的算法
         plot_non_cl: 是否绘制不带 CL- 前缀的算法
-        n_interpolate_points: 插值点数，用于对齐多个种子的曲线（并集时间轴）
+        n_interpolate_points: baselines 风格重采样点数（默认 512）
+        smooth_step: baselines 风格 EMA 的 decay_steps 参数
     """
     results_dir = "./results"
     
@@ -264,8 +276,7 @@ def plot_curves(algorithms, seeds_to_plot=None, save_path="learning_curves.png",
         print(f"\n{algo_name}: {len(seeds)} seeds")
         
         # 收集每个种子的数据
-        smoothed_curves = []
-        seed_end_timesteps = []
+        seed_curves = []
         
         for seed in seeds:
             seed_df = algo_df[algo_df['Seed'] == seed].sort_values('total_timesteps')
@@ -274,58 +285,32 @@ def plot_curves(algorithms, seeds_to_plot=None, save_path="learning_curves.png",
             
             timesteps = seed_df['total_timesteps'].values
             rewards = seed_df['reward'].values
-            
-            # 对该种子的数据进行平滑
-            if smooth_method == "moving":
-                rewards_smooth = smooth_curve(rewards, smooth_window)
-            else:  # zero_phase_des（零相位双重指数平滑）
-                rewards_smooth = zero_phase_double_exponential_smoothing(
-                    rewards, alpha=smooth_alpha, beta=smooth_beta
-                )
-            
-            smoothed_curves.append((timesteps, rewards_smooth))
-            seed_end_timesteps.append(timesteps[-1])
-        
-        if not smoothed_curves:
+
+            seed_curves.append((timesteps, rewards))
+
+        if not seed_curves:
             continue
-
-        min_end = min(seed_end_timesteps)
-        max_end = max(seed_end_timesteps)
-        if max_end > min_end * 3:
-            print(
-                f"  Note: {algo_name} seed 时长差异较大 ({int(min_end)} ~ {int(max_end)}), "
-                "已使用并集时间轴 + NaN 感知均值避免短 seed 截断整条曲线。"
-            )
-
-        n_seed_curves = len(smoothed_curves)
-        min_valid_for_plot = 1 if n_seed_curves <= 1 else max(2, int(np.ceil(0.5 * n_seed_curves)))
 
         aggregated = aggregate_seed_curves(
-            smoothed_curves,
-            n_points=n_interpolate_points,
+            seed_curves,
+            resample_points=n_interpolate_points,
+            smooth_step=smooth_step,
             ci_type=ci_type,
-            min_valid_count=min_valid_for_plot,
         )
         if aggregated is None:
-            print(f"  Warning: {algo_name} 聚合失败，跳过")
+            print(f"  Warning: {algo_name} 各 seed 时间轴交集为空或有效点不足，跳过")
             continue
-        x_common, mean_reward, lower, upper, valid_mask, valid_counts = aggregated
-        if valid_counts[-1] < min_valid_for_plot:
-            print(
-                f"  Note: {algo_name} 末端可用 seed 数不足（{int(valid_counts[-1])}/{n_seed_curves}），"
-                f"已隐藏覆盖不足的尾段以避免终点跳变。"
-            )
+        x_common, mean_reward, lower, upper, _, _, n_seed_curves = aggregated
         
         color = color_map[algo_name]
         
         # 绘制均值曲线
-        ax_reward.plot(x_common[valid_mask], mean_reward[valid_mask], 
+        ax_reward.plot(x_common, mean_reward,
                       label=algo_name.upper(), linewidth=2.5, color=color, 
                       linestyle=line_style_map[algo_name])
         
-        # 绘制阴影区域（标准差或标准误差）
-        ax_reward.fill_between(x_common[valid_mask], lower[valid_mask], upper[valid_mask],
-                              color=color, alpha=0.2)
+        # baselines 风格：均值曲线 + 组内离散度阴影
+        ax_reward.fill_between(x_common, lower, upper, color=color, alpha=0.2)
     
     ax_reward.set_xlabel("Total Timesteps", fontfamily='Arial', fontsize=20)
     ax_reward.set_ylabel("Reward", fontfamily='Arial', fontsize=20)
@@ -351,8 +336,7 @@ def plot_curves(algorithms, seeds_to_plot=None, save_path="learning_curves.png",
         seeds = algo_df['Seed'].unique()
         
         # 收集每个种子的数据
-        smoothed_curves = []
-        seed_end_timesteps = []
+        seed_curves = []
         
         for seed in seeds:
             seed_df = algo_df[algo_df['Seed'] == seed].sort_values('total_timesteps')
@@ -360,49 +344,22 @@ def plot_curves(algorithms, seeds_to_plot=None, save_path="learning_curves.png",
                 continue
             
             timesteps = seed_df['total_timesteps'].values
-            success_rates = seed_df['success_rate'].values
-            
-            # 对该种子的数据进行平滑
-            if smooth_method == "moving":
-                success_smooth = smooth_curve(success_rates, smooth_window)
-            else:  # zero_phase_des（零相位双重指数平滑）
-                success_smooth = zero_phase_double_exponential_smoothing(
-                    success_rates, alpha=smooth_alpha, beta=smooth_beta
-                )
-            # 成功率是有界指标，平滑后裁剪回 [0, 1] 避免 Holt 趋势项导致越界
-            success_smooth = np.clip(success_smooth, 0.0, 1.0)
-            
-            smoothed_curves.append((timesteps, success_smooth))
-            seed_end_timesteps.append(timesteps[-1])
-        
-        if not smoothed_curves:
+            success_rates = np.clip(seed_df['success_rate'].values, 0.0, 1.0)
+
+            seed_curves.append((timesteps, success_rates))
+
+        if not seed_curves:
             continue
 
-        min_end = min(seed_end_timesteps)
-        max_end = max(seed_end_timesteps)
-        if max_end > min_end * 3:
-            print(
-                f"  Note: {algo_name} seed 时长差异较大 ({int(min_end)} ~ {int(max_end)}), "
-                "已使用并集时间轴 + NaN 感知均值避免短 seed 截断整条曲线。"
-            )
-
-        n_seed_curves = len(smoothed_curves)
-        min_valid_for_plot = 1 if n_seed_curves <= 1 else max(2, int(np.ceil(0.5 * n_seed_curves)))
-
         aggregated = aggregate_seed_curves(
-            smoothed_curves,
-            n_points=n_interpolate_points,
+            seed_curves,
+            resample_points=n_interpolate_points,
+            smooth_step=smooth_step,
             ci_type=ci_type,
-            min_valid_count=min_valid_for_plot,
         )
         if aggregated is None:
             continue
-        x_common, mean_success, lower, upper, valid_mask, valid_counts = aggregated
-        if valid_counts[-1] < min_valid_for_plot:
-            print(
-                f"  Note: {algo_name} 末端可用 seed 数不足（{int(valid_counts[-1])}/{n_seed_curves}），"
-                f"已隐藏覆盖不足的尾段以避免终点跳变。"
-            )
+        x_common, mean_success, lower, upper, _, _, _ = aggregated
         mean_success = np.clip(mean_success, 0.0, 1.0)
         upper = np.clip(upper, 0.0, 1.0)
         lower = np.clip(lower, 0.0, 1.0)
@@ -410,12 +367,12 @@ def plot_curves(algorithms, seeds_to_plot=None, save_path="learning_curves.png",
         color = color_map[algo_name]
         
         # 绘制均值曲线
-        ax_success.plot(x_common[valid_mask], mean_success[valid_mask], 
+        ax_success.plot(x_common, mean_success,
                        label=algo_name.upper(), linewidth=2.5, color=color,
                        linestyle=line_style_map[algo_name])
         
         # 绘制阴影区域（标准差或标准误差）
-        ax_success.fill_between(x_common[valid_mask], lower[valid_mask], upper[valid_mask],
+        ax_success.fill_between(x_common, lower, upper,
                                color=color, alpha=0.2)
     
     ax_success.set_xlabel("Total Timesteps", fontfamily='Arial', fontsize=20)
@@ -443,7 +400,7 @@ def main():
     supported_algos = [
         'td3', 'ddpg', 'aetd3', 'per_td3', 'per_aetd3',
         'gru_td3', 'lstm_td3', 'gru_aetd3', 'lstm_aetd3', 'cfc_td3',
-        'st_mamba_td3', 'ST-VimTD3', 'ST-SVimTD3', 'st_cnn_td3', 'gam_mamba_td3', 'gam_td3'
+        'ST-VimTD3', 'stv_patch_td3', 'stv_vim_td3', 'stv_per_vim_td3', 'ST-SVimTD3', 'mamba_td3', 'gam_mamba_td3', 'gam_td3'
     ]
     
     if algo_list_input == 'all':
@@ -479,6 +436,8 @@ def main():
         smooth_beta=args.smooth_beta,
         plot_cl=args.plot_cl,
         plot_non_cl=args.plot_non_cl,
+        n_interpolate_points=args.resample_points,
+        smooth_step=args.curve_smooth_step,
         ci_type=args.ci_type)
 
 if __name__ == "__main__":
