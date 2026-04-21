@@ -68,7 +68,6 @@ def get_config(argv=None):
     parser.add_argument("--policy_noise", type=float, default=0.2, help="策略噪声")
     parser.add_argument("--noise_clip", type=float, default=0.5, help="噪声裁剪")
     parser.add_argument("--policy_freq", type=int, default=2, help="策略更新频率")
-    parser.add_argument("--noisy_td3_sigma_init", type=float, default=0.5, help="NoisyTD3: NoisyLinear 初始噪声系数")
     parser.add_argument("--grad_clip", type=float, default=4.0, help="梯度裁剪")
 
     # 可视化 (Visualization)
@@ -80,72 +79,9 @@ def get_config(argv=None):
     # 图像帧数参数 (所有算法统一的帧堆叠/序列长度)
     parser.add_argument("--n_frames", type=int, default=4, help="图像帧数（非时序算法为堆叠帧数，时序算法为序列长度）")
 
-    # SAC 参数 (Soft Actor-Critic)
-    parser.add_argument("--auto_entropy_tuning", action='store_true', default=True, help="SAC: 是否自动调整熵温度系数")
-    parser.add_argument("--alpha", type=float, default=0.2, help="SAC: 固定的熵温度系数 (当auto_entropy_tuning=False时使用)")
-    
-    # CfC
-    parser.add_argument("--cfc_lr", type=float, default=1e-2, help="CfC 时间序列模块学习率")
-    parser.add_argument("--cfc_units", type=int, default=32, help="NCPs 拓扑总神经元数")
-    parser.add_argument("--cfc_motor_units", type=int, default=8, help="NCPs 拓扑输出 (运动) 神经元数")
-    
-    # 时序Mamba参数 (Temporal Mamba Parameters)
-    parser.add_argument("--mamba_d_state", type=int, default=16, help="时序Mamba SSM状态维度")
-    parser.add_argument("--mamba_d_conv", type=int, default=4, help="时序Mamba卷积核大小")
-    parser.add_argument("--mamba_expand", type=int, default=2, help="时序Mamba扩展因子")
-    parser.add_argument("--attention_dropout", type=float, default=0.0, help="自注意力dropout率")
-    parser.add_argument("--mamba_td3_temporal_depth", type=int, default=2, help="mamba_td3 中时序 Mamba 堆叠层数")
-
-    # GAM-Mamba-TD3 参数
-    parser.add_argument("--gam_mamba_layers", type=int, default=2, help="GAM-Mamba-TD3中Mamba块堆叠层数")
-    parser.add_argument("--gam_mamba_d_state", type=int, default=16, help="GAM-Mamba-TD3中Mamba的SSM状态维度")
-    parser.add_argument("--gam_mamba_d_conv", type=int, default=4, help="GAM-Mamba-TD3中Mamba卷积核宽度")
-    parser.add_argument("--gam_mamba_expand", type=int, default=2, help="GAM-Mamba-TD3中Mamba扩展因子")
-
-    # ST-Mamba 参数
-    parser.add_argument("--st_mamba_embed_dim", type=int, default=32, help="ST-Mamba 嵌入维度")
-    parser.add_argument("--st_mamba_depth", type=int, default=1, help="ST-Mamba Block 数量")
-    parser.add_argument("--st_mamba_patch_size", type=int, default=32, help="ST-Mamba Patch 大小")
-    parser.add_argument("--st_mamba_d_state", type=int, default=32, help="ST-Mamba SSM 状态维度")
-    parser.add_argument("--st_mamba_d_conv", type=int, default=4, help="ST-Mamba SSM 卷积宽度")
-    parser.add_argument("--st_mamba_expand", type=int, default=2, help="ST-Mamba Block 扩展因子")
-    parser.add_argument("--st_mamba_drop_rate", type=float, default=0.05, help="ST-Mamba Dropout 率 (pos_drop)")
-    parser.add_argument("--st_mamba_drop_path_rate", type=float, default=0.05, help="ST-Mamba Drop Path 率 (stochastic depth)")
-    parser.add_argument("--st_mamba_temporal_depth", type=int, default=1, help="ST-Mamba-VimTokens 时序 Mamba Block 数量")
-
-    # ST-3DVimTD3 参数 (ST-3DVimTD3 Parameters)
-    parser.add_argument("--st_3d_patch_size", type=str, default="2,8,8", help="ST-3DVimTD3 3D Patch 大小 (时间,高度,宽度)，用逗号分隔，如 '2,4,4'")
-
-    # ST-VimTD3 Safety Layer 参数
-
-    parser.add_argument("--use_vim_safety_layer", dest="use_vim_safety_layer", action='store_true', help="启用基于Vim隐空间的Safety Layer")
-    parser.add_argument("--no_vim_safety_layer", dest="use_vim_safety_layer", action='store_false', help="禁用基于Vim隐空间的Safety Layer")
-    parser.set_defaults(use_vim_safety_layer=True)
-    parser.add_argument("--safety_lr", type=float, default=5e-4, help="Safety Constraint Head 学习率")
-    parser.add_argument("--safety_loss_coef", type=float, default=1.0, help="安全监督损失系数")
-    parser.add_argument("--safety_actor_penalty_coef", type=float, default=0.05, help="Actor 的约束违反惩罚系数")
-    parser.add_argument("--safety_warmup_steps", type=int, default=0, help="开始训练Safety Head前的迭代步数")
-    parser.add_argument("--safety_end_to_end", action='store_true', default=False, help="是否让Safety损失回传并更新Vim Encoder")
-    parser.add_argument("--safety_label_mode", type=str, default="collision", choices=["collision"], help="Safety标签来源：真实碰撞标记")
-
-
-    # Adaptive Ensemble TD3
-    parser.add_argument("--adaptive_k", type=int, default=5, help="Ensemble critics 的数量")
-    parser.add_argument("--adaptive_reg", type=float, default=0.001, help="Adaptive ensemble 的正则化系数")
-    parser.add_argument("--adaptive_reg_final", type=float, default=0.0001, help="Adaptive ensemble 正则化系数的最终值 (用于线性衰减)")
-    parser.add_argument("--adaptive_meta_lr", type=float, default=1e-3, help="元网络 (Meta network) 学习率")
-
-    # PER-TD3 双经验池参数 (Dual-Buffer PER-TD3)
-    parser.add_argument("--per_td3_success_capacity_ratio", type=float, default=0.3, help="成功经验池容量占总buffer比例")
-    parser.add_argument("--per_td3_alpha", type=float, default=0.6, help="PER 优先级指数 alpha")
-    parser.add_argument("--per_td3_priority_eps", type=float, default=1e-6, help="PER 优先级最小平滑项 eps")
-    parser.add_argument("--per_td3_beta_start", type=float, default=0.4, help="PER 重要性采样权重 beta 初始值")
-    parser.add_argument("--per_td3_beta_final", type=float, default=1.0, help="PER 重要性采样权重 beta 最终值")
-    parser.add_argument("--per_td3_mu_low", type=float, default=0.15, help="成功经验优先采样比例 mu 的早期值")
-    parser.add_argument("--per_td3_mu_mid", type=float, default=0.30, help="成功经验优先采样比例 mu 的中期值")
-    parser.add_argument("--per_td3_mu_high", type=float, default=0.45, help="成功经验优先采样比例 mu 的后期值 (不宜过高)")
-    parser.add_argument("--per_td3_mu_step1", type=float, default=0.25, help="mu 阶梯函数第一阈值 (训练进度比例)")
-    parser.add_argument("--per_td3_mu_step2", type=float, default=0.65, help="mu 阶梯函数第二阈值 (训练进度比例)")
+    # 算法专属参数已迁移到各算法目录下的 params.yaml，
+    # 例如 algorithm/td3/params.yaml、algorithm/sac/params.yaml。
+    # 这里只保留公共参数定义。
     # 连续控制参数 (Continuous Control Parameters)
     parser.add_argument("--min_forward_speed", type=float, default=0.0, help="最小前进速度 (m/s)")
     parser.add_argument("--max_forward_speed", type=float, default=2.0, help="最大前进速度 (m/s)")
@@ -248,46 +184,6 @@ def get_config(argv=None):
     parser.add_argument("--ue4_window_check_interval", type=float, default=10.0, help="窗口状态检测间隔秒数（较慢但开销更大，建议大于健康检查间隔）")
     parser.add_argument("--settings_file", type=str, default="", help="AirSim settings.json 文件路径 (可选)")
     parser.add_argument("--load_model", type=str, default="", help="要加载的模型路径")
-
-
-
-    # =============================================================================
-    # 已注释的 PPO 算法参数 (COMMENTED PPO ALGORITHM PARAMETERS)
-    # =============================================================================
-    
-    # parser.add_argument("--hidden_size", type=int, default=512, help="PPO 网络中隐藏层的维度大小 (默认: 512)")
-    # parser.add_argument("--ppo_epoch", type=int, default=8, help='PPO 迭代次数 (默认: 4)')
-    # parser.add_argument("--use_clipped_value_loss", action='store_false', default=True)
-    # parser.add_argument("--clip_param", type=float, default=0.15, help='PPO 裁剪参数 (默认: 0.2)')
-    # parser.add_argument("--num_mini_batch", type=int, default=1, help='PPO 的批次数量 (默认: 32)')
-    # parser.add_argument("--entropy_coef", type=float, default=0.01, help='熵项系数 (默认: 0.01)')
-    # parser.add_argument("--value_loss_coef", type=float, default=1.0, help='价值损失系数 (默认: 0.5)')
-    # parser.add_argument("--lr", type=float, default=5e-4, help='学习率 (默认: 7e-4)')
-    # parser.add_argument("--eps", type=float, default=1e-5, help='RMSprop 优化器 epsilon (默认: 1e-5)')
-    # parser.add_argument("--max-grad-norm", type=float, default=5, help='梯度最大范数 (默认: 0.5)')
-    # parser.add_argument("--use-gae", action='store_false', default=True, help='使用广义优势估计 (GAE)')
-    # parser.add_argument("--gamma", type=float, default=0.99, help='奖励折扣因子 (默认: 0.99)')
-    # parser.add_argument("--gae-lambda", type=float, default=0.95, help='GAE lambda 参数 (默认: 0.95)')
-    # parser.add_argument("--use-proper-time-limits", action='store_true', default=False, help='计算回报时考虑时间限制')
-    # parser.add_argument("--use_huber_loss", action='store_false', default=False)
-    # parser.add_argument("--huber_delta", type=float, default=10.0)
-    # parser.add_argument("--episode_length", type=int, default=512, help='A2C 中的前向步数 (默认: 5)')
-    # parser.add_argument("--steps_per_update", type=int, default=100, help='每次更新前收集的步数')
-    # parser.add_argument("--use-linear-lr-decay", action='store_false', default=False, help='使用线性学习率衰减')
-    # parser.add_argument("--step_penalty", type=float, default=0.01, help="每步惩罚，以鼓励更快完成")
-
-    # =============================================================================
-    # 新增 PPO 算法参数 (NEW PPO ALGORITHM PARAMETERS)
-    # =============================================================================
-    parser.add_argument("--rollout_buffer_size", type=int, default=2048, help="PPO Rollout Buffer 大小 (默认: 2048)")
-    parser.add_argument("--ppo_epochs", type=int, default=10, help='PPO 每次数据迭代次数 (默认: 10)')
-    parser.add_argument("--ppo_batch_size", type=int, default=64, help='PPO Mini-batch 大小 (默认: 64)')
-    parser.add_argument("--clip_range", type=float, default=0.2, help='PPO 裁剪参数 epsilon (默认: 0.2)')
-    parser.add_argument("--vf_coef", type=float, default=0.5, help='价值损失系数 (默认: 0.5)')
-    parser.add_argument("--ent_coef", type=float, default=0.0, help='熵正则化系数 (默认: 0.0)')
-    parser.add_argument("--target_kl", type=float, default=None, help='KL散度阈值，超过则提前停止 (默认: None)')
-
-
     # Ray Tune workers inject additional CLI args; ignore unknowns for compatibility.
     args, _ = parser.parse_known_args(args=argv)
     args.seed = _parse_seed_value(args.seed)

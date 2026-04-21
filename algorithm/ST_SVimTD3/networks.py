@@ -3,6 +3,7 @@ import torch.nn as nn
 
 from Vim.vim.models_mamba import VisionMamba
 from mamba_ssm import Mamba
+from ..config_loader import get_algo_param
 
 
 class MambaBlock(nn.Module):
@@ -42,20 +43,20 @@ class TemporalMambaStack(nn.Module):
 class STVimEncoder(nn.Module):
     def __init__(self, args):
         super().__init__()
-        self.embed_dim = args.st_mamba_embed_dim
-        self.depth = args.st_mamba_depth
-        self.patch_size = args.st_mamba_patch_size
-        self.d_state = args.st_mamba_d_state
-        self.d_conv = args.st_mamba_d_conv
-        self.expand = args.st_mamba_expand
-        self.temporal_layers = getattr(args, "st_mamba_temporal_depth", 2)
+        self.embed_dim = get_algo_param(args, "st_mamba_embed_dim")
+        self.depth = get_algo_param(args, "st_mamba_depth")
+        self.patch_size = get_algo_param(args, "st_mamba_patch_size")
+        self.d_state = get_algo_param(args, "st_mamba_d_state")
+        self.d_conv = get_algo_param(args, "st_mamba_d_conv")
+        self.expand = get_algo_param(args, "st_mamba_expand")
+        self.temporal_layers = get_algo_param(args, "st_mamba_temporal_depth", 2)
 
         depth_shape = args.depth_shape
         in_chans = depth_shape[0]
         self.seq_len = args.n_frames
         # Default to flatten all temporal tokens for downstream heads.
         # Set args.st_vim_flatten_all_tokens = False to recover old behavior (last token only).
-        self.flatten_all_tokens = bool(getattr(args, "st_vim_flatten_all_tokens", True))
+        self.flatten_all_tokens = bool(get_algo_param(args, "st_vim_flatten_all_tokens", True))
         self.repr_dim = self.embed_dim * self.seq_len if self.flatten_all_tokens else self.embed_dim
 
         height = depth_shape[1]
@@ -81,8 +82,8 @@ class STVimEncoder(nn.Module):
             final_pool_type='none',
             if_bimamba=True,
             bimamba_type="v2",
-            drop_rate=args.st_mamba_drop_rate,
-            drop_path_rate=args.st_mamba_drop_path_rate,
+            drop_rate=get_algo_param(args, "st_mamba_drop_rate"),
+            drop_path_rate=get_algo_param(args, "st_mamba_drop_path_rate"),
         )
 
         self.temporal_mamba = TemporalMambaStack(

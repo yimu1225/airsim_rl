@@ -6,6 +6,7 @@ from torch import nn
 from torch.optim import Adam
 
 from ..state_adapter import StateAdapter
+from ..config_loader import get_algo_param
 from ..ST_VimTD3.networks import Actor, Critic
 from .buffer import ReplayBuffer
 from .networks import Encoder as VideoPatchEncoder
@@ -40,16 +41,16 @@ class VimPatchTD3Agent:
         channels, depth_h, depth_w = depth_shape
         encoder_kwargs = dict(
             num_frames=self.seq_len,
-            embed_dim=getattr(args, "st_mamba_embed_dim", 48),
-            depth=getattr(args, "st_mamba_depth", 2),
-            patch_size=getattr(args, "st_mamba_patch_size", 8),
-            d_state=getattr(args, "st_mamba_d_state", 16),
-            d_conv=getattr(args, "st_mamba_d_conv", 4),
-            expand=getattr(args, "st_mamba_expand", 2),
-            drop_rate=getattr(args, "st_mamba_drop_rate", 0.0),
-            drop_path_rate=getattr(args, "st_mamba_drop_path_rate", 0.1),
-            temporal_layers=getattr(args, "st_mamba_temporal_depth", 2),
-            flatten_all_tokens=bool(getattr(args, "st_vim_flatten_all_tokens", True)),
+            embed_dim=get_algo_param(args, "st_mamba_embed_dim", 48),
+            depth=get_algo_param(args, "st_mamba_depth", 2),
+            patch_size=get_algo_param(args, "st_mamba_patch_size", 8),
+            d_state=get_algo_param(args, "st_mamba_d_state", 16),
+            d_conv=get_algo_param(args, "st_mamba_d_conv", 4),
+            expand=get_algo_param(args, "st_mamba_expand", 2),
+            drop_rate=get_algo_param(args, "st_mamba_drop_rate", 0.0),
+            drop_path_rate=get_algo_param(args, "st_mamba_drop_path_rate", 0.1),
+            temporal_layers=get_algo_param(args, "st_mamba_temporal_depth", 2),
+            flatten_all_tokens=bool(get_algo_param(args, "st_vim_flatten_all_tokens", True)),
         )
 
         self.actor_encoder = VideoPatchEncoder(

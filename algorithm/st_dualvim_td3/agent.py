@@ -5,6 +5,7 @@ from torch import nn
 from torch.optim import Adam
 
 from ..state_adapter import StateAdapter
+from ..config_loader import get_algo_param
 from .networks import Actor, Critic, Encoder
 from .buffer import ReplayBuffer
 
@@ -42,14 +43,14 @@ class DualBranchVideoMambaTD3Agent:
         temporal_frames = max(1, int(getattr(args, "n_frames", C)))
         encoder_kwargs = dict(
             num_frames=temporal_frames,
-            embed_dim=getattr(args, "st_mamba_embed_dim", 48),
-            depth=getattr(args, "st_mamba_depth", 2),
-            patch_size=getattr(args, "st_mamba_patch_size", 8),
-            d_state=getattr(args, "st_mamba_d_state", 16),
-            d_conv=getattr(args, "st_mamba_d_conv", 4),
-            expand=getattr(args, "st_mamba_expand", 2),
-            drop_rate=getattr(args, "st_mamba_drop_rate", 0.0),
-            drop_path_rate=getattr(args, "st_mamba_drop_path_rate", 0.1),
+            embed_dim=get_algo_param(args, "st_mamba_embed_dim", 48),
+            depth=get_algo_param(args, "st_mamba_depth", 2),
+            patch_size=get_algo_param(args, "st_mamba_patch_size", 8),
+            d_state=get_algo_param(args, "st_mamba_d_state", 16),
+            d_conv=get_algo_param(args, "st_mamba_d_conv", 4),
+            expand=get_algo_param(args, "st_mamba_expand", 2),
+            drop_rate=get_algo_param(args, "st_mamba_drop_rate", 0.0),
+            drop_path_rate=get_algo_param(args, "st_mamba_drop_path_rate", 0.1),
         )
         
         # Split Encoders for Actor and Critic

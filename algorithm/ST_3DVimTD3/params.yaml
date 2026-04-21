@@ -1,0 +1,12 @@
+# ST_3DVimTD3 algorithm-specific parameters
+# Shared/common parameters stay in config.py
+st_mamba_embed_dim: 32  # ST-Mamba/Vim token 嵌入维度
+st_mamba_depth: 1  # Vim 主干 block 层数
+st_mamba_patch_size: 32  # 2D patch 尺寸（像素）
+st_mamba_d_state: 32  # ST-Mamba 的状态维度 d_state
+st_mamba_d_conv: 4  # ST-Mamba 的局部卷积宽度 d_conv
+st_mamba_expand: 2  # ST-Mamba 的通道扩展倍数 expand
+st_mamba_drop_rate: 0.05  # ST-Mamba dropout 概率
+st_mamba_drop_path_rate: 0.05  # ST-Mamba drop-path 概率
+st_mamba_temporal_depth: 1  # ST-Mamba 时序堆叠层数
+st_3d_patch_size: "2,8,8"  # 3D patch 尺寸 (T,H,W)，逗号分隔

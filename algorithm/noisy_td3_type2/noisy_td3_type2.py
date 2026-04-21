@@ -4,6 +4,7 @@ import torch.nn.functional as F
 from torch.optim import Adam
 
 from ..state_adapter import StateAdapter
+from ..config_loader import get_algo_param
 from .networks import Actor, Critic, Encoder
 from .buffer import ReplayBuffer
 
@@ -62,7 +63,7 @@ class NoisyTD3Type2Agent:
         self.critic_base_adapter_target.load_state_dict(self.critic_base_adapter.state_dict())
 
         self.state_dim = self.base_feature_dim + self.actor_encoder.repr_dim
-        noisy_sigma_init = float(getattr(args, "noisy_td3_sigma_init", 0.5))
+        noisy_sigma_init = float(get_algo_param(args, "noisy_td3_sigma_init", 0.5))
 
         # Actor and critic.
         self.actor = Actor(self.state_dim, action_space.shape, args.hidden_dim, noisy_sigma_init=noisy_sigma_init).to(

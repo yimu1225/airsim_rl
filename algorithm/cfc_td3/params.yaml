@@ -1,0 +1,5 @@
+# cfc_td3 algorithm-specific parameters
+# Shared/common parameters stay in config.py
+cfc_lr: 0.01  # CfC 时间建模模块学习率（通常可高于 actor/critic lr）
+cfc_units: 32  # CfC/NCP 总神经元数量
+cfc_motor_units: 8  # CfC/NCP 输出（运动）神经元数量

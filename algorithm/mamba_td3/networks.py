@@ -4,6 +4,7 @@ import torch.nn as nn
 from mamba_ssm import Mamba
 
 from ..cnn_modules import CNN
+from ..config_loader import get_algo_param
 
 
 class MambaBlock(nn.Module):
@@ -51,16 +52,16 @@ class MambaEncoder(nn.Module):
         )
         self.embed_dim = self.spatial_encoder.repr_dim
 
-        self.temporal_layers = int(getattr(args, "mamba_td3_temporal_depth", 2))
+        self.temporal_layers = int(get_algo_param(args, "mamba_td3_temporal_depth", 2))
         self.temporal_mamba = TemporalMambaStack(
             dim=self.embed_dim,
             n_layers=self.temporal_layers,
-            d_state=getattr(args, "mamba_d_state", 16),
-            d_conv=getattr(args, "mamba_d_conv", 4),
-            expand=getattr(args, "mamba_expand", 2),
+            d_state=get_algo_param(args, "mamba_d_state", 16),
+            d_conv=get_algo_param(args, "mamba_d_conv", 4),
+            expand=get_algo_param(args, "mamba_expand", 2),
         )
 
-        self.flatten_all_tokens = bool(getattr(args, "mamba_td3_flatten_all_tokens", True))
+        self.flatten_all_tokens = bool(get_algo_param(args, "mamba_td3_flatten_all_tokens", True))
         self.repr_dim = self.embed_dim * self.seq_len if self.flatten_all_tokens else self.embed_dim
 
     def forward(self, depth_seq):

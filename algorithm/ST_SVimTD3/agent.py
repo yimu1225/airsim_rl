@@ -6,6 +6,7 @@ from torch import nn
 from torch.optim import Adam
 
 from ..state_adapter import StateAdapter
+from ..config_loader import get_algo_param
 from .networks import STVimEncoder, Actor, Critic, SafetyConstraintHead, safety_project_actions
 from .buffer import ReplayBuffer
 
@@ -59,7 +60,7 @@ class STSVimTD3Agent:
             hidden_dim=args.hidden_dim
         ).to(self.device)
 
-        self.use_safety_layer = getattr(args, "use_vim_safety_layer", True)
+        self.use_safety_layer = get_algo_param(args, "use_vim_safety_layer", True)
         self.safety_model = SafetyConstraintHead(
             latent_dim=self.fused_feature_dim,
             action_dim=self.action_dim
@@ -84,12 +85,12 @@ class STSVimTD3Agent:
             lr=args.critic_lr
         )
 
-        self.safety_end_to_end = getattr(args, "safety_end_to_end", False)
+        self.safety_end_to_end = get_algo_param(args, "safety_end_to_end", False)
         safety_params = list(self.safety_model.parameters())
         if self.safety_end_to_end:
             safety_params += list(self.actor_encoder.parameters())
             safety_params += list(self.actor_base_net.parameters())
-        self.safety_optimizer = Adam(safety_params, lr=getattr(args, "safety_lr", args.actor_lr))
+        self.safety_optimizer = Adam(safety_params, lr=get_algo_param(args, "safety_lr", args.actor_lr))
 
         self.gamma = args.gamma
         self.tau = args.tau
@@ -101,10 +102,10 @@ class STSVimTD3Agent:
         self.exploration_noise = args.exploration_noise
         self.exploration_noise_final = getattr(args, "exploration_noise_final", 0.05)
 
-        self.safety_loss_coef = getattr(args, "safety_loss_coef", 1.0)
-        self.safety_actor_penalty_coef = getattr(args, "safety_actor_penalty_coef", 0.05)
-        self.safety_warmup_steps = getattr(args, "safety_warmup_steps", 0)
-        self.safety_label_mode = getattr(args, "safety_label_mode", "collision")
+        self.safety_loss_coef = get_algo_param(args, "safety_loss_coef", 1.0)
+        self.safety_actor_penalty_coef = get_algo_param(args, "safety_actor_penalty_coef", 0.05)
+        self.safety_warmup_steps = get_algo_param(args, "safety_warmup_steps", 0)
+        self.safety_label_mode = get_algo_param(args, "safety_label_mode", "collision")
 
         self.batch_size = args.batch_size
         self.replay_buffer = ReplayBuffer(args.buffer_size, self.seq_len, seed=seed)

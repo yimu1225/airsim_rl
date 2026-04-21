@@ -6,6 +6,7 @@ from torch import nn
 from torch.optim import Adam
 
 from ..state_adapter import StateAdapter
+from ..config_loader import get_algo_param
 from .networks import VisionMamba3D, Actor, Critic
 from .buffer import ReplayBuffer
 
@@ -37,7 +38,7 @@ class ST3DVimTD3Agent:
         self.seq_len = getattr(args, "n_frames", 4)
         
         # 解析 st_3d_patch_size 字符串为元组
-        st_3d_patch_size_str = getattr(args, "st_3d_patch_size", "2,4,4")
+        st_3d_patch_size_str = get_algo_param(args, "st_3d_patch_size", "2,4,4")
         self.st_3d_patch_size = tuple(map(int, st_3d_patch_size_str.split(',')))
 
         self.action_dim = action_space.shape[0]
@@ -54,21 +55,21 @@ class ST3DVimTD3Agent:
             patch_size=self.st_3d_patch_size,
             in_chans=depth_shape[0],
             seq_len=self.seq_len,
-            embed_dim=args.st_mamba_embed_dim,
-            depth=args.st_mamba_depth,
-            d_state=args.st_mamba_d_state,
-            d_conv=args.st_mamba_d_conv,
-            expand=args.st_mamba_expand,
-            temporal_depth=getattr(args, "st_mamba_temporal_depth", 1),
-            drop_rate=args.st_mamba_drop_rate,
-            drop_path_rate=getattr(args, "st_mamba_drop_path_rate", 0.0),
+            embed_dim=get_algo_param(args, "st_mamba_embed_dim"),
+            depth=get_algo_param(args, "st_mamba_depth"),
+            d_state=get_algo_param(args, "st_mamba_d_state"),
+            d_conv=get_algo_param(args, "st_mamba_d_conv"),
+            expand=get_algo_param(args, "st_mamba_expand"),
+            temporal_depth=get_algo_param(args, "st_mamba_temporal_depth", 1),
+            drop_rate=get_algo_param(args, "st_mamba_drop_rate"),
+            drop_path_rate=get_algo_param(args, "st_mamba_drop_path_rate", 0.0),
             use_cls_token=True
         ).to(self.device)
 
         
         self.actor_base_net = StateAdapter(self.base_dim, self.base_feature_dim).to(self.device)
         self.actor = Actor(
-            feature_dim=args.st_mamba_embed_dim + self.base_feature_dim,
+            feature_dim=get_algo_param(args, "st_mamba_embed_dim") + self.base_feature_dim,
             action_dim=self.action_dim,
             hidden_dim=args.hidden_dim
         ).to(self.device)
@@ -78,26 +79,26 @@ class ST3DVimTD3Agent:
             patch_size=self.st_3d_patch_size,
             in_chans=depth_shape[0],
             seq_len=self.seq_len,
-            embed_dim=args.st_mamba_embed_dim,
-            depth=args.st_mamba_depth,
-            d_state=args.st_mamba_d_state,
-            d_conv=args.st_mamba_d_conv,
-            expand=args.st_mamba_expand,
-            temporal_depth=getattr(args, "st_mamba_temporal_depth", 1),
-            drop_rate=args.st_mamba_drop_rate,
-            drop_path_rate=getattr(args, "st_mamba_drop_path_rate", 0.0),
+            embed_dim=get_algo_param(args, "st_mamba_embed_dim"),
+            depth=get_algo_param(args, "st_mamba_depth"),
+            d_state=get_algo_param(args, "st_mamba_d_state"),
+            d_conv=get_algo_param(args, "st_mamba_d_conv"),
+            expand=get_algo_param(args, "st_mamba_expand"),
+            temporal_depth=get_algo_param(args, "st_mamba_temporal_depth", 1),
+            drop_rate=get_algo_param(args, "st_mamba_drop_rate"),
+            drop_path_rate=get_algo_param(args, "st_mamba_drop_path_rate", 0.0),
             use_cls_token=True
         ).to(self.device)
 
         
         self.critic_base_net = StateAdapter(self.base_dim, self.base_feature_dim).to(self.device)
         self.critic_1 = Critic(
-            feature_dim=args.st_mamba_embed_dim + self.base_feature_dim,
+            feature_dim=get_algo_param(args, "st_mamba_embed_dim") + self.base_feature_dim,
             action_dim=self.action_dim,
             hidden_dim=args.hidden_dim
         ).to(self.device)
         self.critic_2 = Critic(
-            feature_dim=args.st_mamba_embed_dim + self.base_feature_dim,
+            feature_dim=get_algo_param(args, "st_mamba_embed_dim") + self.base_feature_dim,
             action_dim=self.action_dim,
             hidden_dim=args.hidden_dim
         ).to(self.device)
