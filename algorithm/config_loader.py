@@ -12,6 +12,8 @@ _ALGO_DIR = Path(__file__).resolve().parent
 # Map display names used by CLI to physical algorithm folders.
 _ALGO_DIR_ALIASES = {
     "ST-VimTD3": "ST_VimTD3",
+    "ST-SeqVimTD3": "st_seq_vim_td3",
+    "STV-SeqVimTD3": "stv_seq_vim_td3",
     "ST-SVimTD3": "ST_SVimTD3",
     "ST-DualVimTD3": "st_dualvim_td3",
     "ST-VimTD3_asym": "ST_VimTD3_asym",
