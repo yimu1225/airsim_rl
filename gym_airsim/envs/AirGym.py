@@ -47,6 +47,13 @@ class AirSimEnv(gym.Env):
         self.max_altitude_penalty = config.max_altitude_penalty
         self.altitude_penalty_value = config.altitude_penalty_value
     
+        # 停滞惩罚参数
+        self.use_stagnation_penalty = config.use_stagnation_penalty
+        self.stagnation_window = config.stagnation_window
+        self.stagnation_window_threshold = config.stagnation_window_threshold
+        self.stagnation_weight = config.stagnation_weight
+        self.displacement_window = collections.deque(maxlen=self.stagnation_window)
+    
         STATE_DEPTH_H, STATE_DEPTH_W = 128,128
 
         self.stack_frames = stack_frames
@@ -86,10 +93,10 @@ class AirSimEnv(gym.Env):
 
         # 课程学习设置（提前判断，因为需要在创建 GameConfigHandler 时使用）
         # 通过算法名前缀判断是否使用课程学习 (CL-前缀表示启用)
-        algorithm_name = getattr(config, "algorithm_name", "")
+        algorithm_name = config.algorithm_name
         self.use_curriculum = algorithm_name.startswith("CL-")
-        self.curriculum_start_level = getattr(config, "curriculum_start_level", 0)
-        self.non_curriculum_level = getattr(config, "non_curriculum_level", 3)
+        self.curriculum_start_level = config.curriculum_start_level
+        self.non_curriculum_level = config.non_curriculum_level
         
         # Level 到配置字典的映射
         level_config_map = {
@@ -127,7 +134,7 @@ class AirSimEnv(gym.Env):
         self.game_config_handler.sample(*sample_vars, change_counter=0, base_seed=self.base_seed)
 
         # 现在启动 UE4，它会读取上面写入的 JSON
-        disable_game_restart = getattr(config, "disable_game_restart", False) if config is not None else False
+        disable_game_restart = config.disable_game_restart
         self.game_handler = None if disable_game_restart else GameHandler()
         if self.game_handler is not None:
             self.game_handler.restart_game()
@@ -162,9 +169,9 @@ class AirSimEnv(gym.Env):
         self.success_deque = collections.deque(maxlen=512)
 
         self.ue4_rpc_fail_count = 0
-        self.ue4_rpc_fail_threshold = getattr(config, "ue4_rpc_fail_threshold", 2) 
-        self.ue4_health_check_interval = getattr(config, "ue4_health_check_interval", 1.0) 
-        self.ue4_window_check_interval = getattr(config, "ue4_window_check_interval", 5.0) 
+        self.ue4_rpc_fail_threshold = config.ue4_rpc_fail_threshold
+        self.ue4_health_check_interval = config.ue4_health_check_interval
+        self.ue4_window_check_interval = config.ue4_window_check_interval
         self.ue4_process_check_interval = max(3.0, self.ue4_health_check_interval * 3.0)
         self._last_ue4_health_check_ts = 0.0
         self._last_process_check_ts = 0.0
@@ -172,26 +179,26 @@ class AirSimEnv(gym.Env):
         self._cached_process_alive = True
         self._cached_window_alive = None
 
-        self.takeoff_obstacle_threshold_m = float(getattr(config, "takeoff_obstacle_threshold_m", 3.0))
-        self.takeoff_obstacle_reset_retries = max(0, int(getattr(config, "takeoff_obstacle_reset_retries", 3)))
-        self.takeoff_lidar_name = str(getattr(config, "takeoff_lidar_name", "LidarSensor1")).strip()
-        self.reward_lidar_name = str(getattr(config, "reward_lidar_name", self.takeoff_lidar_name)).strip()
+        self.takeoff_obstacle_threshold_m = float(config.takeoff_obstacle_threshold_m)
+        self.takeoff_obstacle_reset_retries = max(0, int(config.takeoff_obstacle_reset_retries))
+        self.takeoff_lidar_name = str(config.takeoff_lidar_name).strip()
+        self.reward_lidar_name = str(config.reward_lidar_name).strip()
         if self.reward_lidar_name == "":
             self.reward_lidar_name = self.takeoff_lidar_name
-        self.lidar_safe_distance_m = max(0.05, float(getattr(config, "lidar_safe_distance_m", 2.0)))
-        self.lidar_log_penalty_weight = float(getattr(config, "lidar_log_penalty_weight", 1.0))
-        self.lidar_log_penalty_min = float(getattr(config, "lidar_log_penalty_min", -3.0))
-        self.lidar_penalty_eps = max(1e-6, float(getattr(config, "lidar_penalty_eps", 1e-3)))
+        self.lidar_safe_distance_m = max(0.05, float(config.lidar_safe_distance_m))
+        self.lidar_log_penalty_weight = float(config.lidar_log_penalty_weight)
+        self.lidar_log_penalty_min = float(config.lidar_log_penalty_min)
+        self.lidar_penalty_eps = max(1e-6, float(config.lidar_penalty_eps))
         self.lidar_distance_cap_m = max(
             self.lidar_safe_distance_m,
-            float(getattr(config, "lidar_distance_cap_m", 20.0)),
+            float(config.lidar_distance_cap_m),
         )
-        self.lidar_query_max_attempts = max(1, int(getattr(config, "lidar_query_max_attempts", 1)))
-        self.lidar_query_retry_sleep = max(0.0, float(getattr(config, "lidar_query_retry_sleep", 0.02)))
-        self.lidar_h_bins = max(4, int(getattr(config, "lidar_h_bins", 36)))
-        self.lidar_v_bins = max(1, int(getattr(config, "lidar_v_bins", 3)))
-        self.lidar_vfov_min_deg = float(getattr(config, "lidar_vfov_min_deg", -10.0))
-        self.lidar_vfov_max_deg = float(getattr(config, "lidar_vfov_max_deg", 20.0))
+        self.lidar_query_max_attempts = max(1, int(config.lidar_query_max_attempts))
+        self.lidar_query_retry_sleep = max(0.0, float(config.lidar_query_retry_sleep))
+        self.lidar_h_bins = max(4, int(config.lidar_h_bins))
+        self.lidar_v_bins = max(1, int(config.lidar_v_bins))
+        self.lidar_vfov_min_deg = float(config.lidar_vfov_min_deg)
+        self.lidar_vfov_max_deg = float(config.lidar_vfov_max_deg)
         self.last_lidar_obstacle_penalty = 0.0
         self.last_lidar_scan_distance = np.full(
             (self.lidar_h_bins, self.lidar_v_bins),
@@ -205,6 +212,7 @@ class AirSimEnv(gym.Env):
         else:
             self.prev_action = 0  # For discrete actions
         self.prev_velocity = np.zeros(3, dtype=np.float32)
+        self.prev_pos_xy = None
 
     def _reconnect_airsim_client(self, reason=""):
         """
@@ -591,9 +599,17 @@ class AirSimEnv(gym.Env):
              curvature_penalty = curvature_weight * (angle_change ** 2) 
              curvature_penalty = float(np.clip(curvature_penalty, 0.0, 1.0))
 
-        step_penalty = self.stepN * 0.002
+        # step_penalty = self.stepN * 0.002
+        step_penalty = 0.1
+
+        # Stagnation penalty: penalize when total displacement in recent N steps is too small
+        stagnation_penalty = 0.0
+        if self.use_stagnation_penalty and len(self.displacement_window) >= self.stagnation_window:
+            total_displacement = float(sum(self.displacement_window))
+            stagnation_penalty = max(0.0, self.stagnation_window_threshold - total_displacement) * self.stagnation_weight
+
         # Add penalties to reward
-        r -= smooth_penalty * smooth_penalty_weight  + step_penalty + curvature_penalty
+        r -= smooth_penalty * smooth_penalty_weight  + step_penalty + curvature_penalty + stagnation_penalty
 
         lidar_penalty = self._compute_lidar_scan_log_penalty(self.last_lidar_scan_distance)
         self.last_lidar_obstacle_penalty = float(lidar_penalty)
@@ -711,8 +727,9 @@ class AirSimEnv(gym.Env):
             altitude_violation = True
             # print(f"[最大高度越界] 当前高度: {current_altitude:.2f}m，最大高度: {self.max_altitude}m")
 
-        success_altitude_max = 2.0
-        success_altitude_ok = current_altitude <= success_altitude_max
+        success_altitude_min = 1.0
+        success_altitude_max = 3.0
+        success_altitude_ok = success_altitude_min <= current_altitude <= success_altitude_max
 
         if distance < settings.success_distance_to_goal and success_altitude_ok:
             self.success_count += 1
@@ -760,6 +777,12 @@ class AirSimEnv(gym.Env):
         self.prev_state = state
         self.prev_action = action.copy() if isinstance(action, np.ndarray) else action
         self.prev_velocity = self.airgym.drone_velocity()
+
+        # Update displacement window for stagnation penalty
+        if self.prev_pos_xy is not None:
+            displacement = float(np.linalg.norm(np.array([now[0] - self.prev_pos_xy[0], now[1] - self.prev_pos_xy[1]], dtype=np.float32)))
+            self.displacement_window.append(displacement)
+        self.prev_pos_xy = np.array(now[:2], dtype=np.float32)
 
         if (done):
             if self.success:
@@ -985,6 +1008,8 @@ class AirSimEnv(gym.Env):
         self.prev_state = state
         self.prev_action = np.zeros(self.action_space.shape, dtype=np.float32) if hasattr(self.action_space, 'shape') and self.action_space.shape else 0
         self.prev_velocity = self.airgym.drone_velocity()
+        self.prev_pos_xy = None
+        self.displacement_window.clear()
         
         # 返回 (obs, info)
         info = {}  # 可以添加额外信息
