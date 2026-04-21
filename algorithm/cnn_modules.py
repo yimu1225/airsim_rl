@@ -31,18 +31,17 @@ class BaseStateExpander(nn.Module):
 
 class CNN(nn.Module):
     """
-    Unified visual encoder based on MobileNetV2.
+    Unified visual encoder based on MobileNetV3-Small.
     Accepts arbitrary input channels and returns 128-d projected features.
     """
     def __init__(self, input_height, input_width, input_channels=1, output_dim=128):
-        del input_height, input_width  # MobileNetV2 supports dynamic spatial resolution.
         super().__init__()
 
         width_mult = 0.35
         try:
-            mobilenet = models.mobilenet_v2(weights=None, width_mult=width_mult)
+            mobilenet = models.mobilenet_v3_small(weights=None, width_mult=width_mult)
         except TypeError:
-            mobilenet = models.mobilenet_v2(pretrained=False, width_mult=width_mult)
+            mobilenet = models.mobilenet_v3_small(pretrained=False, width_mult=width_mult)
 
         self.net = mobilenet.features
 
@@ -56,10 +55,22 @@ class CNN(nn.Module):
                 padding=first_conv.padding,
                 bias=first_conv.bias is not None,
             )
+            nn.init.kaiming_normal_(self.net[0][0].weight, mode='fan_out', nonlinearity='relu')
+            if self.net[0][0].bias is not None:
+                nn.init.zeros_(self.net[0][0].bias)
 
         self.pool = nn.AdaptiveAvgPool2d((1, 1))
+
+        # Infer pooled feature size from backbone output to stay robust across torchvision versions.
+        probe_h = max(32, int(input_height))
+        probe_w = max(32, int(input_width))
+        with torch.no_grad():
+            probe = torch.zeros(1, input_channels, probe_h, probe_w)
+            feat = self.pool(self.net(probe))
+            feature_dim = int(feat.view(1, -1).shape[-1])
+
         self.proj = nn.Sequential(
-            nn.Linear(mobilenet.last_channel, output_dim),
+            nn.Linear(feature_dim, output_dim),
             nn.LayerNorm(output_dim),
             nn.ReLU(inplace=True),
         )
