@@ -1,16 +1,14 @@
 import numpy as np
 
-class SequenceReplayBuffer:
-    """Single-step replay buffer with explicit next-state transition."""
 
+class ReplayBuffer:
     def __init__(self, max_size: int, sequence_length: int, seed=None):
         self.max_size = int(max_size)
         self.seq_len = int(sequence_length)
         self.ptr = 0
         self.current_size = 0
-        
         self.rng = np.random.default_rng(seed)
-        # Pre-allocated buffers (initialized on first add)
+
         self.base_buf = None
         self.depth_buf = None
         self.action_buf = None
@@ -24,7 +22,7 @@ class SequenceReplayBuffer:
             self.base_shape = np.asarray(base_state).shape
             self.depth_shape = np.asarray(depth).shape
             self.action_shape = np.asarray(action).shape
-            
+
             self.base_buf = np.zeros((self.max_size, *self.base_shape), dtype=np.float32)
             self.depth_buf = np.zeros((self.max_size, *self.depth_shape), dtype=np.float16)
             self.action_buf = np.zeros((self.max_size, *self.action_shape), dtype=np.float32)
@@ -45,22 +43,16 @@ class SequenceReplayBuffer:
         self.current_size = min(self.current_size + 1, self.max_size)
 
     def sample(self, batch_size: int):
-        if self.current_size == 0:
-            return None
-        ind = self.rng.integers(0, self.current_size, size=batch_size)
-        
+        indices = self.rng.integers(0, self.current_size, size=batch_size)
         return (
-            self.base_buf[ind],
-            self.depth_buf[ind].astype(np.float32),
-            self.action_buf[ind],
-            self.reward_buf[ind],
-            self.next_base_buf[ind],
-            self.next_depth_buf[ind].astype(np.float32),
-            self.done_buf[ind]
+            self.base_buf[indices],
+            self.depth_buf[indices].astype(np.float32),
+            self.action_buf[indices],
+            self.reward_buf[indices],
+            self.next_base_buf[indices],
+            self.next_depth_buf[indices].astype(np.float32),
+            self.done_buf[indices],
         )
-
-    def size_buffer(self):
-        return self.current_size
 
     def size(self):
         return self.current_size

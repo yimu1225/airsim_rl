@@ -29,7 +29,7 @@ def get_config(argv=None):
 
     # 算法选择 (Algorithm Selection)
     parser.add_argument("--algorithm_name", type=str, default='CL-ST-DualVimTD3,CL-td3,CL-ST-VimTD3,CL-per_td3',
-                        help="要训练的算法。支持: td3, noisy_td3, noisy_td3_type2, ddpg, aetd3, per_td3, per_aetd3, cfc_td3, st_mamba_td3, ST-VimTD3, ST-SVimTD3, ST_3DVimTD3, st_cnn_td3, gam_mamba_td3, gam_td3, ST-DualVimTD3, sac, ppo。可以是单个，多个（逗号分隔），或组名 ('all', 'base', 'seq')")
+                        help="要训练的算法。支持: td3, noisy_td3, noisy_td3_type2, ddpg, aetd3, per_td3, per_aetd3, cfc_td3, ST-VimTD3, stv_patch_td3, stv_vim_td3, stv_per_vim_td3, ST-SVimTD3, mamba_td3, ST_3DVimTD3, gam_mamba_td3, gam_td3, ST-DualVimTD3, sac, ppo。可以是单个，多个（逗号分隔），或组名 ('all', 'base', 'seq')")
     parser.add_argument("--smooth_window", type=int, default=300, help="平滑窗口大小，用于平滑学习曲线 (仅对移动平均有效)")
     parser.add_argument("--smooth_method", type=str, default="moving", choices=["moving","zero_phase_des"], help="曲线平滑方法: moving=滑动平均, zero_phase_des=零相位双重指数平滑")
     parser.add_argument("--smooth_alpha", type=float, default=0.05, help="零相位双重指数平滑的水平平滑因子 (0-1)，越大越关注近期数据")
@@ -38,9 +38,11 @@ def get_config(argv=None):
     parser.add_argument("--plot_non_cl", action='store_true', default=True, help="绘图时是否检索常规算法 (默认: True)")
     parser.add_argument("--use_percentile", action='store_true', default=False, help="使用四分位范围作为阴影带而不是均值加置信区间")
     parser.add_argument("--ci_type", type=str, default="std", choices=["std", "sem"], help="阴影区域类型: std=标准差, sem=标准误差")
+    parser.add_argument("--resample_points", type=int, default=512, help="baselines 风格曲线聚合的重采样点数")
+    parser.add_argument("--curve_smooth_step", type=float, default=1.0, help="baselines 风格 EMA 重采样 smooth_step")
 
     # 训练设置 (Training Setup)
-    parser.add_argument("--seed", type=str, default="22,23,24", help="随机种子 (支持逗号分隔多个种子)")
+    parser.add_argument("--seed", type=str, default="3,4,5", help="随机种子 (支持逗号分隔多个种子)")
     parser.add_argument("--curriculum_start_level", type=int, default=0, choices=[0, 1, 2, 3], help="课程学习起始等级 (0-3, 默认: 0)。注意：算法名以 'CL-' 前缀开头时自动启用课程学习")
     parser.add_argument("--non_curriculum_level", type=int, default=2, choices=[0, 1, 2, 3], help="非课程学习时的固定难度等级 (0-3, 默认: 3)")
     parser.add_argument("--steps_per_update", type=int, default=100, help='每次更新前收集的步数')
@@ -50,7 +52,7 @@ def get_config(argv=None):
     parser.add_argument("--n_rollout_threads", type=int, default=1, help="Rollout线程数（在AirSim环境中必须为1）")
     parser.add_argument("--max_timesteps", type=int, default=60000, help='要训练的环境步数 (默认: 10e6)')
     parser.add_argument("--buffer_size", type=int, default=20000, help='经验池大小 (注意内存占用: 30000步约占用4GB)')
-    parser.add_argument("--learning_starts", type=int, default=3000, help="训练开始前的时间步数 (兼容 start_timesteps)")
+    parser.add_argument("--learning_starts", type=int, default=2000, help="训练开始前的时间步数 (兼容 start_timesteps)")
     parser.add_argument("--gradient_steps", type=float, default=0.5, help="每次收集数据后的梯度更新倍数")
     parser.add_argument("--episode_length", type=int, default=300, help='每个环境中的最大回合长度')
     parser.add_argument("--eval_freq", type=int, default=5000, help="评估频率")
@@ -92,6 +94,7 @@ def get_config(argv=None):
     parser.add_argument("--mamba_d_conv", type=int, default=4, help="时序Mamba卷积核大小")
     parser.add_argument("--mamba_expand", type=int, default=2, help="时序Mamba扩展因子")
     parser.add_argument("--attention_dropout", type=float, default=0.0, help="自注意力dropout率")
+    parser.add_argument("--mamba_td3_temporal_depth", type=int, default=2, help="mamba_td3 中时序 Mamba 堆叠层数")
 
     # GAM-Mamba-TD3 参数
     parser.add_argument("--gam_mamba_layers", type=int, default=2, help="GAM-Mamba-TD3中Mamba块堆叠层数")
