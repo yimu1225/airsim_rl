@@ -254,6 +254,7 @@ class PPOAgent:
         total_policy_loss = 0
         total_value_loss = 0
         total_entropy = 0
+        total_loss = 0
         n_updates = 0
         approx_kl_divs = []
         
@@ -316,6 +317,7 @@ class PPOAgent:
                 total_policy_loss += policy_loss.item()
                 total_value_loss += value_loss.item()
                 total_entropy += entropy.mean().item()
+                total_loss += loss.item()
                 n_updates += 1
                 
                 # Approximate KL divergence for early stopping
@@ -339,6 +341,9 @@ class PPOAgent:
         self.num_updates += 1
         
         return {
+            'policy_loss': total_policy_loss / n_updates if n_updates > 0 else 0,
+            'value_loss': total_value_loss / n_updates if n_updates > 0 else 0,
+            'total_loss': total_loss / n_updates if n_updates > 0 else 0,
             'entropy': total_entropy / n_updates if n_updates > 0 else 0,
             'approx_kl': np.mean(approx_kl_divs) if approx_kl_divs else 0,
         }

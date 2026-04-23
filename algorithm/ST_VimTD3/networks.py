@@ -55,10 +55,22 @@ class STVimEncoder(nn.Module):
         depth_shape = args.depth_shape
         in_chans = depth_shape[0]
         self.seq_len = args.n_frames
+        # Optional mode:
+        # True  -> concatenate multi-frame CLS first, then treat each scalar dimension as one token:
+        #          (B, T, D) -> (B, T*D, 1), so TemporalMamba scans T*D tokens.
+        # False -> keep frame-wise tokens (B, T, D) and feed TemporalMamba along temporal axis.
+        self.concat_cls_before_temporal_mamba = bool(
+            get_algo_param(args, "st_vim_concat_cls_before_temporal_mamba", False)
+        )
         # Default to flatten all temporal tokens for downstream policy/value heads.
         # Set args.st_vim_flatten_all_tokens = False to recover old behavior (last token only).
         self.flatten_all_tokens = bool(get_algo_param(args, "st_vim_flatten_all_tokens", True))
-        self.repr_dim = self.embed_dim * self.seq_len if self.flatten_all_tokens else self.embed_dim
+        if self.concat_cls_before_temporal_mamba:
+            # In concat mode, TemporalMamba input is (B, T*D, 1).
+            # Flatten-all keeps T*D features; last-token mode keeps 1 feature.
+            self.repr_dim = (self.embed_dim * self.seq_len) if self.flatten_all_tokens else 1
+        else:
+            self.repr_dim = self.embed_dim * self.seq_len if self.flatten_all_tokens else self.embed_dim
 
         height = depth_shape[1]
         width = depth_shape[2]
@@ -87,8 +99,9 @@ class STVimEncoder(nn.Module):
             drop_path_rate=get_algo_param(args, "st_mamba_drop_path_rate"),
         )
 
+        temporal_mamba_dim = 1 if self.concat_cls_before_temporal_mamba else self.embed_dim
         self.temporal_mamba = TemporalMambaStack(
-            dim=self.embed_dim,
+            dim=temporal_mamba_dim,
             n_layers=self.temporal_layers,
             d_state=self.d_state,
             d_conv=self.d_conv,
@@ -107,13 +120,23 @@ class STVimEncoder(nn.Module):
         frame_tokens = self.vim(frames, return_features=True)
         frame_tokens = frame_tokens.view(B, T, self.embed_dim)
 
-        temporal_tokens = self.temporal_mamba(frame_tokens)
-        if self.flatten_all_tokens:
-            # Use all temporal tokens: (B, T, D) -> (B, T*D)
-            vis_tokens = temporal_tokens.reshape(B, T * self.embed_dim)
+        if self.concat_cls_before_temporal_mamba:
+            # Concatenate multi-frame CLS then tokenize by scalar dimension:
+            # (B, T, D) -> (B, T*D, 1)
+            temporal_input = frame_tokens.reshape(B, T * self.embed_dim, 1)
+            temporal_tokens = self.temporal_mamba(temporal_input)
+            if self.flatten_all_tokens:
+                vis_tokens = temporal_tokens.reshape(B, T * self.embed_dim)
+            else:
+                vis_tokens = temporal_tokens[:, -1, :]
         else:
-            # Old behavior: use only the last temporal token.
-            vis_tokens = temporal_tokens[:, -1, :]
+            temporal_tokens = self.temporal_mamba(frame_tokens)
+            if self.flatten_all_tokens:
+                # Use all temporal tokens: (B, T, D) -> (B, T*D)
+                vis_tokens = temporal_tokens.reshape(B, T * self.embed_dim)
+            else:
+                # Old behavior: use only the last temporal token.
+                vis_tokens = temporal_tokens[:, -1, :]
 
         return vis_tokens
 

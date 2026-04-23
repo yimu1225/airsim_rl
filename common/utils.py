@@ -103,10 +103,13 @@ def get_random_end_point(arena_size, split_index, total_num_of_splits,np_random)
 
     rnd_idx0 = np_random.uniform(2, idx0_quanta)
     rnd_idx1 = np_random.uniform(2, idx1_quanta)
+    rnd_idx2 = np_random.uniform(1.0, 3.0)
 
     rnd_idx0 = rnd_idx0 * np_random.choice([1, -1])
     rnd_idx1 = rnd_idx1 * np_random.choice([1, -1])
-    grounded_idx2 = 0
+    # Sample target height in UE coordinate (meters): 1m to 3m.
+    # It will be converted to AirSim NED by airsimize_coordinates.
+    rnd_idx2 = float(rnd_idx2)
     '''
     idx0_up_pos_bndry = (split_index + 1) * idx0_quanta
     idx1_up_pos_bndry = (split_index + 1) * idx1_quanta
@@ -166,7 +169,7 @@ def get_random_end_point(arena_size, split_index, total_num_of_splits,np_random)
     #if (rnd_idx0 == rnd_idx1 == 0):  # to avoid being on the start position
     #    rnd_idx0 = idx0_pos_bndry - end_halo
     '''
-    return [rnd_idx0, rnd_idx1, grounded_idx2]
+    return [rnd_idx0, rnd_idx1, rnd_idx2]
 
 
 # return [rnd_idx0, rnd_idx1, rnd_idx2]

@@ -271,7 +271,7 @@ class CFCTD3Agent:
             torch.nn.utils.clip_grad_norm_(self.critic_params, self.grad_clip)
         self.critic_optimizer.step()
 
-        actor_loss_val = 0
+        actor_loss_val = None
         
         # Delayed policy updates
         if self.total_it % self.policy_freq == 0:
@@ -283,7 +283,7 @@ class CFCTD3Agent:
             
             q1_pi, _ = self.critic(state_repr_a, self.actor(state_repr_a))
             actor_loss = -q1_pi.mean()
-            actor_loss_val = actor_loss.item()
+            actor_loss_val = float(actor_loss.item())
             
             self.actor_optimizer.zero_grad()
             actor_loss.backward()
@@ -316,7 +316,12 @@ class CFCTD3Agent:
             for param, target_param in zip(self.critic_base_adapter.parameters(), self.critic_base_adapter_target.parameters()):
                 target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
 
-        return {}
+        result = {
+            "critic_loss": float(critic_loss.item()),
+        }
+        if actor_loss_val is not None:
+            result["actor_loss"] = actor_loss_val
+        return result
 
     def save(self, filename):
         torch.save(

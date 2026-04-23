@@ -61,8 +61,9 @@ def get_deterministic_end_point(arena_size, change_counter: int, base_seed: int)
     
     rnd_idx0 = sampler.uniform(change_counter, "End_x", 2, idx0_quanta)
     rnd_idx1 = sampler.uniform(change_counter, "End_y", 2, idx1_quanta)
+    rnd_idx2 = sampler.uniform(change_counter, "End_z", 1.0, 3.0)
     
     rnd_idx0 = rnd_idx0 * sampler.choice_sign(change_counter, "End_x_sign")
     rnd_idx1 = rnd_idx1 * sampler.choice_sign(change_counter, "End_y_sign")
     
-    return [rnd_idx0, rnd_idx1, 0]
+    return [rnd_idx0, rnd_idx1, rnd_idx2]

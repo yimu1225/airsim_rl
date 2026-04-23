@@ -59,7 +59,7 @@ class AirSimEnv(gym.Env):
         self.stack_frames = stack_frames
         self.episode_reward = 0
 
-        self.base_dim = 10
+        self.base_dim = 11
         self.depth_shape = (self.stack_frames, STATE_DEPTH_H, STATE_DEPTH_W)
 
         self.observation_space = spaces.Dict({
@@ -427,7 +427,7 @@ class AirSimEnv(gym.Env):
         (注意：此方法仅返回 inform 向量，不处理图像堆叠，图像堆叠在 step 方法中维护)。
         
         Returns:
-            np.array: inform 向量 [相对距离xy, 高度, 前向速度, z速度, 偏航角速度, 俯仰角, 横滚角, 偏航角, 朝向目标角度]
+            np.array: inform 向量 [相对距离xyz, 高度, 前向速度, z速度, 偏航角速度, 俯仰角, 横滚角, 偏航角, 朝向目标角度]
         """
         drone_pos = self.airgym.drone_pos()
         now = drone_pos[:2]
@@ -439,6 +439,7 @@ class AirSimEnv(gym.Env):
         # 新的状态向量组成
         self.r_yaw = self.airgym.goal_direction(self.goal, now)
         self.relative_position = self.airgym.get_distance(self.goal)  # [x, y]
+        self.relative_z_distance = float(self.goal[2] - drone_pos[2])
         forward_speed = self.airgym.get_forward_speed()  # 前向速度
         z_velocity = self.airgym.get_z_velocity()  # z轴速度
         yaw_rate = self.airgym.get_yaw_rate()  # 偏航角速度
@@ -447,9 +448,10 @@ class AirSimEnv(gym.Env):
         self.velocity = np.array([forward_speed, z_velocity, yaw_rate])  # 用新的速度信息
         self.speed = forward_speed  # 前向速度作为主要速度指标
         
-        # 组合新的状态向量: [相对距离xy(2), 高度(1), 前向速度(1), z速度(1), 偏航角速度(1), 俯仰角(1), 横滚角(1), 偏航角(1), 朝向目标角度(1)]
+        # 组合新的状态向量: [相对距离xyz(3), 高度(1), 前向速度(1), z速度(1), 偏航角速度(1), 俯仰角(1), 横滚角(1), 偏航角(1), 朝向目标角度(1)]
         inform = np.concatenate((
-            self.relative_position,  # [x_dist, y_dist] 
+            self.relative_position,  # [x_dist, y_dist]
+            [self.relative_z_distance],  # [z_dist]
             [altitude],              # [altitude]
             [forward_speed],         # 前向速度
             [z_velocity],           # z轴速度
@@ -468,10 +470,10 @@ class AirSimEnv(gym.Env):
         基于当前环境的实际参数（从 config 和 game_config_handler 获取）
         
         Args:
-            inform: 10维状态向量 [rel_x, rel_y, altitude, fwd_speed, z_vel, yaw_rate, pitch, roll, yaw, angle_to_goal]
+            inform: 11维状态向量 [rel_x, rel_y, rel_z, altitude, fwd_speed, z_vel, yaw_rate, pitch, roll, yaw, angle_to_goal]
         
         Returns:
-            归一化后的10维向量，每个值在[0, 1]范围内
+            归一化后的11维向量，每个值在[0, 1]范围内
         """
         return inform
 
@@ -599,8 +601,8 @@ class AirSimEnv(gym.Env):
              curvature_penalty = curvature_weight * (angle_change ** 2) 
              curvature_penalty = float(np.clip(curvature_penalty, 0.0, 1.0))
 
-        # step_penalty = self.stepN * 0.002
-        step_penalty = 0.1
+        step_penalty = self.stepN * 0.002
+        # step_penalty = 0.1
 
         # Stagnation penalty: penalize when total displacement in recent N steps is too small
         stagnation_penalty = 0.0

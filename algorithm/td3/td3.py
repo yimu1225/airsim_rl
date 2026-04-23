@@ -154,7 +154,7 @@ class TD3Agent:
         self.total_it += 1
 
         if self.replay_buffer.size() < self.batch_size:
-            return
+            return {}
 
         base_states, depths, actions, rewards, next_base_states, next_depths, dones = self.replay_buffer.sample(self.batch_size)
 
@@ -202,7 +202,7 @@ class TD3Agent:
         torch.nn.utils.clip_grad_norm_(self.critic_params, max_norm=self.grad_clip)
         self.critic_optimizer.step()
 
-        actor_loss = 0.0
+        actor_loss_value = None
         if self.total_it % self.policy_freq == 0:
             # Encode current observations (Actor Encoder)
             encoded_depths_actor = self._encode(depths, self.actor_encoder)
@@ -234,6 +234,7 @@ class TD3Agent:
 
             q1, _ = self.critic(states_critic_fixed, self.actor(states_actor))
             actor_loss = -q1.mean()
+            actor_loss_value = float(actor_loss.item())
 
             self.actor_optimizer.zero_grad()
             actor_loss.backward()
@@ -255,7 +256,12 @@ class TD3Agent:
             for param, target_param in zip(self.critic_base_adapter.parameters(), self.critic_base_adapter_target.parameters()):
                 target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
 
-        return {}
+        result = {
+            "critic_loss": float(critic_loss.item()),
+        }
+        if actor_loss_value is not None:
+            result["actor_loss"] = actor_loss_value
+        return result
 
     def save(self, filename: str):
         torch.save(

@@ -143,7 +143,7 @@ class DDPGAgent:
         self.total_it += 1
 
         if self.replay_buffer.size() < self.batch_size:
-            return
+            return {}
 
         base_states, depths, actions, rewards, next_base_states, next_depths, dones = self.replay_buffer.sample(self.batch_size)
 
@@ -190,7 +190,6 @@ class DDPGAgent:
         self.critic_optimizer.step()
 
         # DDPG: Update actor every iteration (no delayed policy update)
-        actor_loss = 0.0
         # Encode current observations (Actor Encoder)
         encoded_depths_actor = self._encode(depths, self.actor_encoder)
         states_actor = torch.cat([base_states, encoded_depths_actor], dim=1)
@@ -236,7 +235,10 @@ class DDPGAgent:
         for param, target_param in zip(self.critic_encoder.parameters(), self.critic_encoder_target.parameters()):
             target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
 
-        return {}
+        return {
+            "critic_loss": float(critic_loss.item()),
+            "actor_loss": float(actor_loss.item()),
+        }
 
     def save(self, filename: str):
         torch.save(

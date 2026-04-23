@@ -42,6 +42,40 @@ def _raise_if_non_finite(name, value, step_info=""):
         raise FloatingPointError(message)
 
 
+def _to_scalar_float(value):
+    if isinstance(value, (int, float, np.integer, np.floating)):
+        return float(value)
+    if torch.is_tensor(value):
+        if value.numel() != 1:
+            return None
+        return float(value.detach().cpu().item())
+    if isinstance(value, np.ndarray) and value.size == 1:
+        return float(value.item())
+    return None
+
+
+def _log_train_metrics_per_update(writer, train_info, update_step, algo_name, total_timesteps):
+    if not isinstance(train_info, dict):
+        return
+
+    for key, value in train_info.items():
+        scalar_value = _to_scalar_float(value)
+        if scalar_value is None:
+            continue
+
+        _raise_if_non_finite(
+            f"train.{key}",
+            scalar_value,
+            f"algo={algo_name}, update_step={update_step}, total_timesteps={total_timesteps}",
+        )
+
+        key_str = str(key)
+        if "loss" in key_str.lower():
+            writer.add_scalar(f"loss/{key_str}", scalar_value, total_timesteps)
+        else:
+            writer.add_scalar(f"update/{key_str}", scalar_value, total_timesteps)
+
+
 def _configure_reproducibility(seed: int, args):
     random.seed(seed)
     np.random.seed(seed)
@@ -171,6 +205,7 @@ def train_ppo_algorithm(env, agent, args, algo_name, device, base_state, depth_i
     episode_num = 0
     episode_reward = 0
     episode_timesteps = 0
+    update_step = 0
 
     state = depth_image
     base = base_state
@@ -340,11 +375,14 @@ def train_ppo_algorithm(env, agent, args, algo_name, device, base_state, depth_i
             epoch_pbar.close()
             
             if train_info:
-                # Log training metrics
-                for key, value in train_info.items():
-                    if "loss" in key:
-                        continue
-                    writer.add_scalar(f'train/{key}', value, total_timesteps)
+                update_step += 1
+                _log_train_metrics_per_update(
+                    writer=writer,
+                    train_info=train_info,
+                    update_step=update_step,
+                    algo_name=display_algo_name,
+                    total_timesteps=total_timesteps,
+                )
                 print(f"  Entropy: {train_info.get('entropy', 0):.4f}, "
                       f"Approx KL: {train_info.get('approx_kl', 0):.4f}")
             

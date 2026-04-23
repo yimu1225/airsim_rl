@@ -255,7 +255,7 @@ class PERTD3Agent:
         new_priorities = td_error.detach().cpu().numpy().flatten()
         self.replay_buffer.update_priorities(refs, new_priorities)
 
-        actor_loss = 0.0
+        actor_loss_value = None
         if self.total_it % self.policy_freq == 0:
             encoded_depths_actor = self._encode(depths, self.actor_encoder)
             base_features_actor = self.actor_base_adapter(base_states)
@@ -269,6 +269,7 @@ class PERTD3Agent:
             q1, _ = self.critic(states_critic_fixed, self.actor(states_actor))
             actor_loss = -q1.mean()
             self._ensure_finite(actor_loss, "actor_loss")
+            actor_loss_value = float(actor_loss.item())
 
             self.actor_optimizer.zero_grad()
             actor_loss.backward()
@@ -292,13 +293,17 @@ class PERTD3Agent:
 
         self._sync_cuda("train_metrics")
 
-        return {
+        result = {
+            "critic_loss": float(critic_loss.item()),
             "per_beta": float(beta),
             "replay/success_sample_ratio_target": float(current_mu),
             "replay/success_batch_fraction": mix_info["batch_success_fraction"],
             "replay/success_size": float(mix_info["success_size"]),
             "replay/regular_size": float(mix_info["regular_size"]),
         }
+        if actor_loss_value is not None:
+            result["actor_loss"] = actor_loss_value
+        return result
 
     def save(self, filename: str):
         torch.save(
