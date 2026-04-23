@@ -163,7 +163,7 @@ class AETD3Agent:
         self.total_it += 1
 
         if self.replay_buffer.size() < self.batch_size:
-            return
+            return {}
 
         base_states, depths, actions, rewards, next_base_states, next_depths, dones = self.replay_buffer.sample(self.batch_size)
 
@@ -229,7 +229,7 @@ class AETD3Agent:
         self.critic_optimizer.step()
         self.meta_optimizer.step()
 
-        actor_loss = 0.0
+        actor_loss_value = None
         if self.total_it % self.policy_freq == 0:
             # ----------------------------
             # ACTOR UPDATE
@@ -244,6 +244,7 @@ class AETD3Agent:
             
             q1, _ = self.critic(states_for_critic, self.actor(states_for_actor))
             actor_loss = -q1.mean()
+            actor_loss_value = float(actor_loss.item())
 
             self.actor_optimizer.zero_grad()
             actor_loss.backward()
@@ -267,11 +268,17 @@ class AETD3Agent:
             for param, target_param in zip(self.actor_base_adapter.parameters(), self.actor_base_adapter_target.parameters()):
                 target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
 
-        return {
+        result = {
+            'critic_loss': float(critic_loss.item()),
+            'total_critic_loss': float(total_critic_loss.item()),
+            'adaptive_loss': float(adaptive_loss.item()),
             'meta_weight_entropy': weight_entropy.item(),
             'meta_weight_max': weights.max(dim=1).values.mean().item(),
             'adaptive_reg': current_adaptive_reg,
         }
+        if actor_loss_value is not None:
+            result["actor_loss"] = actor_loss_value
+        return result
 
     def save(self, filename: str):
         torch.save(

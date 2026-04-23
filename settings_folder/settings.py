@@ -90,7 +90,7 @@ medium_range_dic = { "End": ["Mutable"],
                                       "Name": ["Name"],
                                       "NumberOfObjects": list(range(30, 50))}
 hard_range_dic = { "End": ["Mutable"],
-                                      "MinimumDistance": [2,3],
+                                      "MinimumDistance": [3,4],
                                       "EnvType": ["Indoor"],
                                       "ArenaSize": [[60, 60, 10]],
                                       "PlayerStart": [[0, 0, 0]],

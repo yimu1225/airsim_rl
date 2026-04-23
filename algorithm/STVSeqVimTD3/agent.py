@@ -193,6 +193,7 @@ class VimStateSeqTD3Agent:
         )
         self.critic_optimizer.step()
 
+        actor_loss_value = None
         if self.total_it % self.policy_freq == 0:
             actor_feat = self.actor_encoder(depth, state)
             actor_action = self.actor(actor_feat)
@@ -200,6 +201,7 @@ class VimStateSeqTD3Agent:
             with torch.no_grad():
                 q_feat = self.critic_encoder(depth, state)
             actor_loss = -self.critic_1(q_feat, actor_action).mean()
+            actor_loss_value = float(actor_loss.item())
 
             self.actor_optimizer.zero_grad()
             actor_loss.backward()
@@ -215,7 +217,12 @@ class VimStateSeqTD3Agent:
             self.soft_update(self.critic_1, self.critic_1_target, self.tau)
             self.soft_update(self.critic_2, self.critic_2_target, self.tau)
 
-        return {}
+        result = {
+            "critic_loss": float(critic_loss.item()),
+        }
+        if actor_loss_value is not None:
+            result["actor_loss"] = actor_loss_value
+        return result
 
     def soft_update(self, net, target_net, tau):
         for param, target_param in zip(net.parameters(), target_net.parameters()):

@@ -208,8 +208,8 @@ class SACAgent:
         self.critic_optimizer.step()
 
         # ============ Actor and Alpha Update ============
-        actor_loss = torch.tensor(0.0)
-        alpha_loss = torch.tensor(0.0)
+        actor_loss_value = None
+        alpha_loss_value = None
         
         if self.total_it % self.policy_freq == 0:
             # Encode current observations (Actor)
@@ -237,6 +237,7 @@ class SACAgent:
             actor_loss.backward()
             torch.nn.utils.clip_grad_norm_(self.actor_params, max_norm=self.grad_clip)
             self.actor_optimizer.step()
+            actor_loss_value = float(actor_loss.item())
 
             # ============ Alpha Update ============
             if self.auto_entropy_tuning:
@@ -249,13 +250,20 @@ class SACAgent:
                 
                 # Update alpha value
                 self.alpha = self.log_alpha.exp().item()
+                alpha_loss_value = float(alpha_loss.item())
 
         # ============ Soft Update Target Networks ============
         self._soft_update()
 
-        return {
-            'alpha': self.alpha if isinstance(self.alpha, float) else self.alpha.item(),
+        result = {
+            "critic_loss": float(critic_loss.item()),
+            "alpha": self.alpha if isinstance(self.alpha, float) else self.alpha.item(),
         }
+        if actor_loss_value is not None:
+            result["actor_loss"] = actor_loss_value
+        if alpha_loss_value is not None:
+            result["alpha_loss"] = alpha_loss_value
+        return result
 
     def _soft_update(self):
         """Soft update target networks."""

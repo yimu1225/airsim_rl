@@ -304,7 +304,7 @@ class STSVimTD3Agent:
             with torch.no_grad():
                 safety_violation_rate = (torch.sigmoid(logits) > 0.5).float().mean().item()
 
-        actor_loss_value = 0.0
+        actor_loss_value = None
         if self.total_it % self.policy_freq == 0:
             actor_visual = self.actor_encoder(depth)
             actor_base = self.actor_base_net(state)
@@ -354,11 +354,16 @@ class STSVimTD3Agent:
             self.soft_update(self.critic, self.critic_target, self.tau)
             self.soft_update(self.safety_model, self.safety_model_target, self.tau)
 
-            actor_loss_value = actor_loss.item()
+            actor_loss_value = float(actor_loss.item())
 
-        return {
-            "safety_violation_rate": safety_violation_rate
+        result = {
+            "critic_loss": float(critic_loss.item()),
+            "safety_loss": float(safety_loss_value),
+            "safety_violation_rate": float(safety_violation_rate),
         }
+        if actor_loss_value is not None:
+            result["actor_loss"] = actor_loss_value
+        return result
 
     def soft_update(self, net, target_net, tau):
         for param, target_param in zip(net.parameters(), target_net.parameters()):

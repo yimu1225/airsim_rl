@@ -235,6 +235,7 @@ class PERVimTD3Agent:
         new_priorities = td_error.detach().cpu().numpy().flatten()
         self.replay_buffer.update_priorities(refs, new_priorities)
 
+        actor_loss_value = None
         if self.total_it % self.policy_freq == 0:
             actor_visual = self.actor_encoder(depth)
             actor_base = self.actor_base_net(state)
@@ -246,6 +247,7 @@ class PERVimTD3Agent:
             q_base = self.critic_base_net(state)
             q_input = torch.cat([q_visual, q_base], dim=-1)
             actor_loss = -self.critic_1(q_input, actor_action).mean()
+            actor_loss_value = float(actor_loss.item())
 
             self.actor_optimizer.zero_grad()
             actor_loss.backward()
@@ -260,13 +262,17 @@ class PERVimTD3Agent:
             self.soft_update(self.critic_1, self.critic_1_target, self.tau)
             self.soft_update(self.critic_2, self.critic_2_target, self.tau)
 
-        return {
+        result = {
+            "critic_loss": float(critic_loss.item()),
             "per_beta": float(beta),
             "replay/success_sample_ratio_target": float(current_mu),
             "replay/success_batch_fraction": mix_info["batch_success_fraction"],
             "replay/success_size": float(mix_info["success_size"]),
             "replay/regular_size": float(mix_info["regular_size"]),
         }
+        if actor_loss_value is not None:
+            result["actor_loss"] = actor_loss_value
+        return result
 
     def soft_update(self, net, target_net, tau):
         for param, target_param in zip(net.parameters(), target_net.parameters()):

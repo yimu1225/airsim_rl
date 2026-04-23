@@ -45,10 +45,10 @@ from algorithm.per_aetd3.per_aetd3 import PERAETD3Agent
 
 from algorithm.cfc_td3.cfc_td3 import CFCTD3Agent
 from algorithm.ST_VimTD3.agent import STVimTD3Agent
-from algorithm.stv_patch_td3.agent import VimPatchTD3Agent
+from algorithm.STVPatchTD3.agent import VimPatchTD3Agent
 from algorithm.stv_vim_td3.agent import VimTD3Agent
-from algorithm.st_seq_vim_td3.agent import StateSeqVimTD3Agent
-from algorithm.stv_seq_vim_td3.agent import VimStateSeqTD3Agent
+from algorithm.STSeqVimTD3.agent import StateSeqVimTD3Agent
+from algorithm.STVSeqVimTD3.agent import VimStateSeqTD3Agent
 from algorithm.stv_per_vim_td3.agent import PERVimTD3Agent
 from algorithm.ST_SVimTD3.agent import STSVimTD3Agent
 from algorithm.mamba_td3.agent import MambaTD3Agent
@@ -73,6 +73,54 @@ def _raise_if_non_finite(name, value, step_info=""):
         if step_info:
             message = f"{message} | {step_info}"
         raise FloatingPointError(message)
+
+
+def _to_scalar_float(value):
+    if isinstance(value, (int, float, np.integer, np.floating)):
+        return float(value)
+    if torch.is_tensor(value):
+        if value.numel() != 1:
+            return None
+        return float(value.detach().cpu().item())
+    if isinstance(value, np.ndarray) and value.size == 1:
+        return float(value.item())
+    return None
+
+
+def _log_train_metrics_per_update(writer, train_info, update_step, algo_name, total_timesteps):
+    if not isinstance(train_info, dict):
+        return
+
+    compatibility_tags = {
+        "meta_weight_entropy": "adaptive/meta_weight_entropy",
+        "meta_weight_max": "adaptive/meta_weight_max",
+        "adaptive_reg": "adaptive/reg",
+        "per_beta": "per/beta",
+        "replay/success_sample_ratio_target": "per/success_sample_ratio_target",
+        "replay/success_batch_fraction": "per/success_batch_fraction",
+        "replay/success_size": "per/success_size",
+        "replay/regular_size": "per/regular_size",
+    }
+
+    for key, value in train_info.items():
+        scalar_value = _to_scalar_float(value)
+        if scalar_value is None:
+            continue
+
+        _raise_if_non_finite(
+            f"train.{key}",
+            scalar_value,
+            f"algo={algo_name}, update_step={update_step}, total_timesteps={total_timesteps}",
+        )
+
+        key_str = str(key)
+        if "loss" in key_str.lower():
+            writer.add_scalar(f"loss/{key_str}", scalar_value, total_timesteps)
+        else:
+            writer.add_scalar(f"update/{key_str}", scalar_value, total_timesteps)
+
+        if key_str in compatibility_tags:
+            writer.add_scalar(compatibility_tags[key_str], scalar_value, total_timesteps)
 
 
 def _configure_reproducibility(seed: int, args):
@@ -103,9 +151,9 @@ def expand_algorithms(algo_str):
     """
     # Predefined algorithm groups
     groups = {
-        'all': ['td3', 'noisy_td3', 'noisy_td3_type2', 'ddpg', 'aetd3', 'per_td3', 'per_aetd3', 'cfc_td3', 'ST-VimTD3', 'stv_patch_td3', 'stv_vim_td3', 'st_seq_vim_td3', 'stv_seq_vim_td3', 'stv_per_vim_td3', 'ST-SVimTD3', 'mamba_td3', 'gam_mamba_td3', 'gam_td3', 'ST_3DVimTD3', 'ST-DualVimTD3', 'sac', 'td3_asym', 'per_td3_asym', 'ST_VimTD3_asym'],
+        'all': ['td3', 'noisy_td3', 'noisy_td3_type2', 'ddpg', 'aetd3', 'per_td3', 'per_aetd3', 'cfc_td3', 'ST-VimTD3', 'STVPatchTD3', 'stv_vim_td3', 'STSeqVimTD3', 'STVSeqVimTD3', 'stv_per_vim_td3', 'ST-SVimTD3', 'mamba_td3', 'gam_mamba_td3', 'gam_td3', 'ST_3DVimTD3', 'ST-DualVimTD3', 'sac', 'td3_asym', 'per_td3_asym', 'ST_VimTD3_asym'],
         'base': ['td3', 'noisy_td3', 'noisy_td3_type2', 'ddpg', 'aetd3', 'per_td3', 'per_aetd3', 'sac', 'td3_asym', 'per_td3_asym'],
-        'seq': ['cfc_td3', 'ST-VimTD3', 'stv_patch_td3', 'stv_vim_td3', 'st_seq_vim_td3', 'stv_seq_vim_td3', 'stv_per_vim_td3', 'ST-SVimTD3', 'mamba_td3', 'ST_3DVimTD3', 'ST-DualVimTD3', 'ST_VimTD3_asym']
+        'seq': ['cfc_td3', 'ST-VimTD3', 'STVPatchTD3', 'stv_vim_td3', 'STSeqVimTD3', 'STVSeqVimTD3', 'stv_per_vim_td3', 'ST-SVimTD3', 'mamba_td3', 'ST_3DVimTD3', 'ST-DualVimTD3', 'ST_VimTD3_asym']
     }
     
     # Check if it's a predefined group
@@ -138,11 +186,14 @@ def get_agent_class(algo_name):
         'cfc_td3': CFCTD3Agent,
         'ST-VimTD3': STVimTD3Agent,
         'stv_patch_td3': VimPatchTD3Agent,
+        'STVPatchTD3': VimPatchTD3Agent,
         'stv_vim_td3': VimTD3Agent,
         'st_seq_vim_td3': StateSeqVimTD3Agent,
         'ST-SeqVimTD3': StateSeqVimTD3Agent,
+        'STSeqVimTD3': StateSeqVimTD3Agent,
         'stv_seq_vim_td3': VimStateSeqTD3Agent,
         'STV-SeqVimTD3': VimStateSeqTD3Agent,
+        'STVSeqVimTD3': VimStateSeqTD3Agent,
         'stv_per_vim_td3': PERVimTD3Agent,
         'ST_VimTD3_asym': AsymSTVimTD3Agent,
         'ST-VimTD3_asym': AsymSTVimTD3Agent,
@@ -348,7 +399,7 @@ def main():
             # Determine properties for this algorithm
             recurrent_algos = [
                 'cfc_td3', 'mamba_td3', 'ST-VimTD3',
-                'stv_patch_td3', 'stv_vim_td3', 'st_seq_vim_td3', 'ST-SeqVimTD3', 'stv_seq_vim_td3', 'STV-SeqVimTD3', 'stv_per_vim_td3',
+                'stv_patch_td3', 'STVPatchTD3', 'stv_vim_td3', 'st_seq_vim_td3', 'ST-SeqVimTD3', 'STSeqVimTD3', 'stv_seq_vim_td3', 'STV-SeqVimTD3', 'STVSeqVimTD3', 'stv_per_vim_td3',
                 'ST_VimTD3_asym', 'ST-VimTD3_asym', 'ST-SVimTD3', 'ST_3DVimTD3', 'ST-DualVimTD3'
             ]
             
@@ -470,10 +521,11 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, ba
     episode_num = 0
     episode_reward = 0
     episode_timesteps = 0
+    update_step = 0
 
     state = depth_image
     base = base_state
-    base_seq_algos = {"st_seq_vim_td3", "ST-SeqVimTD3", "stv_seq_vim_td3", "STV-SeqVimTD3"}
+    base_seq_algos = {"st_seq_vim_td3", "ST-SeqVimTD3", "STSeqVimTD3", "stv_seq_vim_td3", "STV-SeqVimTD3", "STVSeqVimTD3"}
     use_base_sequence = bool(is_recurrent and core_algo_name in base_seq_algos)
     base_seq_deque = None
     base_seq = None
@@ -862,49 +914,19 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, ba
             n_updates = max(1, n_updates)  # 至少更新1次
             
             # Show progress bar for the update steps
-            loss_info_list = []
             for _ in tqdm(range(n_updates), desc=f"Training ({total_timesteps})", leave=False):
                 # Pass progress for schedulers if needed (conceptually)
                 progress_ratio = total_timesteps / max_timesteps
                 train_info = agent.train(progress_ratio=progress_ratio)
                 if train_info:
-                    loss_info_list.append(train_info)
-            
-            # Log non-loss metrics every 100 training steps
-            if loss_info_list and total_timesteps % 100 == 0:
-                meta_metric_map = {
-                    'adaptive/meta_weight_entropy': 'meta_weight_entropy',
-                    'adaptive/meta_weight_max': 'meta_weight_max',
-                    'adaptive/reg': 'adaptive_reg',
-                }
-                for tb_tag, key in meta_metric_map.items():
-                    values = [info[key] for info in loss_info_list if key in info]
-                    if values:
-                        mean_value = float(np.mean(values))
-                        _raise_if_non_finite(
-                            f"train.{key}",
-                            mean_value,
-                            f"algo={display_algo_name}, total_timesteps={total_timesteps}"
-                        )
-                        writer.add_scalar(tb_tag, mean_value, total_timesteps)
-
-                per_metric_map = {
-                    'per/beta': 'per_beta',
-                    'per/success_sample_ratio_target': 'replay/success_sample_ratio_target',
-                    'per/success_batch_fraction': 'replay/success_batch_fraction',
-                    'per/success_size': 'replay/success_size',
-                    'per/regular_size': 'replay/regular_size',
-                }
-                for tb_tag, key in per_metric_map.items():
-                    values = [info[key] for info in loss_info_list if key in info]
-                    if values:
-                        mean_value = float(np.mean(values))
-                        _raise_if_non_finite(
-                            f"train.{key}",
-                            mean_value,
-                            f"algo={display_algo_name}, total_timesteps={total_timesteps}"
-                        )
-                        writer.add_scalar(tb_tag, mean_value, total_timesteps)
+                    update_step += 1
+                    _log_train_metrics_per_update(
+                        writer=writer,
+                        train_info=train_info,
+                        update_step=update_step,
+                        algo_name=display_algo_name,
+                        total_timesteps=total_timesteps,
+                    )
             
             # Memory cleanup after training updates
             if torch.cuda.is_available():
