@@ -42,7 +42,7 @@
 #### 4. 基于Mamba的最新架构 ⭐
 - **ST-VimTD3**: 时空Vision Mamba，最新的视觉状态空间模型
 - **stv_patch_td3**: ST-VimTD3流程 + Video-style Patch Embedding（仅替换Patch Embedding）
-- **stv_vim_td3**: 纯 Vim 特征提取（无 Temporal Mamba）
+- **Vim-TD3**: 纯 Vim 特征提取（无 Temporal Mamba）
 - **stv_per_vim_td3**: ST-VimTD3 + 优先经验回放（PER）
 
 ### 算法架构对比
@@ -173,7 +173,7 @@ python main_async.py --algorithm_name "td3,aetd3,per_td3" --max_timesteps 500000
 python main_async.py --algorithm_name "cfc_td3" --max_timesteps 500000
 
 # 训练常用视觉时序算法
-python main_async.py --algorithm_name "ST-VimTD3,stv_patch_td3,stv_vim_td3,mamba_td3" --max_timesteps 500000
+python main_async.py --algorithm_name "ST-VimTD3,stv_patch_td3,Vim-TD3,mamba_td3" --max_timesteps 500000
 ```
 
 ### 评估模型

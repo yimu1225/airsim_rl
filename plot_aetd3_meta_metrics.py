@@ -28,7 +28,7 @@ def expand_algorithms(algo_str):
             "cfc_td3",
             "ST-VimTD3",
             "stv_patch_td3",
-            "stv_vim_td3",
+            "Vim-TD3",
             "stv_per_vim_td3",
             "ST-SVimTD3",
             "mamba_td3",
@@ -37,7 +37,7 @@ def expand_algorithms(algo_str):
             "ST_3DVimTD3",
         ],
         "base": ["td3", "ddpg", "aetd3", "per_td3", "per_aetd3"],
-        "seq": ["cfc_td3", "ST-VimTD3", "stv_patch_td3", "stv_vim_td3", "stv_per_vim_td3", "ST-SVimTD3", "mamba_td3", "ST_3DVimTD3"],
+        "seq": ["cfc_td3", "ST-VimTD3", "stv_patch_td3", "Vim-TD3", "stv_per_vim_td3", "ST-SVimTD3", "mamba_td3", "ST_3DVimTD3"],
     }
 
     if algo_str in groups:

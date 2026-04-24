@@ -1,4 +1,4 @@
-# stv_vim_td3 algorithm-specific parameters
+# Vim-TD3 algorithm-specific parameters
 # Shared/common parameters stay in config.py
 st_mamba_embed_dim: 32  # ST-Mamba/Vim token 嵌入维度
 st_mamba_depth: 1  # Vim 主干 block 层数

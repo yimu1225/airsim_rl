@@ -29,7 +29,7 @@ def get_config(argv=None):
 
     # 算法选择 (Algorithm Selection)
     parser.add_argument("--algorithm_name", type=str, default='ST-VimTD3,STVPatchTD3',
-                        help="要训练的算法。支持: td3, noisy_td3, noisy_td3_type2, ddpg, aetd3, per_td3, per_aetd3, cfc_td3, ST-VimTD3, stv_patch_td3 (或 STVPatchTD3), stv_vim_td3, st_seq_vim_td3 (或 ST-SeqVimTD3 或 STSeqVimTD3), stv_seq_vim_td3 (或 STV-SeqVimTD3 或 STVSeqVimTD3), stv_per_vim_td3, ST-SVimTD3, mamba_td3, ST_3DVimTD3, gam_mamba_td3, gam_td3, ST-DualVimTD3, sac, ppo。可以是单个，多个（逗号分隔），或组名 ('all', 'base', 'seq')")
+                        help="要训练的算法。支持: td3, noisy_td3, noisy_td3_type2, ddpg, aetd3, per_td3, per_aetd3, cfc_td3, ST-VimTD3, stv_patch_td3 (或 STVPatchTD3), Vim-TD3, st_seq_vim_td3 (或 ST-SeqVimTD3 或 STSeqVimTD3), stv_seq_vim_td3 (或 STV-SeqVimTD3 或 STVSeqVimTD3), stv_per_vim_td3, ST-SVimTD3, mamba_td3, ST_3DVimTD3, gam_mamba_td3, gam_td3, ST-DualVimTD3, sac, ppo。可以是单个，多个（逗号分隔），或组名 ('all', 'base', 'seq')")
     parser.add_argument("--smooth_window", type=int, default=300, help="平滑窗口大小，用于平滑学习曲线 (仅对移动平均有效)")
     parser.add_argument("--smooth_method", type=str, default="moving", choices=["moving","zero_phase_des"], help="曲线平滑方法: moving=滑动平均, zero_phase_des=零相位双重指数平滑")
     parser.add_argument("--smooth_alpha", type=float, default=0.05, help="零相位双重指数平滑的水平平滑因子 (0-1)，越大越关注近期数据")

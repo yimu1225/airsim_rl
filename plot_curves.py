@@ -400,7 +400,7 @@ def main():
     supported_algos = [
         'td3', 'ddpg', 'aetd3', 'per_td3', 'per_aetd3',
         'gru_td3', 'lstm_td3', 'gru_aetd3', 'lstm_aetd3', 'cfc_td3',
-        'ST-VimTD3', 'stv_patch_td3', 'stv_vim_td3', 'stv_per_vim_td3', 'ST-SVimTD3', 'mamba_td3', 'gam_mamba_td3', 'gam_td3'
+        'ST-VimTD3', 'stv_patch_td3', 'Vim-TD3', 'stv_per_vim_td3', 'ST-SVimTD3', 'mamba_td3', 'gam_mamba_td3', 'gam_td3'
     ]
     
     if algo_list_input == 'all':
