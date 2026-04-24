@@ -7,7 +7,7 @@ from torch.optim import Adam
 
 from ..state_adapter import StateAdapter
 from ..config_loader import get_algo_param
-from ..ST_VimTD3.networks import Actor, Critic
+from ..ST_Vim_TD3.networks import Actor, Critic
 from .buffer import ReplayBuffer
 from .networks import Encoder as VideoPatchEncoder
 

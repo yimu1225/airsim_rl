@@ -22,6 +22,13 @@ from tqdm import tqdm
 
 from config import get_config
 from algorithm.config_loader import apply_algorithm_params
+from algo_name_utils import (
+    expand_algorithm_spec,
+    is_curriculum_algorithm,
+    split_curriculum_prefix,
+    to_internal_algorithm_name,
+    to_internal_core_algorithm_name,
+)
 import gymnasium as gym
 import gym_airsim  # noqa: F401 - ensure env ids are registered
 from gym_airsim.envs import AirSimEnv
@@ -98,26 +105,18 @@ def _configure_reproducibility(seed: int, args):
 
 
 def expand_algorithms(algo_str):
-    """
-    Expand algorithm string to list of individual algorithms.
-    Supports comma-separated lists.
-    """
-    if ',' in algo_str:
-        return [algo.strip() for algo in algo_str.split(',')]
-    return [algo_str]
+    return expand_algorithm_spec(algo_str)
 
 
 def get_agent_class(algo_name):
     """Get agent class by algorithm name."""
-    # 去掉 CL- 前缀（如果存在）
-    if algo_name.startswith("CL-"):
-        algo_name = algo_name[3:]
+    core_algo_name = to_internal_core_algorithm_name(algo_name)
     
     agents = {
         'ppo': PPOAgent,
     }
-    if algo_name in agents:
-        return agents[algo_name]
+    if core_algo_name in agents:
+        return agents[core_algo_name]
     raise ValueError(f"Unknown on-policy algorithm: {algo_name}")
 
 
@@ -428,7 +427,14 @@ def main():
         _configure_reproducibility(seed, seed_args)
 
         for algo_name in algorithms:
+            algo_name = to_internal_algorithm_name(algo_name)
+            core_algo_name = to_internal_core_algorithm_name(algo_name)
+            if core_algo_name != "ppo":
+                print(f"Skipping unsupported on-policy algorithm in main_ppo.py: {algo_name}")
+                continue
+
             args = copy.deepcopy(seed_args)
+            args.algorithm_name = algo_name
             params_path, loaded_keys = apply_algorithm_params(args, algo_name)
             print(f"\n{'='*50}")
             print(f"Training algorithm: {algo_name} (seed={seed})")
@@ -439,8 +445,8 @@ def main():
                 print(f"  [Algo Params] Loaded empty params from {params_path}")
 
             # Handle curriculum learning prefix
-            if algo_name.startswith("CL-"):
-                actual_algo_name = algo_name[3:]
+            if is_curriculum_algorithm(algo_name):
+                actual_algo_name = split_curriculum_prefix(algo_name)[1]
                 print(f"  [Curriculum Learning Enabled] {actual_algo_name}")
             else:
                 actual_algo_name = algo_name

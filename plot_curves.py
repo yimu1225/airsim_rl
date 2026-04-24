@@ -4,6 +4,26 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from config import get_config
+from algo_name_utils import (
+    expand_algorithm_spec,
+    split_curriculum_prefix,
+    to_internal_algorithm_name,
+    to_kebab_algorithm_name,
+)
+
+
+def _safe_to_internal_algo_name(name):
+    try:
+        return to_internal_algorithm_name(name)
+    except ValueError:
+        return str(name).strip()
+
+
+def _safe_to_plot_label(name):
+    try:
+        return to_kebab_algorithm_name(name, upper=True)
+    except ValueError:
+        return str(name).strip().replace("_", "-").upper()
 
 def _prepare_xy(x_values, y_values):
     """清洗并排序单条曲线，保证 x 严格递增。"""
@@ -225,11 +245,11 @@ def plot_curves(algorithms, seeds_to_plot=None, save_path="learning_curves.png",
                 file_basename = os.path.basename(file)
                 if '_seed' in file_basename:
                     parts = file_basename.split('_seed')
-                    actual_algo = parts[0]
+                    actual_algo = _safe_to_internal_algo_name(parts[0])
                     # 提取种子号
                     seed_part = parts[1].split('_')[0] if len(parts) > 1 else 'unknown'
                 else:
-                    actual_algo = algo
+                    actual_algo = _safe_to_internal_algo_name(algo)
                     seed_part = 'unknown'
                 
                 # 如果指定了种子列表，则只加载指定的种子
@@ -238,6 +258,7 @@ def plot_curves(algorithms, seeds_to_plot=None, save_path="learning_curves.png",
                     continue
                 
                 df['Algorithm'] = actual_algo
+                df['AlgorithmLabel'] = _safe_to_plot_label(actual_algo)
                 df['Seed'] = seed_part
                 all_data.append(df)
                 print(f"  Loaded: {file_basename} -> {actual_algo} (seed={seed_part})")
@@ -304,9 +325,11 @@ def plot_curves(algorithms, seeds_to_plot=None, save_path="learning_curves.png",
         
         color = color_map[algo_name]
         
+        display_label = str(algo_df["AlgorithmLabel"].iloc[0])
+
         # 绘制均值曲线
         ax_reward.plot(x_common, mean_reward,
-                      label=algo_name.upper(), linewidth=2.5, color=color, 
+                      label=display_label, linewidth=2.5, color=color,
                       linestyle=line_style_map[algo_name])
         
         # baselines 风格：均值曲线 + 组内离散度阴影
@@ -366,9 +389,11 @@ def plot_curves(algorithms, seeds_to_plot=None, save_path="learning_curves.png",
         
         color = color_map[algo_name]
         
+        display_label = str(algo_df["AlgorithmLabel"].iloc[0])
+
         # 绘制均值曲线
         ax_success.plot(x_common, mean_success,
-                       label=algo_name.upper(), linewidth=2.5, color=color,
+                       label=display_label, linewidth=2.5, color=color,
                        linestyle=line_style_map[algo_name])
         
         # 绘制阴影区域（标准差或标准误差）
@@ -396,19 +421,16 @@ def main():
     args = get_config()
     
     algo_list_input = args.algorithm_name
-    
-    supported_algos = [
-        'td3', 'ddpg', 'aetd3', 'per_td3', 'per_aetd3',
-        'gru_td3', 'lstm_td3', 'gru_aetd3', 'lstm_aetd3', 'cfc_td3',
-        'ST-VimTD3', 'stv_patch_td3', 'Vim-TD3', 'PER-ST-VimTD3', 'ST-SVimTD3', 'mamba_td3', 'gam_mamba_td3', 'gam_td3'
-    ]
-    
-    if algo_list_input == 'all':
-        algos_to_plot = supported_algos
-    else:
-        algos_to_plot = [a.strip() for a in algo_list_input.split(',')]
-        
-    print(f"Plotting curves for: {algos_to_plot}")
+
+    expanded_algorithms = expand_algorithm_spec(algo_list_input)
+    algos_to_plot = []
+    for algorithm_name in expanded_algorithms:
+        _, core_name = split_curriculum_prefix(algorithm_name)
+        if core_name not in algos_to_plot:
+            algos_to_plot.append(core_name)
+
+    display_algos = [to_kebab_algorithm_name(name, upper=True) for name in algos_to_plot]
+    print(f"Plotting curves for: {display_algos}")
     print(f"Plot CL algorithms: {args.plot_cl}")
     print(f"Plot non-CL algorithms: {args.plot_non_cl}")
     

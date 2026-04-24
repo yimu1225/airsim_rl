@@ -34,14 +34,14 @@
 - **CFC TD3**: 闭式连续时间TD3，高效时序处理
 
 #### 3. 先进的视觉架构
-- **mamba_td3**: CNN + Temporal Mamba（无 Vim）时空建模
+- **mamba-td3**: CNN + Temporal Mamba（无 Vim）时空建模
 - **VMamba TD3**: 基于状态空间模型的视觉架构
 - **VMamba TD3 No Cross**: 无交叉注意力的VMamba变体
 - **ST-VMamba TD3**: 时空VMamba，结合空间和时间建模
 
 #### 4. 基于Mamba的最新架构 ⭐
 - **ST-VimTD3**: 时空Vision Mamba，最新的视觉状态空间模型
-- **stv_patch_td3**: ST-VimTD3流程 + Video-style Patch Embedding（仅替换Patch Embedding）
+- **stv-patch-td3**: ST-VimTD3流程 + Video-style Patch Embedding（仅替换Patch Embedding）
 - **Vim-TD3**: 纯 Vim 特征提取（无 Temporal Mamba）
 - **PER-ST-VimTD3**: ST-VimTD3 + 优先经验回放（PER）
 
@@ -167,13 +167,13 @@ python main_async.py --algorithm_name ST-VimTD3 --max_timesteps 1000000
 
 ```bash
 # 训练所有基础算法
-python main_async.py --algorithm_name "td3,aetd3,per_td3" --max_timesteps 500000
+python main_async.py --algorithm_name "td3,aetd3,per-td3" --max_timesteps 500000
 
 # 训练所有时序算法
-python main_async.py --algorithm_name "cfc_td3" --max_timesteps 500000
+python main_async.py --algorithm_name "cfc-td3" --max_timesteps 500000
 
 # 训练常用视觉时序算法
-python main_async.py --algorithm_name "ST-VimTD3,stv_patch_td3,Vim-TD3,mamba_td3" --max_timesteps 500000
+python main_async.py --algorithm_name "ST-VimTD3,stv-patch-td3,Vim-TD3,mamba-td3" --max_timesteps 500000
 ```
 
 ### 评估模型
@@ -289,9 +289,9 @@ graph TD
 airsim_rl/
 ├── algorithm/                 # 算法实现
 │   ├── td3/                  # 基础TD3
-│   ├── vmamba_td3/           # VMamba TD3
+│   ├── vmamba-td3/           # VMamba TD3
 │   ├── ST_VimTD3/            # 时空Vision Mamba TD3
-│   ├── cfc_td3/              # CFC TD3
+│   ├── cfc-td3/              # CFC TD3
 │   └── ...
 ├── gym_airsim/              # AirSim环境包装
 ├── Vim/                     # Vision Mamba实现

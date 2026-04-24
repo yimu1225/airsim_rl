@@ -8,6 +8,11 @@ from scipy import interpolate
 from tensorboard.backend.event_processing import event_accumulator
 
 from config import get_config
+from algo_name_utils import (
+    expand_algorithm_spec,
+    split_curriculum_prefix,
+    to_kebab_algorithm_name,
+)
 
 
 METRIC_TAGS = {
@@ -18,33 +23,13 @@ METRIC_TAGS = {
 
 
 def expand_algorithms(algo_str):
-    groups = {
-        "all": [
-            "td3",
-            "ddpg",
-            "aetd3",
-            "per_td3",
-            "per_aetd3",
-            "cfc_td3",
-            "ST-VimTD3",
-            "stv_patch_td3",
-            "Vim-TD3",
-            "PER-ST-VimTD3",
-            "ST-SVimTD3",
-            "mamba_td3",
-            "gam_mamba_td3",
-            "gam_td3",
-            "ST_3DVimTD3",
-        ],
-        "base": ["td3", "ddpg", "aetd3", "per_td3", "per_aetd3"],
-        "seq": ["cfc_td3", "ST-VimTD3", "stv_patch_td3", "Vim-TD3", "PER-ST-VimTD3", "ST-SVimTD3", "mamba_td3", "ST_3DVimTD3"],
-    }
-
-    if algo_str in groups:
-        return groups[algo_str]
-    if "," in algo_str:
-        return [a.strip() for a in algo_str.split(",") if a.strip()]
-    return [algo_str.strip()]
+    expanded = expand_algorithm_spec(algo_str)
+    algorithms = []
+    for algorithm_name in expanded:
+        _, core_name = split_curriculum_prefix(algorithm_name)
+        if core_name not in algorithms:
+            algorithms.append(core_name)
+    return algorithms
 
 
 def smooth_values(values, method="moving", window=10, smooth_alpha=0.99):
@@ -172,6 +157,7 @@ def main():
     any_plotted = False
     for idx, (algo_variant, runs) in enumerate(sorted(run_groups.items())):
         color = colors[idx]
+        display_label = to_kebab_algorithm_name(algo_variant, upper=True)
         for ax, metric_key in zip(axes, METRIC_TAGS.keys()):
             plotted = plot_metric(
                 ax=ax,
@@ -183,7 +169,7 @@ def main():
                 ci_type=args.ci_type,
                 n_interp_points=600,
                 color=color,
-                label=algo_variant,
+                label=display_label,
             )
             any_plotted = any_plotted or plotted
 

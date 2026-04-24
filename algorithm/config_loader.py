@@ -5,37 +5,26 @@ from pathlib import Path
 from typing import Any, Dict, Tuple
 
 import yaml
+from algo_name_utils import to_internal_core_algorithm_name
 
 
 _ALGO_DIR = Path(__file__).resolve().parent
 
-# Map display names used by CLI to physical algorithm folders.
-_ALGO_DIR_ALIASES = {
-    "ST-VimTD3": "ST_VimTD3",
-    "stv_patch_td3": "STVPatchTD3",
-    "STVPatchTD3": "STVPatchTD3",
-    "st_seq_vim_td3": "STSeqVimTD3",
-    "ST-SeqVimTD3": "STSeqVimTD3",
-    "STSeqVimTD3": "STSeqVimTD3",
-    "stv_seq_vim_td3": "STVSeqVimTD3",
-    "STV-SeqVimTD3": "STVSeqVimTD3",
-    "STVSeqVimTD3": "STVSeqVimTD3",
-    "ST-SVimTD3": "ST_SVimTD3",
-    "ST-DualVimTD3": "st_dualvim_td3",
-    "ST-VimTD3_asym": "ST_VimTD3_asym",
-    "ST_VimTD3_asym": "ST_VimTD3_asym",
-    "ST_3DVimTD3": "ST_3DVimTD3",
+_ALGO_DIR_MAP = {
+    "st_vim_td3": "ST_Vim_TD3",
+    "stv_patch_td3": "STV_Patch_TD3",
+    "vim_td3": "Vim_TD3",
+    "st_seq_vim_td3": "ST_Seq_Vim_TD3",
+    "stv_seq_vim_td3": "STV_Seq_Vim_TD3",
+    "per_st_vim_td3": "PER_ST_Vim_TD3",
+    "st_svim_td3": "ST_SVim_TD3",
+    "st_3dvim_td3": "ST_3D_Vim_TD3",
+    "st_vim_td3_asym": "ST_Vim_TD3_asym",
 }
 
-
-def _strip_curriculum_prefix(algorithm_name: str) -> str:
-    name = str(algorithm_name).strip()
-    return name[3:] if name.startswith("CL-") else name
-
-
 def _resolve_algorithm_dir(algorithm_name: str) -> Path:
-    core_name = _strip_curriculum_prefix(algorithm_name)
-    folder_name = _ALGO_DIR_ALIASES.get(core_name, core_name)
+    core_name = to_internal_core_algorithm_name(algorithm_name)
+    folder_name = _ALGO_DIR_MAP.get(core_name, core_name)
     folder_path = _ALGO_DIR / folder_name
     if not folder_path.is_dir():
         raise ValueError(

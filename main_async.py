@@ -30,6 +30,13 @@ from tqdm import tqdm
 
 from config import get_config
 from algorithm.config_loader import apply_algorithm_params
+from algo_name_utils import (
+    expand_algorithm_spec,
+    is_curriculum_algorithm,
+    split_curriculum_prefix,
+    to_internal_algorithm_name,
+    to_internal_core_algorithm_name,
+)
 import gymnasium as gym
 import gym_airsim  # noqa: F401 - ensure env ids are registered
 from gym_airsim.envs import AirSimEnv
@@ -44,22 +51,22 @@ from algorithm.per_td3.per_td3 import PERTD3Agent
 from algorithm.per_aetd3.per_aetd3 import PERAETD3Agent
 
 from algorithm.cfc_td3.cfc_td3 import CFCTD3Agent
-from algorithm.ST_VimTD3.agent import STVimTD3Agent
-from algorithm.STVPatchTD3.agent import VimPatchTD3Agent
+from algorithm.ST_Vim_TD3.agent import STVimTD3Agent
+from algorithm.STV_Patch_TD3.agent import VimPatchTD3Agent
 from algorithm.Vim_TD3.agent import VimTD3Agent
-from algorithm.STSeqVimTD3.agent import StateSeqVimTD3Agent
-from algorithm.STVSeqVimTD3.agent import VimStateSeqTD3Agent
-from algorithm.PER_ST_VimTD3.agent import PERVimTD3Agent
-from algorithm.ST_SVimTD3.agent import STSVimTD3Agent
+from algorithm.ST_Seq_Vim_TD3.agent import StateSeqVimTD3Agent
+from algorithm.STV_Seq_Vim_TD3.agent import VimStateSeqTD3Agent
+from algorithm.PER_ST_Vim_TD3.agent import PERVimTD3Agent
+from algorithm.ST_SVim_TD3.agent import STSVimTD3Agent
 from algorithm.mamba_td3.agent import MambaTD3Agent
 from algorithm.gam_mamba_td3.td3 import GAMMambaTD3Agent
 from algorithm.gam_td3.td3 import GAMTD3Agent
-from algorithm.ST_3DVimTD3.agent import ST3DVimTD3Agent
+from algorithm.ST_3D_Vim_TD3.agent import ST3DVimTD3Agent
 from algorithm.st_dualvim_td3.agent import DualBranchVideoMambaTD3Agent
 from algorithm.sac.agent import SACAgent
 from algorithm.td3_asym.td3_asym import AsymTD3Agent
 from algorithm.per_td3_asym.per_td3_asym import AsymPERTD3Agent
-from algorithm.ST_VimTD3_asym.agent import AsymSTVimTD3Agent
+from algorithm.ST_Vim_TD3_asym.agent import AsymSTVimTD3Agent
 
 
 
@@ -145,33 +152,11 @@ def _configure_reproducibility(seed: int, args):
 
 
 def expand_algorithms(algo_str):
-    """
-    Expand algorithm string to list of individual algorithms.
-    Supports comma-separated lists and predefined groups.
-    """
-    # Predefined algorithm groups
-    groups = {
-        'all': ['td3', 'noisy_td3', 'noisy_td3_type2', 'ddpg', 'aetd3', 'per_td3', 'per_aetd3', 'cfc_td3', 'ST-VimTD3', 'STVPatchTD3', 'Vim-TD3', 'STSeqVimTD3', 'STVSeqVimTD3', 'PER-ST-VimTD3', 'ST-SVimTD3', 'mamba_td3', 'gam_mamba_td3', 'gam_td3', 'ST_3DVimTD3', 'ST-DualVimTD3', 'sac', 'td3_asym', 'per_td3_asym', 'ST_VimTD3_asym'],
-        'base': ['td3', 'noisy_td3', 'noisy_td3_type2', 'ddpg', 'aetd3', 'per_td3', 'per_aetd3', 'sac', 'td3_asym', 'per_td3_asym'],
-        'seq': ['cfc_td3', 'ST-VimTD3', 'STVPatchTD3', 'Vim-TD3', 'STSeqVimTD3', 'STVSeqVimTD3', 'PER-ST-VimTD3', 'ST-SVimTD3', 'mamba_td3', 'ST_3DVimTD3', 'ST-DualVimTD3', 'ST_VimTD3_asym']
-    }
-    
-    # Check if it's a predefined group
-    if algo_str in groups:
-        return groups[algo_str]
-    
-    # Check if it's comma-separated
-    if ',' in algo_str:
-        return [algo.strip() for algo in algo_str.split(',')]
-    
-    # Single algorithm
-    return [algo_str]
+    return expand_algorithm_spec(algo_str)
 
 
 def get_agent_class(algo_name):
-    # 去掉 CL- 前缀（如果存在）
-    if algo_name.startswith("CL-"):
-        algo_name = algo_name[3:]
+    core_algo_name = to_internal_core_algorithm_name(algo_name)
     
     agents = {
         'td3': TD3Agent,
@@ -184,29 +169,23 @@ def get_agent_class(algo_name):
         'per_td3_asym': AsymPERTD3Agent,
         'per_aetd3': PERAETD3Agent,
         'cfc_td3': CFCTD3Agent,
-        'ST-VimTD3': STVimTD3Agent,
+        'st_vim_td3': STVimTD3Agent,
         'stv_patch_td3': VimPatchTD3Agent,
-        'STVPatchTD3': VimPatchTD3Agent,
-        'Vim-TD3': VimTD3Agent,
+        'vim_td3': VimTD3Agent,
         'st_seq_vim_td3': StateSeqVimTD3Agent,
-        'ST-SeqVimTD3': StateSeqVimTD3Agent,
-        'STSeqVimTD3': StateSeqVimTD3Agent,
         'stv_seq_vim_td3': VimStateSeqTD3Agent,
-        'STV-SeqVimTD3': VimStateSeqTD3Agent,
-        'STVSeqVimTD3': VimStateSeqTD3Agent,
-        'PER-ST-VimTD3': PERVimTD3Agent,
-        'ST_VimTD3_asym': AsymSTVimTD3Agent,
-        'ST-VimTD3_asym': AsymSTVimTD3Agent,
-        'ST-SVimTD3': STSVimTD3Agent,
+        'per_st_vim_td3': PERVimTD3Agent,
+        'st_vim_td3_asym': AsymSTVimTD3Agent,
+        'st_svim_td3': STSVimTD3Agent,
         'mamba_td3': MambaTD3Agent,
         'gam_mamba_td3': GAMMambaTD3Agent,
         'gam_td3': GAMTD3Agent,
-        'ST_3DVimTD3': ST3DVimTD3Agent,
-        'ST-DualVimTD3': DualBranchVideoMambaTD3Agent,
+        'st_3dvim_td3': ST3DVimTD3Agent,
+        'st_dualvim_td3': DualBranchVideoMambaTD3Agent,
         'sac': SACAgent,
     }
-    if algo_name in agents:
-        return agents[algo_name]
+    if core_algo_name in agents:
+        return agents[core_algo_name]
     raise ValueError(f"Unknown algorithm: {algo_name}")
 
 
@@ -249,8 +228,8 @@ def _get_env_core(env):
 
 
 def _is_asym_algorithm(algo_name: str) -> bool:
-    core_name = algo_name[3:] if algo_name.startswith("CL-") else algo_name
-    return core_name in {"td3_asym", "per_td3_asym", "ST_VimTD3_asym", "ST-VimTD3_asym"}
+    core_name = to_internal_core_algorithm_name(algo_name)
+    return core_name in {"td3_asym", "per_td3_asym", "st_vim_td3_asym"}
 
 
 def _extract_last_depth_frame(depth_tensor):
@@ -376,7 +355,9 @@ def main():
 
         # Run training for each algorithm
         for algo_name in algorithms:
+            algo_name = to_internal_algorithm_name(algo_name)
             args = copy.deepcopy(seed_args)
+            args.algorithm_name = algo_name
             params_path, loaded_keys = apply_algorithm_params(args, algo_name)
             print(f"\n{'='*50}")
             print(f"Training algorithm: {algo_name} (seed={seed})")
@@ -388,20 +369,28 @@ def main():
 
             # 根据算法名判断是否使用课程学习
             # 算法名以 "CL-" 开头时启用课程学习
-            if algo_name.startswith("CL-"):
-                # 去掉 CL- 前缀获取实际算法名
-                actual_algo_name = algo_name[3:]
+            if is_curriculum_algorithm(algo_name):
+                actual_algo_name = split_curriculum_prefix(algo_name)[1]
                 print(f"  [Curriculum Learning Enabled] {actual_algo_name}")
             else:
                 actual_algo_name = algo_name
                 print(f"  [Curriculum Learning Disabled] {algo_name}")
 
             # Determine properties for this algorithm
-            recurrent_algos = [
-                'cfc_td3', 'mamba_td3', 'ST-VimTD3',
-                'stv_patch_td3', 'STVPatchTD3', 'Vim-TD3', 'st_seq_vim_td3', 'ST-SeqVimTD3', 'STSeqVimTD3', 'stv_seq_vim_td3', 'STV-SeqVimTD3', 'STVSeqVimTD3', 'PER-ST-VimTD3',
-                'ST_VimTD3_asym', 'ST-VimTD3_asym', 'ST-SVimTD3', 'ST_3DVimTD3', 'ST-DualVimTD3'
-            ]
+            recurrent_algos = {
+                'cfc_td3',
+                'mamba_td3',
+                'st_vim_td3',
+                'stv_patch_td3',
+                'vim_td3',
+                'st_seq_vim_td3',
+                'stv_seq_vim_td3',
+                'per_st_vim_td3',
+                'st_vim_td3_asym',
+                'st_svim_td3',
+                'st_3dvim_td3',
+                'st_dualvim_td3',
+            }
             
             is_recurrent = actual_algo_name in recurrent_algos
             
@@ -474,7 +463,7 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, ba
     # 根据是否使用课程学习修改算法显示名称（用于日志和绘图）
     # algo_name 已经包含了 CL- 前缀（如果启用课程学习），直接使用即可
     display_algo_name = algo_name
-    core_algo_name = algo_name[3:] if algo_name.startswith("CL-") else algo_name
+    core_algo_name = to_internal_core_algorithm_name(algo_name)
     is_asym_algo = _is_asym_algorithm(algo_name)
     print(f"Start Asynchronous Training {display_algo_name}...")
 
@@ -525,7 +514,7 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, ba
 
     state = depth_image
     base = base_state
-    base_seq_algos = {"st_seq_vim_td3", "ST-SeqVimTD3", "STSeqVimTD3", "stv_seq_vim_td3", "STV-SeqVimTD3", "STVSeqVimTD3"}
+    base_seq_algos = {"st_seq_vim_td3", "stv_seq_vim_td3"}
     use_base_sequence = bool(is_recurrent and core_algo_name in base_seq_algos)
     base_seq_deque = None
     base_seq = None
@@ -713,7 +702,7 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, ba
                 critic_priv_next = _extract_critic_privileged_lidar(env_core)
             
             if is_recurrent:
-                if core_algo_name == 'ST-SVimTD3':
+                if core_algo_name == 'st_svim_td3':
                     has_collided = float(step_info.get("has_collided", False)) if isinstance(step_info, dict) else 0.0
                     agent.replay_buffer.add(
                         base_for_buffer,
