@@ -43,7 +43,7 @@
 - **ST-VimTD3**: 时空Vision Mamba，最新的视觉状态空间模型
 - **stv_patch_td3**: ST-VimTD3流程 + Video-style Patch Embedding（仅替换Patch Embedding）
 - **Vim-TD3**: 纯 Vim 特征提取（无 Temporal Mamba）
-- **stv_per_vim_td3**: ST-VimTD3 + 优先经验回放（PER）
+- **PER-ST-VimTD3**: ST-VimTD3 + 优先经验回放（PER）
 
 ### 算法架构对比
 
