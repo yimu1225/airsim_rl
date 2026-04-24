@@ -113,24 +113,11 @@ class PERVimTD3Agent:
         self.mu_step2 = float(get_algo_param(args, "per_td3_mu_step2", 0.65))
 
         self.exploration_noise = args.exploration_noise
-        self.exploration_noise_final = getattr(args, "exploration_noise_final", 0.05)
 
         self.total_it = 0
 
     def _get_current_noise(self, progress_ratio: float) -> float:
-        success_rate = float(np.clip(progress_ratio, 0.0, 1.0))
-        noise_max = max(float(self.exploration_noise), 1e-8)
-        noise_min = min(max(float(self.exploration_noise_final), 1e-8), noise_max)
-
-        if success_rate <= 0.5:
-            return noise_max
-
-        s_norm = float(np.clip((success_rate - 0.5) / 0.5, 0.0, 1.0))
-        eta_g = noise_max / 2.0
-        safe_term = max(1.0 - s_norm, 1e-6)
-        noise = eta_g * (2.0 + np.log2(safe_term))
-        return float(np.clip(noise, noise_min, noise_max))
-
+        return max(float(self.exploration_noise), 1e-8)
     def _get_current_beta(self, progress_ratio: float) -> float:
         p = float(np.clip(progress_ratio, 0.0, 1.0))
         return self.per_beta_start * (1.0 - p) + self.per_beta_final * p

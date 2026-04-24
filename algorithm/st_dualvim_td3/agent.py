@@ -122,7 +122,6 @@ class DualBranchVideoMambaTD3Agent:
         self.batch_size = args.batch_size
 
         self.exploration_noise = args.exploration_noise
-        self.exploration_noise_final = getattr(args, "exploration_noise_final", 0.05)
         
         self.total_it = 0
 
@@ -157,26 +156,7 @@ class DualBranchVideoMambaTD3Agent:
         return torch.cat([base_features, depth_features], dim=1)
 
     def _get_current_noise(self, progress_ratio: float) -> float:
-        """
-        根据成功率阈值计算当前步骤的对数衰减噪声强度
-        Args:
-            progress_ratio: 训练进度比例 (0.0 到 1.0)
-        Returns:
-            当前噪声强度
-        """
-        success_rate = float(np.clip(progress_ratio, 0.0, 1.0))
-        noise_max = max(float(self.exploration_noise), 1e-8)
-        noise_min = min(max(float(self.exploration_noise_final), 1e-8), noise_max)
-
-        if success_rate <= 0.5:
-            return noise_max
-
-        s_norm = float(np.clip((success_rate - 0.5) / 0.5, 0.0, 1.0))
-        eta_g = noise_max / 2.0
-        safe_term = max(1.0 - s_norm, 1e-6)
-        noise = eta_g * (2.0 + np.log2(safe_term))
-        return float(np.clip(noise, noise_min, noise_max))
-
+        return max(float(self.exploration_noise), 1e-8)
     def select_action(self, base_state, depth, noise: bool = True, progress_ratio: float = 0.0):
         base_tensor = torch.as_tensor(base_state, dtype=torch.float32, device=self.device).view(1, -1)
         depth_tensor = torch.as_tensor(depth, dtype=torch.float32, device=self.device)

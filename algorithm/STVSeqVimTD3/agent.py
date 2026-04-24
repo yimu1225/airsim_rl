@@ -77,26 +77,13 @@ class VimStateSeqTD3Agent:
         self.policy_freq = self.args.policy_freq
         self.grad_clip = self.args.grad_clip
         self.exploration_noise = self.args.exploration_noise
-        self.exploration_noise_final = getattr(self.args, "exploration_noise_final", 0.05)
 
         self.batch_size = self.args.batch_size
         self.replay_buffer = ReplayBuffer(self.args.buffer_size, self.seq_len, seed=seed)
         self.total_it = 0
 
     def _get_current_noise(self, progress_ratio: float) -> float:
-        success_rate = float(np.clip(progress_ratio, 0.0, 1.0))
-        noise_max = max(float(self.exploration_noise), 1e-8)
-        noise_min = min(max(float(self.exploration_noise_final), 1e-8), noise_max)
-
-        if success_rate <= 0.5:
-            return noise_max
-
-        s_norm = float(np.clip((success_rate - 0.5) / 0.5, 0.0, 1.0))
-        eta_g = noise_max / 2.0
-        safe_term = max(1.0 - s_norm, 1e-6)
-        noise = eta_g * (2.0 + np.log2(safe_term))
-        return float(np.clip(noise, noise_min, noise_max))
-
+        return max(float(self.exploration_noise), 1e-8)
     def _prepare_depth_seq(self, depth_img: torch.Tensor) -> torch.Tensor:
         if depth_img.dim() == 4:
             depth_img = depth_img.unsqueeze(0)
