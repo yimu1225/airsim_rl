@@ -46,7 +46,7 @@ from algorithm.per_aetd3.per_aetd3 import PERAETD3Agent
 from algorithm.cfc_td3.cfc_td3 import CFCTD3Agent
 from algorithm.ST_VimTD3.agent import STVimTD3Agent
 from algorithm.STVPatchTD3.agent import VimPatchTD3Agent
-from algorithm.stv_vim_td3.agent import VimTD3Agent
+from algorithm.Vim_TD3.agent import VimTD3Agent
 from algorithm.STSeqVimTD3.agent import StateSeqVimTD3Agent
 from algorithm.STVSeqVimTD3.agent import VimStateSeqTD3Agent
 from algorithm.stv_per_vim_td3.agent import PERVimTD3Agent
@@ -151,9 +151,9 @@ def expand_algorithms(algo_str):
     """
     # Predefined algorithm groups
     groups = {
-        'all': ['td3', 'noisy_td3', 'noisy_td3_type2', 'ddpg', 'aetd3', 'per_td3', 'per_aetd3', 'cfc_td3', 'ST-VimTD3', 'STVPatchTD3', 'stv_vim_td3', 'STSeqVimTD3', 'STVSeqVimTD3', 'stv_per_vim_td3', 'ST-SVimTD3', 'mamba_td3', 'gam_mamba_td3', 'gam_td3', 'ST_3DVimTD3', 'ST-DualVimTD3', 'sac', 'td3_asym', 'per_td3_asym', 'ST_VimTD3_asym'],
+        'all': ['td3', 'noisy_td3', 'noisy_td3_type2', 'ddpg', 'aetd3', 'per_td3', 'per_aetd3', 'cfc_td3', 'ST-VimTD3', 'STVPatchTD3', 'Vim-TD3', 'STSeqVimTD3', 'STVSeqVimTD3', 'stv_per_vim_td3', 'ST-SVimTD3', 'mamba_td3', 'gam_mamba_td3', 'gam_td3', 'ST_3DVimTD3', 'ST-DualVimTD3', 'sac', 'td3_asym', 'per_td3_asym', 'ST_VimTD3_asym'],
         'base': ['td3', 'noisy_td3', 'noisy_td3_type2', 'ddpg', 'aetd3', 'per_td3', 'per_aetd3', 'sac', 'td3_asym', 'per_td3_asym'],
-        'seq': ['cfc_td3', 'ST-VimTD3', 'STVPatchTD3', 'stv_vim_td3', 'STSeqVimTD3', 'STVSeqVimTD3', 'stv_per_vim_td3', 'ST-SVimTD3', 'mamba_td3', 'ST_3DVimTD3', 'ST-DualVimTD3', 'ST_VimTD3_asym']
+        'seq': ['cfc_td3', 'ST-VimTD3', 'STVPatchTD3', 'Vim-TD3', 'STSeqVimTD3', 'STVSeqVimTD3', 'stv_per_vim_td3', 'ST-SVimTD3', 'mamba_td3', 'ST_3DVimTD3', 'ST-DualVimTD3', 'ST_VimTD3_asym']
     }
     
     # Check if it's a predefined group
@@ -187,7 +187,7 @@ def get_agent_class(algo_name):
         'ST-VimTD3': STVimTD3Agent,
         'stv_patch_td3': VimPatchTD3Agent,
         'STVPatchTD3': VimPatchTD3Agent,
-        'stv_vim_td3': VimTD3Agent,
+        'Vim-TD3': VimTD3Agent,
         'st_seq_vim_td3': StateSeqVimTD3Agent,
         'ST-SeqVimTD3': StateSeqVimTD3Agent,
         'STSeqVimTD3': StateSeqVimTD3Agent,
@@ -399,7 +399,7 @@ def main():
             # Determine properties for this algorithm
             recurrent_algos = [
                 'cfc_td3', 'mamba_td3', 'ST-VimTD3',
-                'stv_patch_td3', 'STVPatchTD3', 'stv_vim_td3', 'st_seq_vim_td3', 'ST-SeqVimTD3', 'STSeqVimTD3', 'stv_seq_vim_td3', 'STV-SeqVimTD3', 'STVSeqVimTD3', 'stv_per_vim_td3',
+                'stv_patch_td3', 'STVPatchTD3', 'Vim-TD3', 'st_seq_vim_td3', 'ST-SeqVimTD3', 'STSeqVimTD3', 'stv_seq_vim_td3', 'STV-SeqVimTD3', 'STVSeqVimTD3', 'stv_per_vim_td3',
                 'ST_VimTD3_asym', 'ST-VimTD3_asym', 'ST-SVimTD3', 'ST_3DVimTD3', 'ST-DualVimTD3'
             ]
             

@@ -4,7 +4,7 @@ from .gam_mamba_td3 import GAMMambaTD3Agent
 from .gam_td3 import GAMTD3Agent
 from .ST_VimTD3.agent import STVimTD3Agent
 from .STVSeqVimTD3.agent import VimStateSeqTD3Agent
-from .stv_vim_td3.agent import VimTD3Agent
+from .Vim_TD3.agent import VimTD3Agent
 from .stv_per_vim_td3.agent import PERVimTD3Agent
 from .ST_SVimTD3.agent import STSVimTD3Agent
 from .mamba_td3.agent import MambaTD3Agent
