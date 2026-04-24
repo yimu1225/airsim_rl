@@ -113,7 +113,6 @@ class VimPatchTD3Agent:
         self.policy_freq = args.policy_freq
         self.grad_clip = args.grad_clip
         self.exploration_noise = args.exploration_noise
-        self.exploration_noise_final = getattr(args, "exploration_noise_final", 0.05)
         self.batch_size = args.batch_size
         self.replay_buffer = ReplayBuffer(args.buffer_size, self.seq_len, seed=seed)
         self.total_it = 0
@@ -142,19 +141,7 @@ class VimPatchTD3Agent:
         return depth_tensor
 
     def _get_current_noise(self, progress_ratio: float) -> float:
-        success_rate = float(np.clip(progress_ratio, 0.0, 1.0))
-        noise_max = max(float(self.exploration_noise), 1e-8)
-        noise_min = min(max(float(self.exploration_noise_final), 1e-8), noise_max)
-
-        if success_rate <= 0.5:
-            return noise_max
-
-        s_norm = float(np.clip((success_rate - 0.5) / 0.5, 0.0, 1.0))
-        eta_g = noise_max / 2.0
-        safe_term = max(1.0 - s_norm, 1e-6)
-        noise = eta_g * (2.0 + np.log2(safe_term))
-        return float(np.clip(noise, noise_min, noise_max))
-
+        return max(float(self.exploration_noise), 1e-8)
     def select_action(self, base_state, depth_img, noise: bool = True, progress_ratio: float = 0.0):
         if isinstance(base_state, np.ndarray):
             base_state = torch.as_tensor(base_state, dtype=torch.float32, device=self.device)
