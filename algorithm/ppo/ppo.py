@@ -50,16 +50,17 @@ class PPOAgent:
         self.action_scale = torch.from_numpy(scale).float().to(self.device)
         self.action_bias = torch.from_numpy(bias).float().to(self.device)
         
-        # Encoder (shared feature extractor)
+        # Encoder (shared feature extractor): frame-wise shared CNN.
         C, depth_h, depth_w = depth_shape
-        
-        self.encoder = Encoder(input_height=depth_h, input_width=depth_w, 
-                               input_channels=C).to(self.device)
+        self.depth_seq_len = max(1, int(C))
+        visual_channels = 1
+
+        self.encoder = Encoder(input_height=depth_h, input_width=depth_w, input_channels=visual_channels).to(self.device)
 
         self.base_encoder = StateAdapter(self.base_dim, self.base_feature_dim).to(self.device)
         
-        # State dimension = projected base feature + encoder output
-        self.state_dim = self.base_feature_dim + self.encoder.repr_dim
+        # State dimension = projected base feature + concatenated per-frame visual features
+        self.state_dim = self.base_feature_dim + self.encoder.repr_dim * self.depth_seq_len
         
         # Actor and Critic
         hidden_dim = getattr(args, 'hidden_dim', 256)
@@ -102,9 +103,22 @@ class PPOAgent:
     
     def _encode(self, depth_batch: torch.Tensor) -> torch.Tensor:
         """Encode depth image."""
-        if depth_batch.dim() == 3:
+        if depth_batch.dim() == 2:
+            depth_batch = depth_batch.unsqueeze(0).unsqueeze(0)
+        elif depth_batch.dim() == 3:
             depth_batch = depth_batch.unsqueeze(0)
-        return self.encoder(depth_batch)
+        elif depth_batch.dim() == 5:
+            if depth_batch.size(2) != 1:
+                raise ValueError(f"Expected single-channel frames, got {tuple(depth_batch.shape)}")
+            depth_batch = depth_batch.squeeze(2)
+
+        if depth_batch.dim() != 4:
+            raise ValueError(f"Unsupported depth batch shape: {tuple(depth_batch.shape)}")
+
+        batch_size, seq_len, height, width = depth_batch.shape
+        frames = depth_batch.reshape(batch_size * seq_len, 1, height, width)
+        frame_features = self.encoder(frames).view(batch_size, seq_len, -1)
+        return frame_features.reshape(batch_size, seq_len * frame_features.size(-1))
     
     def _concat_state(self, base: torch.Tensor, depth: torch.Tensor) -> torch.Tensor:
         """Concatenate projected base state and encoded depth features."""
@@ -351,7 +365,7 @@ class PPOAgent:
     def _encode_and_concat(self, base_states, depth_states):
         """Helper to encode and concatenate."""
         base_features = self.base_encoder(base_states)
-        depth_features = self.encoder(depth_states)
+        depth_features = self._encode(depth_states)
         return torch.cat([base_features, depth_features], dim=1)
     
     def save(self, filename: str):

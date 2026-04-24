@@ -94,7 +94,7 @@ class AirSimEnv(gym.Env):
         # 课程学习设置（提前判断，因为需要在创建 GameConfigHandler 时使用）
         # 通过算法名前缀判断是否使用课程学习 (CL-前缀表示启用)
         algorithm_name = config.algorithm_name
-        self.use_curriculum = algorithm_name.startswith("CL-")
+        self.use_curriculum = algorithm_name.upper().startswith("CL-")
         self.curriculum_start_level = config.curriculum_start_level
         self.non_curriculum_level = config.non_curriculum_level
         
@@ -166,7 +166,7 @@ class AirSimEnv(gym.Env):
         self.success = False
         
         # 使用训练配置中的 seed 初始化随机数生成器，确保首次环境采样可复现
-        self.success_deque = collections.deque(maxlen=512)
+        self.success_deque = collections.deque(maxlen=256)
 
         self.ue4_rpc_fail_count = 0
         self.ue4_rpc_fail_threshold = config.ue4_rpc_fail_threshold
@@ -539,7 +539,7 @@ class AirSimEnv(gym.Env):
         
         奖励函数组成：
         1. reward_vel：NavRL风格速度投影奖励（可为负值）。
-        2. base_reward：常数基础项 +1.0。
+        2. distance_penalty：到目标点距离惩罚 (-goal_dist * 0.03)。
         3. smooth_penalty：NavRL风格速度平滑惩罚 ||v_t - v_{t-1}||。
         4. curvature_penalty：轨迹离散曲率平方惩罚 (r_curv = -alpha * kappa^2)。
         5. step_penalty：每步惩罚（沿用你的配置）。
@@ -557,9 +557,7 @@ class AirSimEnv(gym.Env):
         # NavRL-style velocity reward (r_vel): projection of velocity on goal direction.
         goal_vec = np.array([self.goal[0] - now[0], self.goal[1] - now[1]], dtype=np.float32)
         goal_dist = float(np.linalg.norm(goal_vec))
-
-        # Keep old distance term as comment only, as requested.
-        # r = -goal_dist * 0.03
+        distance_penalty = -goal_dist * 0.02
 
         if goal_dist > 1e-6:
             goal_dir = goal_vec / goal_dist
@@ -575,7 +573,7 @@ class AirSimEnv(gym.Env):
             reward_vel = float(self.speed * math.cos(r_yaw))
 
         # Match NavRL base term: reward_vel 
-        r = 2 * reward_vel 
+        r = 2 * reward_vel + distance_penalty
 
         # NavRL-style smoothness penalty: ||v_t - v_{t-1}||
         if velocity_after is not None:

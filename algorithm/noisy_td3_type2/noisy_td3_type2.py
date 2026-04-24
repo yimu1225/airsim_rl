@@ -43,16 +43,18 @@ class NoisyTD3Type2Agent:
         self.grad_clip = getattr(args, "grad_clip", 1.0)
 
         c, depth_h, depth_w = depth_shape
+        self.depth_seq_len = max(1, int(c))
+        visual_channels = 1
 
         # Split encoders for actor and critic.
-        self.actor_encoder = Encoder(input_height=depth_h, input_width=depth_w, input_channels=c).to(self.device)
-        self.critic_encoder = Encoder(input_height=depth_h, input_width=depth_w, input_channels=c).to(self.device)
+        self.actor_encoder = Encoder(input_height=depth_h, input_width=depth_w, input_channels=visual_channels).to(self.device)
+        self.critic_encoder = Encoder(input_height=depth_h, input_width=depth_w, input_channels=visual_channels).to(self.device)
 
         # Target encoders.
-        self.actor_encoder_target = Encoder(input_height=depth_h, input_width=depth_w, input_channels=c).to(self.device)
+        self.actor_encoder_target = Encoder(input_height=depth_h, input_width=depth_w, input_channels=visual_channels).to(self.device)
         self.actor_encoder_target.load_state_dict(self.actor_encoder.state_dict())
 
-        self.critic_encoder_target = Encoder(input_height=depth_h, input_width=depth_w, input_channels=c).to(self.device)
+        self.critic_encoder_target = Encoder(input_height=depth_h, input_width=depth_w, input_channels=visual_channels).to(self.device)
         self.critic_encoder_target.load_state_dict(self.critic_encoder.state_dict())
 
         self.actor_base_adapter = StateAdapter(self.base_dim, self.base_feature_dim).to(self.device)
@@ -62,7 +64,7 @@ class NoisyTD3Type2Agent:
         self.critic_base_adapter_target = StateAdapter(self.base_dim, self.base_feature_dim).to(self.device)
         self.critic_base_adapter_target.load_state_dict(self.critic_base_adapter.state_dict())
 
-        self.state_dim = self.base_feature_dim + self.actor_encoder.repr_dim
+        self.state_dim = self.base_feature_dim + self.actor_encoder.repr_dim * self.depth_seq_len
         noisy_sigma_init = float(get_algo_param(args, "noisy_td3_sigma_init", 0.5))
 
         # Actor and critic.
@@ -101,9 +103,22 @@ class NoisyTD3Type2Agent:
         self.total_it = 0
 
     def _encode(self, depth_batch: torch.Tensor, encoder_net) -> torch.Tensor:
-        if depth_batch.dim() == 3:
+        if depth_batch.dim() == 2:
+            depth_batch = depth_batch.unsqueeze(0).unsqueeze(0)
+        elif depth_batch.dim() == 3:
             depth_batch = depth_batch.unsqueeze(0)
-        return encoder_net(depth_batch)
+        elif depth_batch.dim() == 5:
+            if depth_batch.size(2) != 1:
+                raise ValueError(f"Expected single-channel frames, got {tuple(depth_batch.shape)}")
+            depth_batch = depth_batch.squeeze(2)
+
+        if depth_batch.dim() != 4:
+            raise ValueError(f"Unsupported depth batch shape: {tuple(depth_batch.shape)}")
+
+        batch_size, seq_len, height, width = depth_batch.shape
+        frames = depth_batch.reshape(batch_size * seq_len, 1, height, width)
+        frame_features = encoder_net(frames).view(batch_size, seq_len, -1)
+        return frame_features.reshape(batch_size, seq_len * frame_features.size(-1))
 
     def _concat_state(self, base: torch.Tensor, depth: torch.Tensor, encoder_net, base_adapter) -> torch.Tensor:
         base_features = base_adapter(base)
@@ -186,7 +201,7 @@ class NoisyTD3Type2Agent:
             states_actor = torch.cat([base_features_actor, encoded_depths_actor], dim=1)
 
             with torch.no_grad():
-                encoded_depths_critic_fixed = self.critic_encoder(depths)
+                encoded_depths_critic_fixed = self._encode(depths, self.critic_encoder)
                 base_features_critic_fixed = self.critic_base_adapter(base_states)
                 states_critic_fixed = torch.cat([base_features_critic_fixed, encoded_depths_critic_fixed], dim=1)
 

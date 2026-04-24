@@ -3,7 +3,7 @@ import torch.nn as nn
 
 from Vim.vim.models_mamba import VisionMamba
 
-from ..ST_VimTD3.networks import TemporalMambaStack
+from ..ST_Vim_TD3.networks import TemporalMambaStack
 
 
 class VideoPatchEmbed(nn.Module):

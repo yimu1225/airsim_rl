@@ -60,13 +60,15 @@ class SACAgent:
             self.alpha = get_algo_param(args, "alpha", 0.2)
 
         C, depth_h, depth_w = depth_shape
-        
+        self.depth_seq_len = max(1, int(C))
+        visual_channels = 1
+
         # Encoders
-        self.actor_encoder = Encoder(input_height=depth_h, input_width=depth_w, input_channels=C).to(self.device)
-        self.critic_encoder = Encoder(input_height=depth_h, input_width=depth_w, input_channels=C).to(self.device)
-        
+        self.actor_encoder = Encoder(input_height=depth_h, input_width=depth_w, input_channels=visual_channels).to(self.device)
+        self.critic_encoder = Encoder(input_height=depth_h, input_width=depth_w, input_channels=visual_channels).to(self.device)
+
         # Target Encoder for Critic (soft update)
-        self.critic_encoder_target = Encoder(input_height=depth_h, input_width=depth_w, input_channels=C).to(self.device)
+        self.critic_encoder_target = Encoder(input_height=depth_h, input_width=depth_w, input_channels=visual_channels).to(self.device)
         self.critic_encoder_target.load_state_dict(self.critic_encoder.state_dict())
         
         # State adapters
@@ -76,7 +78,7 @@ class SACAgent:
         self.critic_base_adapter_target.load_state_dict(self.critic_base_adapter.state_dict())
         
         # State dimension
-        self.state_dim = self.base_feature_dim + self.actor_encoder.repr_dim
+        self.state_dim = self.base_feature_dim + self.actor_encoder.repr_dim * self.depth_seq_len
         
         # Actor and Critic
         self.actor = Actor(self.state_dim, action_space.shape, args.hidden_dim).to(self.device)
@@ -106,9 +108,22 @@ class SACAgent:
 
     def _encode(self, depth_batch: torch.Tensor, encoder_net) -> torch.Tensor:
         """Encode depth image."""
-        if depth_batch.dim() == 3:
+        if depth_batch.dim() == 2:
+            depth_batch = depth_batch.unsqueeze(0).unsqueeze(0)
+        elif depth_batch.dim() == 3:
             depth_batch = depth_batch.unsqueeze(0)
-        return encoder_net(depth_batch)
+        elif depth_batch.dim() == 5:
+            if depth_batch.size(2) != 1:
+                raise ValueError(f"Expected single-channel frames, got {tuple(depth_batch.shape)}")
+            depth_batch = depth_batch.squeeze(2)
+
+        if depth_batch.dim() != 4:
+            raise ValueError(f"Unsupported depth batch shape: {tuple(depth_batch.shape)}")
+
+        batch_size, seq_len, height, width = depth_batch.shape
+        frames = depth_batch.reshape(batch_size * seq_len, 1, height, width)
+        frame_features = encoder_net(frames).view(batch_size, seq_len, -1)
+        return frame_features.reshape(batch_size, seq_len * frame_features.size(-1))
 
     def _concat_state(self, base: torch.Tensor, depth: torch.Tensor, encoder_net, base_adapter, detach_encoder: bool = False) -> torch.Tensor:
         """Concatenate base features and encoded depth features."""

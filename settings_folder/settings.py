@@ -68,9 +68,9 @@ unreal_exec = mds.unreal_exe_path
 #                                       "Name": ["Name"],
 #                                       "NumberOfObjects": list(range(75, 85))}
 easy_range_dic = { "End": ["Mutable"],
-                                      "MinimumDistance": [3,5], 
+                                      "MinimumDistance": [2,4], 
                                       "EnvType": ["Indoor"],
-                                      "ArenaSize": [[60, 60, 10]],
+                                      "ArenaSize": [[40, 40, 10]],
                                       "PlayerStart": [[0, 0, 0]],
                                       "NumberOfDynamicObjects": list(range(0, 1)),
                                       "Walls1": [[200, 13, 99],[255, 255, 10],[0, 10, 10],[10, 100, 100],[126, 11, 90]],
@@ -81,25 +81,25 @@ easy_range_dic = { "End": ["Mutable"],
 medium_range_dic = { "End": ["Mutable"],
                                       "MinimumDistance": [3,5],
                                       "EnvType": ["Indoor"],
-                                      "ArenaSize": [[60, 60, 10]],
+                                      "ArenaSize": [[40, 40, 10]],
                                       "PlayerStart": [[0, 0, 0]],
                                       "NumberOfDynamicObjects": list(range(0, 1)),
                                       "Walls1": [[200, 13, 99],[255, 255, 10],[0, 10, 10],[10, 100, 100],[126, 11, 90]],
                                       "Seed": list(range(0, 10000)),
                                       "VelocityRange": [[0, 4]],
                                       "Name": ["Name"],
-                                      "NumberOfObjects": list(range(30, 50))}
+                                      "NumberOfObjects": list(range(30, 40))}
 hard_range_dic = { "End": ["Mutable"],
-                                      "MinimumDistance": [3,4],
+                                      "MinimumDistance": [2,4],
                                       "EnvType": ["Indoor"],
-                                      "ArenaSize": [[60, 60, 10]],
+                                      "ArenaSize": [[40, 40, 10]],
                                       "PlayerStart": [[0, 0, 0]],
                                       "NumberOfDynamicObjects": list(range(0, 1)),
                                       "Walls1": [[200, 13, 99],[255, 255, 10],[0, 10, 10],[10, 100, 100],[126, 11, 90]],
                                       "Seed": list(range(0, 10000)),
                                       "VelocityRange": [[0, 5]],
                                       "Name": ["Name"],
-                                      "NumberOfObjects": list(range(60, 70))}
+                                      "NumberOfObjects": list(range(50, 60))}
 default_range_dic = easy_range_dic
 # ------------------------------------------------------------
 #-game related-
