@@ -720,18 +720,23 @@ class AirSimEnv(gym.Env):
         # 转换高度
         current_altitude = -now[2]  # NED坐标系，z负值表示高度
         
+        # 每10步打印一次高度（避免刷屏）
+        if self.stepN % 10 == 0:
+            print(f"[高度DEBUG] step={self.stepN}: NED z={now[2]:.3f}, 高度={current_altitude:.3f}m")
+        
         # 检查高度越界，将其作为碰撞处理
         altitude_violation = False
         if current_altitude > self.max_altitude:
             collided = True
             altitude_violation = True
-            print(f"[最大高度越界] 当前高度: {current_altitude:.2f}m，最大高度: {self.max_altitude}m")
+            print(f"[高度DEBUG] ⚠️ 最大高度越界! 当前高度: {current_altitude:.2f}m，最大高度: {self.max_altitude}m, NED z={now[2]:.3f}")
 
         success_altitude_min = 0.5
         success_altitude_max = 1.5
         success_altitude_ok = success_altitude_min <= current_altitude <= success_altitude_max
 
         if distance < settings.success_distance_to_goal and success_altitude_ok:
+            print(f"[高度DEBUG] ✅ 到达目标! 水平距离={distance:.2f}m, 高度={current_altitude:.2f}m")
             self.success_count += 1
             done = True
             self.print_msg_of_inspiration()
@@ -946,6 +951,8 @@ class AirSimEnv(gym.Env):
             return now
 
         now = _ensure_takeoff_ok()
+        takeoff_altitude = -now[2]
+        print(f"[高度DEBUG] 起飞完成: NED z={now[2]:.3f}, 实际高度={takeoff_altitude:.3f}m, 目标高度={-self.airgym.z:.3f}m")
 
         # 起飞后激光雷达避障检查：若最近障碍距离 < 阈值，重置环境并重新起飞。
         obstacle_retry_count = 0
@@ -986,7 +993,10 @@ class AirSimEnv(gym.Env):
 
         # 确保处于目标高度
         if abs(now[2] - self.airgym.z) > 0.1:
+            print(f"[高度DEBUG] 高度修正: 当前NED z={now[2]:.3f}, 目标NED z={self.airgym.z:.3f}")
             self.airgym.client.moveToZAsync(self.airgym.z, 3).join()
+            now = self.airgym.drone_pos()
+            print(f"[高度DEBUG] 修正后: NED z={now[2]:.3f}, 高度={-now[2]:.3f}m")
 
         # 5. 暂停仿真以同步获取初始状态
         self.airgym.client.simPause(True)

@@ -587,6 +587,14 @@ class AirLearningClient(object):
                 self.client.moveToZAsync(float(self.z), 1.0)
                 time.sleep(1.0)
                 self.client.hoverAsync().join()
+                
+                # 打印 reset 后的高度
+                try:
+                    pos = self.client.simGetVehiclePose().position
+                    altitude = -pos.z_val
+                    print(f"[高度DEBUG] AirSim_reset 完成: NED z={pos.z_val:.3f}, 高度={altitude:.3f}m, 目标NED z={self.z:.3f}")
+                except Exception:
+                    pass
                 return
             except msgpackrpc.error.TimeoutError as e:
                 last_err = e
