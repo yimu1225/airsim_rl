@@ -219,7 +219,7 @@ class AirSimEnv(gym.Env):
         Reconnect AirSim client with retries after UE recovery.
         Returns True on success, False on failure.
         """
-        z = -0.9
+        z = -1.0
         ip = None
         port = None
         if hasattr(self, 'airgym'):
@@ -595,12 +595,12 @@ class AirSimEnv(gym.Env):
              cos_theta = np.clip(cos_theta, -1.0, 1.0)
              angle_change = float(np.arccos(cos_theta))
 
-             curvature_weight = 5.0
+             curvature_weight = 50.0
              curvature_penalty = curvature_weight * (angle_change ** 2) 
              curvature_penalty = float(np.clip(curvature_penalty, 0.0, 1.0))
 
-        step_penalty = self.stepN * 0.002
-        # step_penalty = 0.1
+        step_penalty = self.stepN * 0.001
+        # step_penalty = 0.2
 
         # Stagnation penalty: penalize when total displacement in recent N steps is too small
         stagnation_penalty = 0.0
@@ -609,7 +609,7 @@ class AirSimEnv(gym.Env):
             stagnation_penalty = max(0.0, self.stagnation_window_threshold - total_displacement) * self.stagnation_weight
 
         # Add penalties to reward
-        r -= smooth_penalty * smooth_penalty_weight  + step_penalty + curvature_penalty + stagnation_penalty
+        r -= smooth_penalty * smooth_penalty_weight  + step_penalty 
 
         lidar_penalty = self._compute_lidar_scan_log_penalty(self.last_lidar_scan_distance)
         self.last_lidar_obstacle_penalty = float(lidar_penalty)
@@ -725,10 +725,10 @@ class AirSimEnv(gym.Env):
         if current_altitude > self.max_altitude:
             collided = True
             altitude_violation = True
-            # print(f"[最大高度越界] 当前高度: {current_altitude:.2f}m，最大高度: {self.max_altitude}m")
+            print(f"[最大高度越界] 当前高度: {current_altitude:.2f}m，最大高度: {self.max_altitude}m")
 
-        success_altitude_min = 1.0
-        success_altitude_max = 3.0
+        success_altitude_min = 0.5
+        success_altitude_max = 1.5
         success_altitude_ok = success_altitude_min <= current_altitude <= success_altitude_max
 
         if distance < settings.success_distance_to_goal and success_altitude_ok:
@@ -847,10 +847,10 @@ class AirSimEnv(gym.Env):
         # 课程学习等级升级（仅在启用课程学习时）
         if self.use_curriculum and len(self.success_deque)>0:
             succes_rate=sum(self.success_deque) / len(self.success_deque)
-            if succes_rate>0.5 and self.level==0 and self.success_count>300:
+            if succes_rate>0.5 and self.level==0 and self.success_count>100:
                 self.level=1
                 self.game_config_handler=GameConfigHandler(range_dic_name="settings.medium_range_dic")
-            elif succes_rate > 0.6 and self.level == 1 and self.success_count>600:
+            elif succes_rate > 0.6 and self.level == 1 and self.success_count>500:
                 self.level = 2
                 self.game_config_handler = GameConfigHandler(range_dic_name="settings.hard_range_dic")
             # elif succes_rate > 0.7 and self.level == 2 and self.success_count > 900:

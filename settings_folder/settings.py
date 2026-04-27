@@ -68,7 +68,7 @@ unreal_exec = mds.unreal_exe_path
 #                                       "Name": ["Name"],
 #                                       "NumberOfObjects": list(range(75, 85))}
 easy_range_dic = { "End": ["Mutable"],
-                                      "MinimumDistance": [2,4], 
+                                      "MinimumDistance": [2,3],
                                       "EnvType": ["Indoor"],
                                       "ArenaSize": [[40, 40, 10]],
                                       "PlayerStart": [[0, 0, 0]],
@@ -77,9 +77,9 @@ easy_range_dic = { "End": ["Mutable"],
                                       "Seed": list(range(0, 10000)),
                                       "VelocityRange": [[0, 2]],
                                       "Name": ["Name"],
-                                      "NumberOfObjects": list(range(10, 20))}
+                                      "NumberOfObjects": list(range(30, 40))}
 medium_range_dic = { "End": ["Mutable"],
-                                      "MinimumDistance": [3,5],
+                                      "MinimumDistance": [2,3],
                                       "EnvType": ["Indoor"],
                                       "ArenaSize": [[40, 40, 10]],
                                       "PlayerStart": [[0, 0, 0]],
@@ -88,9 +88,9 @@ medium_range_dic = { "End": ["Mutable"],
                                       "Seed": list(range(0, 10000)),
                                       "VelocityRange": [[0, 4]],
                                       "Name": ["Name"],
-                                      "NumberOfObjects": list(range(30, 40))}
+                                      "NumberOfObjects": list(range(40, 60))}
 hard_range_dic = { "End": ["Mutable"],
-                                      "MinimumDistance": [2,4],
+                                      "MinimumDistance": [2,3],
                                       "EnvType": ["Indoor"],
                                       "ArenaSize": [[40, 40, 10]],
                                       "PlayerStart": [[0, 0, 0]],
@@ -99,7 +99,18 @@ hard_range_dic = { "End": ["Mutable"],
                                       "Seed": list(range(0, 10000)),
                                       "VelocityRange": [[0, 5]],
                                       "Name": ["Name"],
-                                      "NumberOfObjects": list(range(50, 60))}
+                                      "NumberOfObjects": list(range(60, 80))}
+dynamic_obstacles_dic = { "End": ["Mutable"],
+                                      "MinimumDistance": [2,3],
+                                      "EnvType": ["Indoor"],
+                                      "ArenaSize": [[40, 40, 10]],
+                                      "PlayerStart": [[0, 0, 0]],
+                                      "NumberOfDynamicObjects": list(range(5, 10)),
+                                      "Walls1": [[200, 13, 99],[255, 255, 10],[0, 10, 10],[10, 100, 100],[126, 11, 90]],
+                                      "Seed": list(range(0, 10000)),
+                                      "VelocityRange": [[0.3, 1.0]],
+                                      "Name": ["Name"],
+                                      "NumberOfObjects": list(range(50, 70))}
 default_range_dic = easy_range_dic
 # ------------------------------------------------------------
 #-game related-
@@ -130,6 +141,7 @@ environment_change_frequency = {
     "ArenaSize": 5,
     "Seed":3,
     "NumberOfObjects": 5,
+    "NumberOfDynamicObjects": 5,
     "End": 3,
     "Walls1": 3,
     "MinimumDistance": 3
