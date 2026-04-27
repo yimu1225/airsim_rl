@@ -29,7 +29,7 @@ def get_config(argv=None):
     parser.add_argument("--env_name", type=str, default='AirSimEnv-v42', help="要训练的环境名称")
 
     # 算法选择 (Algorithm Selection)
-    parser.add_argument("--algorithm_name", type=str, default='ST-VIM-TD3,PER-ST-VIM-TD3,CL-TD3',
+    parser.add_argument("--algorithm_name", type=str, default='CL-ST-VIM-TD3,CL-PER-ST-VIM-TD3,CL-TD3',
                         help="要训练的算法。支持: TD3, NOISY-TD3, NOISY-TD3-TYPE2, DDPG, AETD3, PER-TD3, PER-AETD3, CFC-TD3, ST-VIM-TD3, STV-PATCH-TD3, VIM-TD3, ST-SEQ-VIM-TD3, STV-SEQ-VIM-TD3, PER-ST-VIM-TD3, ST-SVIM-TD3, MAMBA-TD3, ST-3DVIM-TD3, GAM-MAMBA-TD3, GAM-TD3, ST-DUALVIM-TD3, TD3-ASYM, PER-TD3-ASYM, ST-VIM-TD3-ASYM, SAC, PPO。可以是单个，多个（逗号分隔），或组名 ('all', 'base', 'seq')")
     parser.add_argument("--smooth_window", type=int, default=300, help="平滑窗口大小，用于平滑学习曲线 (仅对移动平均有效)")
     parser.add_argument("--smooth_method", type=str, default="moving", choices=["moving","zero_phase_des"], help="曲线平滑方法: moving=滑动平均, zero_phase_des=零相位双重指数平滑")
@@ -53,7 +53,7 @@ def get_config(argv=None):
     parser.add_argument("--n_rollout_threads", type=int, default=1, help="Rollout线程数（在AirSim环境中必须为1）")
     parser.add_argument("--max_timesteps", type=int, default=120000, help='要训练的环境步数 (默认: 10e6)')
     parser.add_argument("--buffer_size", type=int, default=20000, help='经验池大小 (注意内存占用: 30000步约占用4GB)')
-    parser.add_argument("--learning_starts", type=int, default=000, help="训练开始前的时间步数 (兼容 start_timesteps)")
+    parser.add_argument("--learning_starts", type=int, default=5000, help="训练开始前的时间步数 (兼容 start_timesteps)")
     parser.add_argument("--gradient_steps", type=float, default=0.5, help="每次收集数据后的梯度更新倍数")
     parser.add_argument("--episode_length", type=int, default=500, help='每个环境中的最大回合长度')
     parser.add_argument("--eval_freq", type=int, default=5000, help="评估频率")
@@ -89,8 +89,7 @@ def get_config(argv=None):
     parser.add_argument("--max_vertical_speed", type=float, default=0.5, help="最大垂直速度 (m/s)")
     parser.add_argument("--max_yaw_rate", type=float, default=np.pi/3, help="最大偏航角速度 (rad/s)")
     parser.add_argument("--takeoff_height", type=float, default=-1.0, help="起飞目标高度 (NED坐标系中负值为向上)")
-    parser.add_argument("--action_duration", type=float, default=0.05, help="在时钟缩放之前的每个速度指令的基础持续时间 (秒)")
-    parser.add_argument("--clock_speed_factor", type=float, default=1.0, help="AirSim 设置中配置的 ClockSpeed 因子；持续时间将除以此值")
+    parser.add_argument("--action_duration", type=float, default=0.1, help="每个速度指令的仿真持续时间 (秒)")
 
     # 飞行高度限制 (Flight Altitude Limits)
     parser.add_argument("--max_flight_altitude", type=float, default=2.0, help="最大飞行高度 (米, 正值为向上)")
@@ -99,6 +98,7 @@ def get_config(argv=None):
     parser.add_argument("--max_altitude_penalty", type=float, default=1.5, help="高于最大高度的惩罚")
     parser.add_argument("--altitude_penalty_value", type=float, default=0.5, help="飞出高度惩罚范围时的固定惩罚值")
     parser.add_argument("--takeoff_obstacle_threshold_m", type=float, default=2.0, help="起飞后四向避障最小安全距离阈值 (米)")
+    parser.add_argument("--enable_takeoff_obstacle_check", type=str.lower, choices=["true", "false"], default="false", help="是否启用起飞后四向避障检查 (true/false)")
     parser.add_argument("--takeoff_lidar_name", type=str, default="LidarSensor1", help="起飞后避障检查使用的激光雷达名称")
     parser.add_argument("--takeoff_obstacle_reset_retries", type=int, default=3, help="起飞后近障触发重置的最大重试次数")
     parser.add_argument("--reward_lidar_name", type=str, default="LidarSensor1", help="奖励计算使用的激光雷达名称")
@@ -154,6 +154,7 @@ def get_config(argv=None):
     # Ray Tune workers inject additional CLI args; ignore unknowns for compatibility.
     args, _ = parser.parse_known_args(args=argv)
     args.seed = _parse_seed_value(args.seed)
+    args.enable_takeoff_obstacle_check = (args.enable_takeoff_obstacle_check == "true")
     args.algorithm_name = normalize_algorithm_name_for_config(args.algorithm_name)
     
 
