@@ -54,18 +54,12 @@ class AirSimEnv(gym.Env):
         self.stagnation_weight = config.stagnation_weight
         self.displacement_window = collections.deque(maxlen=self.stagnation_window)
     
-        STATE_DEPTH_H, STATE_DEPTH_W = 128,128
-
         self.stack_frames = stack_frames
         self.episode_reward = 0
 
         self.base_dim = 11
-        self.depth_shape = (self.stack_frames, STATE_DEPTH_H, STATE_DEPTH_W)
-
-        self.observation_space = spaces.Dict({
-            "depth": spaces.Box(low=np.float32(0), high=np.float32(255), shape=self.depth_shape, dtype=np.float32),
-            "base": spaces.Box(low=-np.inf, high=np.inf, shape=(self.base_dim,), dtype=np.float32)
-        })
+        self.depth_shape = None  # 将在创建AirSim客户端后根据实际分辨率设置
+        self.observation_space = None  # 延迟设置
 
         self.depth_stack = collections.deque(maxlen=self.stack_frames)
         self.clean_depth_stack = collections.deque(maxlen=self.stack_frames)
@@ -145,6 +139,21 @@ class AirSimEnv(gym.Env):
         client_ip = config.airsim_ip if config is not None else None
         client_port = config.airsim_port if config is not None else None
         self.airgym = AirLearningClient(z=takeoff_height, ip=client_ip, port=client_port)
+
+        # 从AirSim获取一次深度图，确定原始分辨率，并设置observation_space
+        try:
+            depth_sample = self.airgym.getScreenDepth(max_attempts=3)
+            STATE_DEPTH_H, STATE_DEPTH_W = depth_sample.shape
+            print(f"Detected AirSim depth resolution: {STATE_DEPTH_W}x{STATE_DEPTH_H}")
+        except Exception as e:
+            print(f"WARNING: Failed to get depth sample during init, falling back to 128x128: {e}")
+            STATE_DEPTH_H, STATE_DEPTH_W = 128, 128
+        
+        self.depth_shape = (self.stack_frames, STATE_DEPTH_H, STATE_DEPTH_W)
+        self.observation_space = spaces.Dict({
+            "depth": spaces.Box(low=np.float32(0), high=np.float32(255), shape=self.depth_shape, dtype=np.float32),
+            "base": spaces.Box(low=-np.inf, high=np.inf, shape=(self.base_dim,), dtype=np.float32)
+        })
 
         # 动作持续时间使用仿真时间，不再跟 AirSim ClockSpeed 绑定。
         self.action_duration = config.action_duration
@@ -366,15 +375,21 @@ class AirSimEnv(gym.Env):
             "base": inform
         }
 
+    def _get_zero_depth(self):
+        """返回与当前深度图像分辨率一致的全零数组"""
+        h, w = self.depth_shape[-2], self.depth_shape[-1]
+        return np.zeros((h, w), dtype=np.float32)
+
     def _get_latest_clean_depth(self, noisy_depth):
         clean = getattr(self.airgym, "last_depth_clean", None)
         if clean is None:
             clean = noisy_depth
         clean = np.asarray(clean, dtype=np.float32)
         if clean.ndim == 3:
-            clean = clean[0] if clean.shape[0] > 0 else np.zeros((128, 128), dtype=np.float32)
-        if clean.shape != (128, 128):
-            clean = np.zeros((128, 128), dtype=np.float32)
+            clean = clean[0] if clean.shape[0] > 0 else self._get_zero_depth()
+        expected_hw = self.depth_shape[-2:]
+        if clean.shape != expected_hw:
+            return self._get_zero_depth()
         return clean
 
     def init_state_f(self):
@@ -401,16 +416,16 @@ class AirSimEnv(gym.Env):
                         depth_fetch_failed = False
                     except Exception as e2:
                         print(f"init_state_f: still failed after restart: {e2}. Using zero depth.")
-                        depth = np.zeros((128, 128), dtype=np.float32)
+                        depth = self._get_zero_depth()
                         depth_fetch_failed = True
                 else:
                     print("init_state_f: no game handler available. Using zero depth.")
-                    depth = np.zeros((128, 128), dtype=np.float32)
+                    depth = self._get_zero_depth()
                     depth_fetch_failed = True
 
-            if depth is None or depth.shape != (128, 128):
+            if depth is None or depth.shape != self.depth_shape[-2:]:
                 print("init_state_f: invalid depth shape, using zero depth.")
-                depth = np.zeros((128, 128), dtype=np.float32)
+                depth = self._get_zero_depth()
                 depth_fetch_failed = True
             clean_depth = np.asarray(depth, dtype=np.float32) if depth_fetch_failed else self._get_latest_clean_depth(depth)
             self.depth_stack.append(depth)
@@ -606,12 +621,12 @@ class AirSimEnv(gym.Env):
             stagnation_penalty = max(0.0, self.stagnation_window_threshold - total_displacement) * self.stagnation_weight
 
         # Add penalties to reward
-        r -= smooth_penalty * smooth_penalty_weight  + step_penalty 
+        r -= smooth_penalty * smooth_penalty_weight  + step_penalty + stagnation_penalty
 
         lidar_penalty = self._compute_lidar_scan_log_penalty(self.last_lidar_scan_distance)
         self.last_lidar_obstacle_penalty = float(lidar_penalty)
         r += 5 * float(lidar_penalty)
-        # print(f"Reward components: r_vel={reward_vel:.3f}, smooth_penalty={smooth_penalty:.3f}, curvature_penalty={curvature_penalty:.3f}, step_penalty={step_penalty:.3f}, lidar_penalty={lidar_penalty:.3f}, total_reward={r:.3f}")
+        # print(f"Reward components: r_vel={reward_vel:.3f}, distance_penalty={distance_penalty:.3f}, smooth_penalty={smooth_penalty:.3f}, curvature_penalty={curvature_penalty:.3f}, step_penalty={step_penalty:.3f}, stagnation_penalty={stagnation_penalty:.3f}, lidar_penalty={lidar_penalty:.3f}, total_reward={r:.3f}")
 
          
 
@@ -692,15 +707,15 @@ class AirSimEnv(gym.Env):
                     depth_fetch_failed = False
                 except Exception as e2:
                     print(f"Still failed after restart: {e2}. Using zero arrays.")
-                    depth_img = np.zeros((128, 128), dtype=np.float32)
+                    depth_img = self._get_zero_depth()
                     depth_fetch_failed = True
             else:
                 print("No game handler available. Using zero arrays.")
-                depth_img = np.zeros((128, 128), dtype=np.float32)
+                depth_img = self._get_zero_depth()
                 depth_fetch_failed = True
         
-        if depth_img is None or depth_img.shape != (128, 128):
-            depth_img = np.zeros((128, 128), dtype=np.float32)
+        if depth_img is None or depth_img.shape != self.depth_shape[-2:]:
+            depth_img = self._get_zero_depth()
             depth_fetch_failed = True
         clean_depth_img = np.asarray(depth_img, dtype=np.float32) if depth_fetch_failed else self._get_latest_clean_depth(depth_img)
         self.depth_stack.append(depth_img)
@@ -843,10 +858,10 @@ class AirSimEnv(gym.Env):
         # 课程学习等级升级（仅在启用课程学习时）
         if self.use_curriculum and len(self.success_deque)>0:
             succes_rate=sum(self.success_deque) / len(self.success_deque)
-            if succes_rate>0.5 and self.level==0 and self.success_count>100:
+            if succes_rate>0.5 and self.level==0 and self.success_count>300:
                 self.level=1
                 self.game_config_handler=GameConfigHandler(range_dic_name="settings.medium_range_dic")
-            elif succes_rate > 0.6 and self.level == 1 and self.success_count>500:
+            elif succes_rate > 0.6 and self.level == 1 and self.success_count>600:
                 self.level = 2
                 self.game_config_handler = GameConfigHandler(range_dic_name="settings.hard_range_dic")
             # elif succes_rate > 0.7 and self.level == 2 and self.success_count > 900:
@@ -981,7 +996,7 @@ class AirSimEnv(gym.Env):
                 self.airgym.AirSim_reset()
                 now = _ensure_takeoff_ok()
         else:
-            print("Takeoff obstacle check disabled by config (--enable_takeoff_obstacle_check=false).")
+            print("Takeoff obstacle check disabled.")
 
         # 确保处于目标高度
         if abs(now[2] - self.airgym.z) > 0.1:

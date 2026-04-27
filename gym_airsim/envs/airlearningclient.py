@@ -86,10 +86,10 @@ class AirLearningClient(object):
         
         self.z = z
 
-        self.last_img = np.zeros((1, 128, 128))
-        self.last_depth_clean = np.zeros((128, 128), dtype=np.float32)
-        self.last_depth_noisy = np.zeros((128, 128), dtype=np.float32)
-        self.width, self.height=128,128 ## 统一使用128x128分辨率
+        self.last_img = None
+        self.last_depth_clean = None
+        self.last_depth_noisy = None
+        self.width, self.height = None, None
 
         # Depth noise settings (mild by default, configurable in settings.py).
         self.enable_depth_noise = getattr(settings, "enable_depth_noise", True)
@@ -169,11 +169,10 @@ class AirLearningClient(object):
         1. 发送 simGetImages 请求获取 DepthPerspective 类型的图像（浮点数据）。
         2. 请求失败时最多重试 max_attempts 次，超过后抛出异常。
         3. 截断最大深度值 (clip max=15)，并归一化缩放到 0-255 范围。
-        4. 将数据 reshape 为 2D 图像。
-        5. 统一 resize 到 128x128 分辨率。
+        4. 将数据 reshape 为 2D 图像（保持AirSim原始分辨率）。
         
         Returns:
-            np.array: 处理后的深度图像 (128x128)。
+            np.array: 处理后的深度图像 (H, W)。
         """
         # 使用第一个可用车辆和摄像头 "0" (前置中心)
         max_attempts = max(1, int(max_attempts))
@@ -234,28 +233,21 @@ class AirLearningClient(object):
             img = (img / 15.0) * 255.0
             img = np.clip(img, 0.0, 255.0)
 
-            # 处理有效图像
+            # 处理有效图像：将1D数组reshape为2D图像，保持AirSim原始分辨率
             img2d = []
             for i in range(len(responses)):
                 img2d.append(np.reshape(img[i], (responses[i].height, responses[i].width)))
 
             self.last_img = np.stack(img2d, axis=0)
-
-            # Resize to 128x128
-            img2d_resized = []
-            for im in img2d:
-                 if im.shape != (128, 128):
-                     im = cv2.resize(im, (128, 128), interpolation=cv2.INTER_AREA)
-                 img2d_resized.append(im)
             
-            if len(img2d_resized) > 1:
-                depth = np.stack(img2d_resized, axis=0).astype(np.float32)
+            if len(img2d) > 1:
+                depth = np.stack(img2d, axis=0).astype(np.float32)
                 self.last_depth_clean = np.array(depth, dtype=np.float32, copy=True)
                 noisy_depth = self._add_depth_noise(depth)
                 self.last_depth_noisy = np.array(noisy_depth, dtype=np.float32, copy=True)
                 return noisy_depth
             else:
-                depth = img2d_resized[0].astype(np.float32)
+                depth = img2d[0].astype(np.float32)
                 self.last_depth_clean = np.array(depth, dtype=np.float32, copy=True)
                 noisy_depth = self._add_depth_noise(depth)
                 self.last_depth_noisy = np.array(noisy_depth, dtype=np.float32, copy=True)

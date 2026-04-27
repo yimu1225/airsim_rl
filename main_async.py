@@ -254,16 +254,16 @@ def _extract_last_depth_frame(depth_tensor):
         return arr[-1]
     if arr.ndim == 2:
         return arr
-    return np.zeros((128, 128), dtype=np.float32)
+    # 极端fallback：使用极小尺寸，实际分辨率由正常数据决定
+    return np.zeros((1, 1), dtype=np.float32)
 
 
 def _resize_depth_frame(frame, target_hw):
-    target_h, target_w = int(target_hw[0]), int(target_hw[1])
+    """不再强制resize，直接使用原始分辨率（仅做维度检查和clip）"""
     arr = np.asarray(frame, dtype=np.float32)
     if arr.ndim != 2:
+        target_h, target_w = int(target_hw[0]), int(target_hw[1])
         return np.zeros((target_h, target_w), dtype=np.float32)
-    if arr.shape != (target_h, target_w):
-        arr = cv2.resize(arr, (target_w, target_h), interpolation=cv2.INTER_AREA)
     return np.clip(arr, 0.0, 255.0).astype(np.float32)
 
 
@@ -307,19 +307,18 @@ def _align_clean_depth_sequence(clean_seq, target_len, target_hw):
         frame = np.zeros((int(target_hw[0]), int(target_hw[1])), dtype=np.float32)
         clean = frame[None, ...]
 
-    resized = np.stack([_resize_depth_frame(frame, target_hw) for frame in clean], axis=0)
+    # 不再强制resize每一帧，直接使用原始分辨率做序列长度对齐
+    if clean.shape[0] >= target_len:
+        return clean[-target_len:]
 
-    if resized.shape[0] >= target_len:
-        return resized[-target_len:]
-
-    pad_count = target_len - resized.shape[0]
-    pad = np.repeat(resized[:1], pad_count, axis=0)
-    return np.concatenate([pad, resized], axis=0).astype(np.float32)
+    pad_count = target_len - clean.shape[0]
+    pad = np.repeat(clean[:1], pad_count, axis=0)
+    return np.concatenate([pad, clean], axis=0).astype(np.float32)
 
 
 def _build_critic_depth_like(env_core, actor_depth):
     actor_arr = np.asarray(actor_depth, dtype=np.float32)
-    target_hw = actor_arr.shape[-2:] if actor_arr.ndim >= 2 else (128, 128)
+    target_hw = actor_arr.shape[-2:] if actor_arr.ndim >= 2 else getattr(env_core, "depth_shape", (1, 128, 128))[-2:]
     clean_seq = _extract_clean_depth_sequence(env_core, actor_arr)
 
     if actor_arr.ndim == 2:
