@@ -146,12 +146,8 @@ class AirSimEnv(gym.Env):
         client_port = config.airsim_port if config is not None else None
         self.airgym = AirLearningClient(z=takeoff_height, ip=client_ip, port=client_port)
 
-        # 动作持续时间 / 时钟缩放参数
-        
-        self.clock_speed_factor = config.clock_speed_factor
-        self.raw_action_duration = config.action_duration
-        
-        self.action_duration = self.raw_action_duration / self.clock_speed_factor
+        # 动作持续时间使用仿真时间，不再跟 AirSim ClockSpeed 绑定。
+        self.action_duration = config.action_duration
 
         # 重置环境变量
         self.success_count = 0
@@ -179,6 +175,7 @@ class AirSimEnv(gym.Env):
         self._cached_process_alive = True
         self._cached_window_alive = None
 
+        self.enable_takeoff_obstacle_check = bool(config.enable_takeoff_obstacle_check)
         self.takeoff_obstacle_threshold_m = float(config.takeoff_obstacle_threshold_m)
         self.takeoff_obstacle_reset_retries = max(0, int(config.takeoff_obstacle_reset_retries))
         self.takeoff_lidar_name = str(config.takeoff_lidar_name).strip()
@@ -725,7 +722,6 @@ class AirSimEnv(gym.Env):
         if current_altitude > self.max_altitude:
             collided = True
             altitude_violation = True
-            print(f"[最大高度越界] 当前高度: {current_altitude:.2f}m，最大高度: {self.max_altitude}m")
 
         success_altitude_min = 0.5
         success_altitude_max = 1.5
@@ -947,46 +943,50 @@ class AirSimEnv(gym.Env):
 
         now = _ensure_takeoff_ok()
 
-        # 起飞后激光雷达避障检查：若最近障碍距离 < 阈值，重置环境并重新起飞。
-        obstacle_retry_count = 0
-        while True:
-            try:
-                too_close, min_distance, per_direction = self.airgym.is_obstacle_too_close_lidar(
-                    threshold_m=self.takeoff_obstacle_threshold_m,
-                    lidar_name=self.takeoff_lidar_name,
-                    max_attempts=3,
-                    retry_sleep=0.1,
+        if self.enable_takeoff_obstacle_check:
+            # 起飞后激光雷达避障检查：若最近障碍距离 < 阈值，重置环境并重新起飞。
+            obstacle_retry_count = 0
+            while True:
+                try:
+                    too_close, min_distance, per_direction = self.airgym.is_obstacle_too_close_lidar(
+                        threshold_m=self.takeoff_obstacle_threshold_m,
+                        lidar_name=self.takeoff_lidar_name,
+                        max_attempts=3,
+                        retry_sleep=0.1,
+                    )
+                except Exception as e:
+                    print(f"Takeoff obstacle check failed, skip reset-by-obstacle this episode: {e}")
+                    break
+
+                if not too_close:
+                    break
+
+                print(
+                    f"Takeoff obstacle too close: min={min_distance:.2f}m < {self.takeoff_obstacle_threshold_m:.2f}m, "
+                    f"per_direction={per_direction}"
                 )
-            except Exception as e:
-                print(f"Takeoff obstacle check failed, skip reset-by-obstacle this episode: {e}")
-                break
 
-            if not too_close:
-                break
+                if obstacle_retry_count >= self.takeoff_obstacle_reset_retries:
+                    print("Reached max obstacle reset retries after takeoff, continue with current episode.")
+                    break
 
-            print(
-                f"Takeoff obstacle too close: min={min_distance:.2f}m < {self.takeoff_obstacle_threshold_m:.2f}m, "
-                f"per_direction={per_direction}"
-            )
+                obstacle_retry_count += 1
+                try:
+                    # 近障后优先刷新环境，而不是只重置无人机。
+                    self.game_config_handler.sample('Seed', change_counter=-(100 + obstacle_retry_count), base_seed=self.base_seed)
+                    self.airgym.unreal_reset()
+                except Exception as e:
+                    print(f"Takeoff obstacle env refresh failed, fallback to drone reset only: {e}")
 
-            if obstacle_retry_count >= self.takeoff_obstacle_reset_retries:
-                print("Reached max obstacle reset retries after takeoff, continue with current episode.")
-                break
-
-            obstacle_retry_count += 1
-            try:
-                # 近障后优先刷新环境，而不是只重置无人机。
-                self.game_config_handler.sample('Seed', change_counter=-(100 + obstacle_retry_count), base_seed=self.base_seed)
-                self.airgym.unreal_reset()
-            except Exception as e:
-                print(f"Takeoff obstacle env refresh failed, fallback to drone reset only: {e}")
-
-            self.airgym.AirSim_reset()
-            now = _ensure_takeoff_ok()
+                self.airgym.AirSim_reset()
+                now = _ensure_takeoff_ok()
+        else:
+            print("Takeoff obstacle check disabled by config (--enable_takeoff_obstacle_check=false).")
 
         # 确保处于目标高度
         if abs(now[2] - self.airgym.z) > 0.1:
             self.airgym.client.moveToZAsync(self.airgym.z, 3).join()
+            now = self.airgym.drone_pos()
 
         # 5. 暂停仿真以同步获取初始状态
         self.airgym.client.simPause(True)
