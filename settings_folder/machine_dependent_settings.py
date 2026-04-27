@@ -6,7 +6,7 @@ import os
 #   AIRLEARNING_JSON_FILE
 #   AIRLEARNING_UPROJECT
 #   UNREAL_EDITOR_PATH
-_default_root = os.environ.get("AIRLEARNING_UE4_ROOT", "/home/yimu/YIMU/airlearning-ue4")
+_default_root = os.environ.get("AIRLEARNING_UE4_ROOT", "/mnt/d/Projects/airlearning-ue4-1")
 
 # Valid path to a json file for game configuration
 json_file_addr = os.environ.get(

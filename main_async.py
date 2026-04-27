@@ -227,6 +227,20 @@ def _get_env_core(env):
     return env.unwrapped if hasattr(env, "unwrapped") else env
 
 
+def _pause_env_simulation(env):
+    """
+    Keep UE/AirSim time stopped while the learner is updating from replay.
+    """
+    env_core = _get_env_core(env)
+    try:
+        airgym = getattr(env_core, "airgym", None)
+        client = getattr(airgym, "client", None)
+        if client is not None:
+            client.simPause(True)
+    except Exception as exc:
+        print(f"WARNING: failed to pause simulator before training update: {exc}")
+
+
 def _is_asym_algorithm(algo_name: str) -> bool:
     core_name = to_internal_core_algorithm_name(algo_name)
     return core_name in {"td3_asym", "per_td3_asym", "st_vim_td3_asym"}
@@ -898,6 +912,8 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, ba
         # Training Update
         
         if agent.replay_buffer.size() >= args.batch_size and total_timesteps >= start_timesteps:
+            _pause_env_simulation(env)
+
             # 计算实际的梯度更新次数：收集步数 * gradient_steps 倍数
             n_updates = int(steps_per_update * args.gradient_steps)
             n_updates = max(1, n_updates)  # 至少更新1次
