@@ -43,7 +43,7 @@ def get_config(argv=None):
     parser.add_argument("--curve_smooth_step", type=float, default=1.0, help="baselines 风格 EMA 重采样 smooth_step")
 
     # 训练设置 (Training Setup)
-    parser.add_argument("--seed", type=str, default="3,4,5", help="随机种子 (支持逗号分隔多个种子)")
+    parser.add_argument("--seed", type=str, default="3", help="随机种子 (支持逗号分隔多个种子)")
     parser.add_argument("--curriculum_start_level", type=int, default=0, choices=[0, 1, 2, 3], help="课程学习起始等级 (0-3, 默认: 0)。注意：算法名以 'CL-' 前缀开头时自动启用课程学习")
     parser.add_argument("--non_curriculum_level", type=int, default=2, choices=[0, 1, 2, 3], help="非课程学习时的固定难度等级 (0-3, 默认: 3)")
     parser.add_argument("--steps_per_update", type=int, default=256, help='每次更新前收集的步数')
@@ -52,8 +52,8 @@ def get_config(argv=None):
     parser.add_argument("--n_training_threads", type=int, default=1, help="训练线程数")
     parser.add_argument("--n_rollout_threads", type=int, default=1, help="Rollout线程数（在AirSim环境中必须为1）")
     parser.add_argument("--max_timesteps", type=int, default=120000, help='要训练的环境步数 (默认: 10e6)')
-    parser.add_argument("--buffer_size", type=int, default=20000, help='经验池大小 (注意内存占用: 30000步约占用4GB)')
-    parser.add_argument("--learning_starts", type=int, default=5000, help="训练开始前的时间步数 (兼容 start_timesteps)")
+    parser.add_argument("--buffer_size", type=int, default=40000, help='经验池大小 (注意内存占用: 30000步约占用4GB)')
+    parser.add_argument("--learning_starts", type=int, default=2000, help="训练开始前的时间步数 (兼容 start_timesteps)")
     parser.add_argument("--gradient_steps", type=float, default=0.5, help="每次收集数据后的梯度更新倍数")
     parser.add_argument("--episode_length", type=int, default=500, help='每个环境中的最大回合长度')
     parser.add_argument("--eval_freq", type=int, default=5000, help="评估频率")
@@ -61,7 +61,7 @@ def get_config(argv=None):
     parser.add_argument("--base_feature_dim", type=int, default=32, help="基础状态先映射到该维度，再与视觉特征拼接")
     parser.add_argument("--exploration_noise", type=float, default=0.20, help="探索噪声")
     parser.add_argument("--exploration_noise_final", type=float, default=0.10, help="探索噪声最终值（用于线性递减）")
-    parser.add_argument("--batch_size", type=int, default=256, help="批次大小")
+    parser.add_argument("--batch_size", type=int, default=512, help="批次大小")
     parser.add_argument("--gamma", type=float, default=0.99, help="折扣因子") 
     parser.add_argument("--tau", type=float, default=0.005, help="软更新参数")
     parser.add_argument("--actor_lr", type=float, default=7e-4, help="Actor学习率")
@@ -69,7 +69,7 @@ def get_config(argv=None):
     parser.add_argument("--policy_noise", type=float, default=0.2, help="策略噪声")
     parser.add_argument("--noise_clip", type=float, default=0.5, help="噪声裁剪")
     parser.add_argument("--policy_freq", type=int, default=2, help="策略更新频率")
-    parser.add_argument("--grad_clip", type=float, default=4.0, help="梯度裁剪")
+    parser.add_argument("--grad_clip", type=float, default=1e6, help="梯度裁剪")
 
     # 可视化 (Visualization)
     parser.add_argument("--render_window", action='store_true', default=False, help="显示实时可视化窗口 (默认开启，可用 --no-render_window 关闭)")
@@ -117,7 +117,7 @@ def get_config(argv=None):
     # 停滞惩罚 (Stagnation Penalty) —— 基于滑动窗口位移
     parser.add_argument("--use_stagnation_penalty", action='store_true', default=True, help="是否启用停滞惩罚")
     parser.add_argument("--stagnation_window", type=int, default=10, help="停滞惩罚滑动窗口步数")
-    parser.add_argument("--stagnation_window_threshold", type=float, default=0.25, help="滑动窗口内最低累计位移（米），低于此值触发惩罚")
+    parser.add_argument("--stagnation_window_threshold", type=float, default=0.5, help="滑动窗口内最低累计位移（米），低于此值触发惩罚")
     parser.add_argument("--stagnation_weight", type=float, default=4.0, help="停滞惩罚权重")
 
     # 保存 (Saving)
