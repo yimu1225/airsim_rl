@@ -29,7 +29,7 @@ def get_config(argv=None):
     parser.add_argument("--env_name", type=str, default='AirSimEnv-v42', help="要训练的环境名称")
 
     # 算法选择 (Algorithm Selection)
-    parser.add_argument("--algorithm_name", type=str, default='CL-ST-VIM-TD3,CL-PER-ST-VIM-TD3,CL-TD3',
+    parser.add_argument("--algorithm_name", type=str, default='CL-ST-VIM-SAC,CL-SAC,CL-PER-ST-VIM-SAC',
                         help="要训练的算法。支持: TD3, NOISY-TD3, NOISY-TD3-TYPE2, DDPG, AETD3, PER-TD3, PER-AETD3, CFC-TD3, ST-VIM-TD3, STV-PATCH-TD3, VIM-TD3, ST-SEQ-VIM-TD3, STV-SEQ-VIM-TD3, PER-ST-VIM-TD3, ST-SVIM-TD3, MAMBA-TD3, ST-3DVIM-TD3, GAM-MAMBA-TD3, GAM-TD3, ST-DUALVIM-TD3, TD3-ASYM, PER-TD3-ASYM, ST-VIM-TD3-ASYM, SAC, ST-VIM-SAC, PER-ST-VIM-SAC, PPO, ST-VIM-PPO。可以是单个，多个（逗号分隔），或组名 ('all', 'base', 'seq')")
     parser.add_argument("--smooth_window", type=int, default=300, help="平滑窗口大小，用于平滑学习曲线 (仅对移动平均有效)")
     parser.add_argument("--smooth_method", type=str, default="moving", choices=["moving","zero_phase_des"], help="曲线平滑方法: moving=滑动平均, zero_phase_des=零相位双重指数平滑")
@@ -51,10 +51,10 @@ def get_config(argv=None):
     parser.add_argument("--cuda_deterministic", action='store_false', default=True, help="CUDA是否确定性")
     parser.add_argument("--n_training_threads", type=int, default=1, help="训练线程数")
     parser.add_argument("--n_rollout_threads", type=int, default=1, help="Rollout线程数（在AirSim环境中必须为1）")
-    parser.add_argument("--max_timesteps", type=int, default=60000, help='要训练的环境步数 (默认: 10e6)')
+    parser.add_argument("--max_timesteps", type=int, default=150000, help='要训练的环境步数 (默认: 10e6)')
     parser.add_argument("--buffer_size", type=int, default=30000, help='经验池大小 (注意内存占用: 30000步约占用4GB)')
     parser.add_argument("--learning_starts", type=int, default=2000, help="训练开始前的时间步数 (兼容 start_timesteps)")
-    parser.add_argument("--gradient_steps", type=float, default=1.0, help="每次收集数据后的梯度更新倍数")
+    parser.add_argument("--gradient_steps", type=float, default=0.5, help="每次收集数据后的梯度更新倍数")
     parser.add_argument("--episode_length", type=int, default=300, help='每个环境中的最大回合长度')
     parser.add_argument("--eval_freq", type=int, default=5000, help="评估频率")
     parser.add_argument("--hidden_dim", type=int, default=256, help="隐藏层维度")
@@ -85,7 +85,7 @@ def get_config(argv=None):
     # 这里只保留公共参数定义。
     # 连续控制参数 (Continuous Control Parameters)
     parser.add_argument("--min_forward_speed", type=float, default=0.0, help="最小前进速度 (m/s)")
-    parser.add_argument("--max_forward_speed", type=float, default=1.0, help="最大前进速度 (m/s)")
+    parser.add_argument("--max_forward_speed", type=float, default=2.0, help="最大前进速度 (m/s)")
     parser.add_argument("--max_vertical_speed", type=float, default=0.3, help="最大垂直速度 (m/s)")
     parser.add_argument("--max_yaw_rate", type=float, default=np.pi/4, help="最大偏航角速度 (rad/s)")
     parser.add_argument("--takeoff_height", type=float, default=-1.0, help="起飞目标高度 (NED坐标系中负值为向上)")

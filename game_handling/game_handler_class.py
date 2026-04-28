@@ -33,7 +33,7 @@ class GameHandler:
         # -game: Run in game mode, -WINDOWED: Windowed mode, -VRMode: disable VR
         # -AutomationTest or use PIE (Play In Editor) - but we want standalone game
         self.ue4_params = " -game"+" -ResX="+str(settings.game_resX)+ " -ResY="+str(settings.game_resY)+ \
-                          " -WinX="+str(settings.ue4_winX)+ " -WinY="+str(settings.ue4_winY)+ " -Windowed -NOPAUSE"
+                          " -WinX="+str(settings.ue4_winX)+ " -WinY="+str(settings.ue4_winY)+ " -Windowed -NOPAUSE -NOSOUND"
         self.cmd = str('"'+ self.ue4_exe_path+ '"')+" "+str('"'+ self.game_file_arg+ '"')+ str(self.ue4_params)
         assert(os.path.exists(self.ue4_exe_path)), "Unreal Editor executable:" + self.ue4_exe_path + "doesn't exist"
         assert(os.path.exists(self.game_file)), "game_file: " + self.game_file +  " doesn't exist"
