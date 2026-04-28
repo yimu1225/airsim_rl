@@ -35,6 +35,7 @@ from gym_airsim.envs import AirSimEnv
 
 # On-Policy Algorithm Imports
 from algorithm.ppo.ppo import PPOAgent
+from algorithm.ST_Vim_PPO.agent import STVimPPOAgent
 
 
 def _raise_if_non_finite(name, value, step_info=""):
@@ -114,6 +115,7 @@ def get_agent_class(algo_name):
     
     agents = {
         'ppo': PPOAgent,
+        'st_vim_ppo': STVimPPOAgent,
     }
     if core_algo_name in agents:
         return agents[core_algo_name]
@@ -429,7 +431,7 @@ def main():
         for algo_name in algorithms:
             algo_name = to_internal_algorithm_name(algo_name)
             core_algo_name = to_internal_core_algorithm_name(algo_name)
-            if core_algo_name != "ppo":
+            if core_algo_name not in {"ppo", "st_vim_ppo"}:
                 print(f"Skipping unsupported on-policy algorithm in main_ppo.py: {algo_name}")
                 continue
 
@@ -452,8 +454,8 @@ def main():
                 actual_algo_name = algo_name
                 print(f"  [Curriculum Learning Disabled] {algo_name}")
 
-            # PPO is non-recurrent by default (can be extended later)
-            is_recurrent = False
+            # ST-Vim-PPO consumes the stacked depth frames as a temporal sequence.
+            is_recurrent = core_algo_name == "st_vim_ppo"
             n_frames = args.n_frames
 
             # Initialize Environment
@@ -474,6 +476,9 @@ def main():
             # Dimensions
             base_dim = base_state.shape[0]
             depth_shape = depth_image.shape
+            model_depth_shape = (1, depth_shape[-2], depth_shape[-1]) if is_recurrent else depth_shape
+            if is_recurrent:
+                args.depth_shape = model_depth_shape
             action_space = env.action_space
 
             print(f"Observation shapes: Depth {depth_shape}, Base {base_dim}")
@@ -483,7 +488,7 @@ def main():
             device = torch.device("cuda" if args.cuda and torch.cuda.is_available() else "cpu")
             AgentClass = get_agent_class(algo_name)
             
-            agent = AgentClass(base_dim, depth_shape, action_space, args, device=device, seed=seed)
+            agent = AgentClass(base_dim, model_depth_shape, action_space, args, device=device, seed=seed)
 
             # Run training
             env = train_ppo_algorithm(env, agent, args, algo_name, device, base_state, depth_image, n_frames)

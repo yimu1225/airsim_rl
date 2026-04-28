@@ -585,7 +585,7 @@ class AirSimEnv(gym.Env):
             reward_vel = float(self.speed * math.cos(r_yaw))
 
         # Match NavRL base term: reward_vel 
-        r = 2 * reward_vel + distance_penalty
+        r = 2 * reward_vel 
 
         # NavRL-style smoothness penalty: ||v_t - v_{t-1}||
         if velocity_after is not None:
@@ -611,7 +611,7 @@ class AirSimEnv(gym.Env):
              curvature_penalty = curvature_weight * (angle_change ** 2) 
              curvature_penalty = float(np.clip(curvature_penalty, 0.0, 1.0))
 
-        step_penalty = self.stepN * 0.001
+        step_penalty = self.stepN * 0.005
         # step_penalty = 0.2
 
         # Stagnation penalty: penalize when total displacement in recent N steps is too small
@@ -621,7 +621,7 @@ class AirSimEnv(gym.Env):
             stagnation_penalty = max(0.0, self.stagnation_window_threshold - total_displacement) * self.stagnation_weight
 
         # Add penalties to reward
-        r -= smooth_penalty * smooth_penalty_weight  + step_penalty + stagnation_penalty
+        r -= smooth_penalty * smooth_penalty_weight  + step_penalty 
 
         lidar_penalty = self._compute_lidar_scan_log_penalty(self.last_lidar_scan_distance)
         self.last_lidar_obstacle_penalty = float(lidar_penalty)
@@ -739,7 +739,7 @@ class AirSimEnv(gym.Env):
             altitude_violation = True
 
         success_altitude_min = 0.5
-        success_altitude_max = 1.5
+        success_altitude_max = 2.0
         success_altitude_ok = success_altitude_min <= current_altitude <= success_altitude_max
 
         if distance < settings.success_distance_to_goal and success_altitude_ok:
