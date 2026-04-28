@@ -258,6 +258,14 @@ class ST3DVimTD3Agent:
 
         actor_loss_value = None
         if self.total_it % self.policy_freq == 0:
+            critic_frozen_params = (
+                list(self.critic_encoder.parameters())
+                + list(self.critic_base_net.parameters())
+                + list(self.critic_1.parameters())
+                + list(self.critic_2.parameters())
+            )
+            for param in critic_frozen_params:
+                param.requires_grad_(False)
             actor_visual = self.actor_encoder(depth)
             self._assert_finite_tensor("train.actor_visual", actor_visual)
             actor_base = self.actor_base_net(state)
@@ -280,6 +288,9 @@ class ST3DVimTD3Agent:
                 self.grad_clip
             )
             self.actor_optimizer.step()
+
+            for param in critic_frozen_params:
+                param.requires_grad_(True)
 
             self.soft_update(self.actor_encoder, self.actor_encoder_target, self.tau)
             self.soft_update(self.actor_base_net, self.actor_base_net_target, self.tau)

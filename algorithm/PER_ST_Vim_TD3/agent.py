@@ -224,6 +224,8 @@ class PERVimTD3Agent:
 
         actor_loss_value = None
         if self.total_it % self.policy_freq == 0:
+            for param in self.critic_params:
+                param.requires_grad_(False)
             actor_visual = self.actor_encoder(depth)
             actor_base = self.actor_base_net(state)
             actor_input = torch.cat([actor_visual, actor_base], dim=-1)
@@ -240,6 +242,9 @@ class PERVimTD3Agent:
             actor_loss.backward()
             nn.utils.clip_grad_norm_(self.actor_params, self.grad_clip)
             self.actor_optimizer.step()
+
+            for param in self.critic_params:
+                param.requires_grad_(True)
 
             self.soft_update(self.actor_encoder, self.actor_encoder_target, self.tau)
             self.soft_update(self.actor_base_net, self.actor_base_net_target, self.tau)
