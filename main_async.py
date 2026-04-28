@@ -64,6 +64,8 @@ from algorithm.gam_td3.td3 import GAMTD3Agent
 from algorithm.ST_3D_Vim_TD3.agent import ST3DVimTD3Agent
 from algorithm.st_dualvim_td3.agent import DualBranchVideoMambaTD3Agent
 from algorithm.sac.agent import SACAgent
+from algorithm.ST_Vim_SAC.agent import STVimSACAgent
+from algorithm.PER_ST_Vim_SAC.agent import PERSTVimSACAgent
 from algorithm.td3_asym.td3_asym import AsymTD3Agent
 from algorithm.per_td3_asym.per_td3_asym import AsymPERTD3Agent
 from algorithm.ST_Vim_TD3_asym.agent import AsymSTVimTD3Agent
@@ -183,6 +185,8 @@ def get_agent_class(algo_name):
         'st_3dvim_td3': ST3DVimTD3Agent,
         'st_dualvim_td3': DualBranchVideoMambaTD3Agent,
         'sac': SACAgent,
+        'st_vim_sac': STVimSACAgent,
+        'per_st_vim_sac': PERSTVimSACAgent,
     }
     if core_algo_name in agents:
         return agents[core_algo_name]
@@ -403,6 +407,8 @@ def main():
                 'st_svim_td3',
                 'st_3dvim_td3',
                 'st_dualvim_td3',
+                'st_vim_sac',
+                'per_st_vim_sac',
             }
             
             is_recurrent = actual_algo_name in recurrent_algos

@@ -24,7 +24,10 @@ _CANONICAL_ALGORITHMS: Tuple[str, ...] = (
     "st_3dvim_td3",
     "st_dualvim_td3",
     "sac",
+    "st_vim_sac",
+    "per_st_vim_sac",
     "ppo",
+    "st_vim_ppo",
     "td3_asym",
     "per_td3_asym",
     "st_vim_td3_asym",
@@ -53,6 +56,8 @@ ALGORITHM_GROUPS: Dict[str, List[str]] = {
         "st_3dvim_td3",
         "st_dualvim_td3",
         "sac",
+        "st_vim_sac",
+        "per_st_vim_sac",
         "td3_asym",
         "per_td3_asym",
         "st_vim_td3_asym",
@@ -82,6 +87,8 @@ ALGORITHM_GROUPS: Dict[str, List[str]] = {
         "st_3dvim_td3",
         "st_dualvim_td3",
         "st_vim_td3_asym",
+        "st_vim_sac",
+        "per_st_vim_sac",
     ],
 }
 
@@ -121,6 +128,15 @@ _EXTRA_ALIASES = {
     "st-vimtd3_asym": "st_vim_td3_asym",
     "st_vimtd3-asym": "st_vim_td3_asym",
     "st_vimtd3_asym": "st_vim_td3_asym",
+    "st-vimsac": "st_vim_sac",
+    "st_vimsac": "st_vim_sac",
+    "stvimsac": "st_vim_sac",
+    "per-st-vimsac": "per_st_vim_sac",
+    "per_st_vimsac": "per_st_vim_sac",
+    "perstvimsac": "per_st_vim_sac",
+    "st-vimppo": "st_vim_ppo",
+    "st_vimppo": "st_vim_ppo",
+    "stvimppo": "st_vim_ppo",
 }
 for _alias, _canonical in _EXTRA_ALIASES.items():
     _ALIAS_TO_CANONICAL[_normalize_key(_alias)] = _canonical

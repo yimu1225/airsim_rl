@@ -38,6 +38,9 @@ class PPOAgent:
         self.base_dim = base_dim
         self.base_feature_dim = getattr(args, 'base_feature_dim', 32)
         self.depth_shape = depth_shape  # (C, H, W)
+        self.args = args
+        if not hasattr(self.args, "depth_shape"):
+            self.args.depth_shape = depth_shape
         self.action_dim = action_space.shape[0]
         self.max_action = np.array(action_space.high, dtype=np.float32)
         self.min_action = np.array(action_space.low, dtype=np.float32)
@@ -55,12 +58,12 @@ class PPOAgent:
         self.depth_seq_len = max(1, int(C))
         visual_channels = 1
 
-        self.encoder = Encoder(input_height=depth_h, input_width=depth_w, input_channels=visual_channels).to(self.device)
+        self.encoder = self._make_encoder(depth_h, depth_w, visual_channels).to(self.device)
 
         self.base_encoder = StateAdapter(self.base_dim, self.base_feature_dim).to(self.device)
         
         # State dimension = projected base feature + concatenated per-frame visual features
-        self.state_dim = self.base_feature_dim + self.encoder.repr_dim * self.depth_seq_len
+        self.state_dim = self.base_feature_dim + self._encoded_visual_dim()
         
         # Actor and Critic
         hidden_dim = getattr(args, 'hidden_dim', 256)
@@ -93,6 +96,8 @@ class PPOAgent:
         self.ppo_epochs = get_algo_param(args, 'ppo_epochs', 10)
         self.batch_size = get_algo_param(args, 'ppo_batch_size', 64)
         self.clip_range = get_algo_param(args, 'clip_range', 0.2)
+        self.clip_range_vf = get_algo_param(args, 'clip_range_vf', None)
+        self.normalize_advantage = bool(get_algo_param(args, 'normalize_advantage', True))
         self.vf_coef = get_algo_param(args, 'vf_coef', 0.5)
         self.ent_coef = get_algo_param(args, 'ent_coef', 0.0)
         self.max_grad_norm = get_algo_param(args, 'max_grad_norm', 0.5)
@@ -100,9 +105,39 @@ class PPOAgent:
         
         self.total_it = 0
         self.num_updates = 0
+
+    def _make_encoder(self, depth_h: int, depth_w: int, visual_channels: int):
+        return Encoder(input_height=depth_h, input_width=depth_w, input_channels=visual_channels)
+
+    def _uses_sequence_encoder(self) -> bool:
+        return False
+
+    def _encoded_visual_dim(self) -> int:
+        if self._uses_sequence_encoder():
+            return self.encoder.repr_dim
+        return self.encoder.repr_dim * self.depth_seq_len
     
     def _encode(self, depth_batch: torch.Tensor) -> torch.Tensor:
         """Encode depth image."""
+        if self._uses_sequence_encoder():
+            if depth_batch.dim() == 2:
+                depth_batch = depth_batch.unsqueeze(0).unsqueeze(0).unsqueeze(0)
+            elif depth_batch.dim() == 3:
+                depth_batch = depth_batch.unsqueeze(0).unsqueeze(2)
+            elif depth_batch.dim() == 4:
+                if depth_batch.size(1) == 1:
+                    depth_batch = depth_batch.unsqueeze(0)
+                else:
+                    depth_batch = depth_batch.unsqueeze(2)
+            elif depth_batch.dim() == 5:
+                pass
+            else:
+                raise ValueError(f"Unsupported sequence depth batch shape: {tuple(depth_batch.shape)}")
+
+            if depth_batch.size(2) != 1:
+                raise ValueError(f"Expected single-channel sequence frames, got {tuple(depth_batch.shape)}")
+            return self.encoder(depth_batch)
+
         if depth_batch.dim() == 2:
             depth_batch = depth_batch.unsqueeze(0).unsqueeze(0)
         elif depth_batch.dim() == 3:
@@ -155,11 +190,13 @@ class PPOAgent:
             
             # Convert to numpy
             action_np = action.cpu().numpy().flatten()
+            self._last_policy_action = action_np.astype(np.float32, copy=True)
+            clipped_action_np = np.clip(action_np, -1.0, 1.0)
             value_np = value.cpu().numpy().flatten()[0]
             log_prob_np = log_prob.cpu().numpy().flatten()[0] if log_prob is not None else 0.0
         
         # Scale action from [-1, 1] to original action space
-        real_action = self.action_scale.cpu().numpy() * action_np + self.action_bias.cpu().numpy()
+        real_action = self.action_scale.cpu().numpy() * clipped_action_np + self.action_bias.cpu().numpy()
         
         return real_action, value_np, log_prob_np
     
@@ -177,8 +214,15 @@ class PPOAgent:
             done: whether episode terminated
         """
         # Normalize action to [-1, 1] for storage
-        normalized_action = (action - self.action_bias.cpu().numpy()) / self.action_scale.cpu().numpy()
-        normalized_action = np.clip(normalized_action, -1.0, 1.0)
+        cached_action = getattr(self, "_last_policy_action", None)
+        if cached_action is not None and np.asarray(cached_action).shape == np.asarray(action).shape:
+            # SB3 stores the raw Gaussian action in the rollout buffer and only
+            # clips/scales a copy for the environment step.
+            normalized_action = np.asarray(cached_action, dtype=np.float32)
+            self._last_policy_action = None
+        else:
+            normalized_action = (action - self.action_bias.cpu().numpy()) / self.action_scale.cpu().numpy()
+            normalized_action = np.clip(normalized_action, -1.0, 1.0)
         
         self.rollout_buffer.add(base_state, depth, normalized_action, reward, value, log_prob, done)
     
@@ -224,10 +268,7 @@ class PPOAgent:
         # Get trajectory data
         data = self.rollout_buffer.get_trajectory()
         
-        returns = data['rewards']  # These are actually the computed returns stored in rewards during GAE
-        # Note: We need to recompute or store returns properly. Let's fix this.
-        
-        return self._update_policy(data, returns)
+        return self._update_policy(data)
     
     def update_policy(self, returns=None, advantages=None, epoch_pbar=None):
         """
@@ -259,9 +300,6 @@ class PPOAgent:
         returns = data['returns']
         advantages = data['advantages']
         
-        # Normalize advantages
-        advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
-        
         n_samples = base_states.shape[0]
         
         # Training statistics
@@ -289,6 +327,7 @@ class PPOAgent:
                 mb_old_log_probs = old_log_probs[mb_indices]
                 mb_advantages = advantages[mb_indices]
                 mb_returns = returns[mb_indices]
+                mb_old_values = data['values'][mb_indices]
                 
                 # Encode states
                 states = self._encode_and_concat(mb_base, mb_depth)
@@ -299,15 +338,26 @@ class PPOAgent:
                 
                 # PPO loss
                 ratio = torch.exp(new_log_probs.squeeze(-1) - mb_old_log_probs)
+                if self.normalize_advantage and len(mb_advantages) > 1:
+                    mb_advantages = (mb_advantages - mb_advantages.mean()) / (mb_advantages.std() + 1e-8)
+
                 surr1 = ratio * mb_advantages
                 surr2 = torch.clamp(ratio, 1 - self.clip_range, 1 + self.clip_range) * mb_advantages
                 policy_loss = -torch.min(surr1, surr2).mean()
                 
-                # Value loss
-                value_loss = F.mse_loss(values, mb_returns)
+                # Value loss, optionally clipped like SB3 PPO.
+                if self.clip_range_vf is None:
+                    values_pred = values
+                else:
+                    values_pred = mb_old_values + (values - mb_old_values).clamp(
+                        -float(self.clip_range_vf),
+                        float(self.clip_range_vf),
+                    )
+                value_loss = F.mse_loss(values_pred, mb_returns)
                 
                 # Total loss
-                loss = policy_loss + self.vf_coef * value_loss - self.ent_coef * entropy.mean()
+                entropy_loss = -entropy.mean()
+                loss = policy_loss + self.vf_coef * value_loss + self.ent_coef * entropy_loss
                 
                 # Optimize
                 self.encoder_optimizer.zero_grad()

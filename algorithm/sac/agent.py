@@ -30,9 +30,12 @@ class SACAgent:
         if seed is not None:
             torch.manual_seed(seed)
 
+        self.args = args
         self.base_dim = base_dim
         self.base_feature_dim = getattr(args, "base_feature_dim", 32)
         self.depth_shape = depth_shape  # (C, H, W)
+        if not hasattr(self.args, "depth_shape"):
+            self.args.depth_shape = depth_shape
         self.action_dim = action_space.shape[0]
         self.max_action = np.array(action_space.high, dtype=np.float32)
         self.min_action = np.array(action_space.low, dtype=np.float32)
@@ -46,29 +49,53 @@ class SACAgent:
         self.action_bias = torch.from_numpy(bias).float().to(self.device)
 
         self.grad_clip = getattr(args, "grad_clip", 1.0)
-        
-        # Entropy temperature parameters
-        self.auto_entropy_tuning = get_algo_param(args, "auto_entropy_tuning", True)
-        self.target_entropy = -self.action_dim  # Heuristic: -dim(A)
-        
-        # Initialize temperature (alpha)
-        if self.auto_entropy_tuning:
-            self.log_alpha = torch.zeros(1, requires_grad=True, device=self.device)
-            self.alpha = self.log_alpha.exp()
-            self.alpha_optimizer = Adam([self.log_alpha], lr=args.actor_lr)
+
+        # Entropy temperature / entropy coefficient (ent_coef) handling
+        # Support SB3-style: ent_coef can be a float or a string like 'auto' or 'auto_0.1'
+        self.ent_coef = get_algo_param(args, "ent_coef", None)
+        # target entropy: fallback to -dim(A) heuristic when not provided or set to 'auto' / null
+        self.target_entropy = get_algo_param(args, "target_entropy", None)
+        if self.target_entropy is None or self.target_entropy == "auto":
+            # heuristic default: -|A|
+            self.target_entropy = -float(self.action_dim)
         else:
-            self.alpha = get_algo_param(args, "alpha", 0.2)
+            self.target_entropy = float(self.target_entropy)
+
+        # By default, no optimizer for ent_coef
+        self.log_alpha = None
+        self.alpha_optimizer = None
+        # If ent_coef is a string starting with 'auto', learn log_alpha (initialize to provided value or 1.0)
+        if isinstance(self.ent_coef, str) and self.ent_coef.startswith("auto"):
+            init_value = 1.0
+            if "_" in self.ent_coef:
+                try:
+                    init_value = float(self.ent_coef.split("_")[1])
+                except Exception:
+                    init_value = 1.0
+            # learn log_alpha (log(ent_coef))
+            self.log_alpha = torch.log(torch.ones(1, device=self.device) * init_value).requires_grad_(True)
+            self.alpha_optimizer = Adam([self.log_alpha], lr=args.actor_lr)
+            # alpha property returns current scalar value via exp()
+            self.alpha = self.log_alpha.exp()
+            self.auto_entropy_tuning = True
+        else:
+            # fixed ent_coef: prefer explicit ent_coef value, otherwise fall back to legacy 'alpha' config
+            if self.ent_coef is None:
+                self.alpha = get_algo_param(args, "alpha", 0.2)
+            else:
+                self.alpha = float(self.ent_coef)
+            self.auto_entropy_tuning = False
 
         C, depth_h, depth_w = depth_shape
         self.depth_seq_len = max(1, int(C))
         visual_channels = 1
 
         # Encoders
-        self.actor_encoder = Encoder(input_height=depth_h, input_width=depth_w, input_channels=visual_channels).to(self.device)
-        self.critic_encoder = Encoder(input_height=depth_h, input_width=depth_w, input_channels=visual_channels).to(self.device)
+        self.actor_encoder = self._make_encoder(depth_h, depth_w, visual_channels).to(self.device)
+        self.critic_encoder = self._make_encoder(depth_h, depth_w, visual_channels).to(self.device)
 
         # Target Encoder for Critic (soft update)
-        self.critic_encoder_target = Encoder(input_height=depth_h, input_width=depth_w, input_channels=visual_channels).to(self.device)
+        self.critic_encoder_target = self._make_encoder(depth_h, depth_w, visual_channels).to(self.device)
         self.critic_encoder_target.load_state_dict(self.critic_encoder.state_dict())
         
         # State adapters
@@ -78,7 +105,7 @@ class SACAgent:
         self.critic_base_adapter_target.load_state_dict(self.critic_base_adapter.state_dict())
         
         # State dimension
-        self.state_dim = self.base_feature_dim + self.actor_encoder.repr_dim * self.depth_seq_len
+        self.state_dim = self.base_feature_dim + self._encoded_visual_dim()
         
         # Actor and Critic
         self.actor = Actor(self.state_dim, action_space.shape, args.hidden_dim).to(self.device)
@@ -95,7 +122,7 @@ class SACAgent:
         self.critic_params = list(self.critic.parameters()) + list(self.critic_encoder.parameters()) + list(self.critic_base_adapter.parameters())
         self.critic_optimizer = Adam(self.critic_params, lr=args.critic_lr)
 
-        self.replay_buffer = ReplayBuffer(args.buffer_size, seed=seed)
+        self.replay_buffer = self._make_replay_buffer(args, seed)
 
         self.gamma = args.gamma
         self.tau = args.tau
@@ -103,11 +130,52 @@ class SACAgent:
         
         self.total_it = 0
         
-        # Policy update frequency (update actor less frequently than critic)
+        # SB3 SAC updates actor every gradient step by default.
         self.policy_freq = getattr(args, "policy_freq", 1)
+        self.target_update_interval = get_algo_param(args, "target_update_interval", 1)
+
+    def _make_encoder(self, depth_h: int, depth_w: int, visual_channels: int):
+        return Encoder(input_height=depth_h, input_width=depth_w, input_channels=visual_channels)
+
+    def _uses_sequence_encoder(self) -> bool:
+        return False
+
+    def _encoded_visual_dim(self) -> int:
+        if self._uses_sequence_encoder():
+            return self.actor_encoder.repr_dim
+        return self.actor_encoder.repr_dim * self.depth_seq_len
+
+    def _make_replay_buffer(self, args, seed=None):
+        return ReplayBuffer(args.buffer_size, seed=seed)
+
+    def _sample_replay(self):
+        sample = self.replay_buffer.sample(self.batch_size)
+        return sample, None, None, {}
+
+    def _update_replay_priorities(self, refs, td_errors):
+        return None
 
     def _encode(self, depth_batch: torch.Tensor, encoder_net) -> torch.Tensor:
         """Encode depth image."""
+        if self._uses_sequence_encoder():
+            if depth_batch.dim() == 2:
+                depth_batch = depth_batch.unsqueeze(0).unsqueeze(0).unsqueeze(0)
+            elif depth_batch.dim() == 3:
+                depth_batch = depth_batch.unsqueeze(0).unsqueeze(2)
+            elif depth_batch.dim() == 4:
+                if depth_batch.size(1) == 1:
+                    depth_batch = depth_batch.unsqueeze(0)
+                else:
+                    depth_batch = depth_batch.unsqueeze(2)
+            elif depth_batch.dim() == 5:
+                pass
+            else:
+                raise ValueError(f"Unsupported sequence depth batch shape: {tuple(depth_batch.shape)}")
+
+            if depth_batch.size(2) != 1:
+                raise ValueError(f"Expected single-channel sequence frames, got {tuple(depth_batch.shape)}")
+            return encoder_net(depth_batch)
+
         if depth_batch.dim() == 2:
             depth_batch = depth_batch.unsqueeze(0).unsqueeze(0)
         elif depth_batch.dim() == 3:
@@ -133,7 +201,7 @@ class SACAgent:
             depth_features = depth_features.detach()
         return torch.cat([base_features, depth_features], dim=1)
 
-    def select_action(self, base_state, depth, deterministic=False, with_log_prob=False):
+    def select_action(self, base_state, depth, deterministic=False, with_log_prob=False, progress_ratio=0.0):
         """Select action using the current policy.
         
         Args:
@@ -167,7 +235,10 @@ class SACAgent:
             return {}
 
         # Sample from replay buffer
-        base_states, depths, actions, rewards, next_base_states, next_depths, dones = self.replay_buffer.sample(self.batch_size)
+        sample, replay_refs, replay_weights, replay_info = self._sample_replay()
+        if sample is None:
+            return {}
+        base_states, depths, actions, rewards, next_base_states, next_depths, dones = sample
 
         # Convert to tensors
         base_states = torch.as_tensor(base_states, dtype=torch.float32, device=self.device)
@@ -180,26 +251,39 @@ class SACAgent:
         next_base_states = torch.as_tensor(next_base_states, dtype=torch.float32, device=self.device)
         next_depths = torch.as_tensor(next_depths, dtype=torch.float32, device=self.device)
         dones = torch.as_tensor(dones, dtype=torch.float32, device=self.device).view(-1, 1)
+        weights = None
+        if replay_weights is not None:
+            weights = torch.as_tensor(replay_weights, dtype=torch.float32, device=self.device).view(-1, 1)
 
         # ============ Critic Update ============
         with torch.no_grad():
-            # Encode next observations (Critic Target)
-            next_encoded_depths = self._encode(next_depths, self.critic_encoder_target)
-            next_base_features = self.critic_base_adapter_target(next_base_states)
-            next_states = torch.cat([next_base_features, next_encoded_depths], dim=1)
+            # SB3-style: next action comes from the current actor,
+            # target Q comes from the target critic.
+            next_actor_states = self._concat_state(
+                next_base_states,
+                next_depths,
+                self.actor_encoder,
+                self.actor_base_adapter,
+            )
+            next_target_states = self._concat_state(
+                next_base_states,
+                next_depths,
+                self.critic_encoder_target,
+                self.critic_base_adapter_target,
+            )
             
             # Sample next actions from current policy
-            next_actions, next_log_probs, _, _ = self.actor(next_states, with_log_prob=True)
+            next_actions, next_log_probs, _, _ = self.actor(next_actor_states, with_log_prob=True)
             
             # Compute target Q-values
-            target_q1, target_q2 = self.critic_target(next_states, next_actions)
+            target_q1, target_q2 = self.critic_target(next_target_states, next_actions)
             target_q = torch.min(target_q1, target_q2)
             
             # Add entropy term
             if self.auto_entropy_tuning:
-                alpha = self.log_alpha.exp()
+                alpha = self.log_alpha.exp().detach()
             else:
-                alpha = self.alpha
+                alpha = torch.as_tensor(self.alpha, dtype=torch.float32, device=self.device)
             target_q = target_q - alpha * next_log_probs
             
             # Bellman backup
@@ -213,14 +297,24 @@ class SACAgent:
         # Compute current Q-values
         current_q1, current_q2 = self.critic(states, actions)
         
-        # Critic loss
-        critic_loss = F.mse_loss(current_q1, target_q) + F.mse_loss(current_q2, target_q)
+        # Critic loss: SB3 uses 0.5 * sum(MSE) over the two critics.
+        critic_loss_elements = 0.5 * (
+            F.mse_loss(current_q1, target_q, reduction="none")
+            + F.mse_loss(current_q2, target_q, reduction="none")
+        )
+        if weights is not None:
+            critic_loss = (critic_loss_elements * weights).mean()
+        else:
+            critic_loss = critic_loss_elements.mean()
+        td_errors = 0.5 * ((current_q1 - target_q).abs() + (current_q2 - target_q).abs())
 
         # Optimize Critic
         self.critic_optimizer.zero_grad()
         critic_loss.backward()
         torch.nn.utils.clip_grad_norm_(self.critic_params, max_norm=self.grad_clip)
         self.critic_optimizer.step()
+        if replay_refs is not None:
+            self._update_replay_priorities(replay_refs, td_errors.detach().cpu().numpy().reshape(-1))
 
         # ============ Actor and Alpha Update ============
         actor_loss_value = None
@@ -235,15 +329,23 @@ class SACAgent:
             # Sample actions from policy
             sampled_actions, log_probs, _, _ = self.actor(states_actor, with_log_prob=True)
             
-            # Compute Q-values for sampled actions (use Q1)
-            q1_new, q2_new = self.critic(states_actor.detach(), sampled_actions)
+            with torch.no_grad():
+                critic_states_for_pi = self._concat_state(
+                    base_states,
+                    depths,
+                    self.critic_encoder,
+                    self.critic_base_adapter,
+                )
+
+            # Compute Q-values for sampled actions.
+            q1_new, q2_new = self.critic(critic_states_for_pi, sampled_actions)
             q_new = torch.min(q1_new, q2_new)
             
             # Actor loss: maximize Q - alpha * log_prob
             if self.auto_entropy_tuning:
-                alpha = self.log_alpha.exp()
+                alpha = self.log_alpha.exp().detach()
             else:
-                alpha = self.alpha
+                alpha = torch.as_tensor(self.alpha, dtype=torch.float32, device=self.device)
             
             actor_loss = (alpha * log_probs - q_new).mean()
 
@@ -268,12 +370,15 @@ class SACAgent:
                 alpha_loss_value = float(alpha_loss.item())
 
         # ============ Soft Update Target Networks ============
-        self._soft_update()
+        if self.total_it % self.target_update_interval == 0:
+            self._soft_update()
 
         result = {
             "critic_loss": float(critic_loss.item()),
             "alpha": self.alpha if isinstance(self.alpha, float) else self.alpha.item(),
         }
+        if replay_info:
+            result.update(replay_info)
         if actor_loss_value is not None:
             result["actor_loss"] = actor_loss_value
         if alpha_loss_value is not None:

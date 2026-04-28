@@ -20,6 +20,9 @@ _ALGO_DIR_MAP = {
     "st_svim_td3": "ST_SVim_TD3",
     "st_3dvim_td3": "ST_3D_Vim_TD3",
     "st_vim_td3_asym": "ST_Vim_TD3_asym",
+    "st_vim_sac": "ST_Vim_SAC",
+    "per_st_vim_sac": "PER_ST_Vim_SAC",
+    "st_vim_ppo": "ST_Vim_PPO",
 }
 
 def _resolve_algorithm_dir(algorithm_name: str) -> Path:

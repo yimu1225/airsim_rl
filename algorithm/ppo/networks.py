@@ -62,26 +62,18 @@ class Actor(nn.Module):
         """
         obs = self.input_norm(obs)
         mean = self.mean_net(obs)
-        mean = torch.tanh(mean)  # Normalize mean to [-1, 1]
         
         std = torch.exp(self.log_std).expand_as(mean)
+        dist = Normal(mean, std)
         
         if deterministic:
             action = mean
-            log_prob = None
+            log_prob = dist.log_prob(action).sum(dim=-1, keepdim=True)
         else:
-            # Sample from Gaussian and apply tanh squashing
-            dist = Normal(mean, std)
-            raw_action = dist.rsample()  # Reparameterized sampling
-            
-            # Apply tanh squashing to ensure action in [-1, 1]
-            action = torch.tanh(raw_action)
-            
-            # Compute log probability with tanh correction
-            log_prob = dist.log_prob(raw_action)
-            # Correct for tanh squashing: log p(a) = log p(u) - sum(log(1 - tanh(u)^2) + eps)
-            log_prob -= torch.log(1 - action.pow(2) + 1e-6)
-            log_prob = log_prob.sum(dim=-1, keepdim=True)
+            # SB3 PPO uses an unsquashed diagonal Gaussian and clips the action
+            # only when interacting with Box environments.
+            action = dist.rsample()
+            log_prob = dist.log_prob(action).sum(dim=-1, keepdim=True)
         
         return action, log_prob
     
@@ -100,19 +92,10 @@ class Actor(nn.Module):
         """
         obs = self.input_norm(obs)
         mean = self.mean_net(obs)
-        mean = torch.tanh(mean)
         
         std = torch.exp(self.log_std).expand_as(mean)
-        
-        # Inverse tanh to get raw action
-        # Clamp action to avoid numerical issues with arctanh
-        clamped_action = torch.clamp(action, -0.999999, 0.999999)
-        raw_action = 0.5 * torch.log((1 + clamped_action) / (1 - clamped_action))
-        
         dist = Normal(mean, std)
-        log_prob = dist.log_prob(raw_action)
-        log_prob -= torch.log(1 - action.pow(2) + 1e-6)
-        log_prob = log_prob.sum(dim=-1, keepdim=True)
+        log_prob = dist.log_prob(action).sum(dim=-1, keepdim=True)
         
         entropy = dist.entropy().sum(dim=-1, keepdim=True)
         
