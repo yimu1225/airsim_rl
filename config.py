@@ -29,8 +29,8 @@ def get_config(argv=None):
     parser.add_argument("--env_name", type=str, default='AirSimEnv-v42', help="要训练的环境名称")
 
     # 算法选择 (Algorithm Selection)
-    parser.add_argument("--algorithm_name", type=str, default='CL-ST-VIM-SAC,CL-SAC,CL-PER-ST-VIM-SAC',
-                        help="要训练的算法。支持: TD3, NOISY-TD3, NOISY-TD3-TYPE2, DDPG, AETD3, PER-TD3, PER-AETD3, CFC-TD3, ST-VIM-TD3, STV-PATCH-TD3, VIM-TD3, ST-SEQ-VIM-TD3, STV-SEQ-VIM-TD3, PER-ST-VIM-TD3, ST-SVIM-TD3, MAMBA-TD3, ST-3DVIM-TD3, GAM-MAMBA-TD3, GAM-TD3, ST-DUALVIM-TD3, TD3-ASYM, PER-TD3-ASYM, ST-VIM-TD3-ASYM, SAC, ST-VIM-SAC, PER-ST-VIM-SAC, PPO, ST-VIM-PPO。可以是单个，多个（逗号分隔），或组名 ('all', 'base', 'seq')")
+    parser.add_argument("--algorithm_name", type=str, default='CL-ST-VIM-SAC,CL-PER-ST-VIM-SAC,CL-SAC',
+                        help="要训练的算法。支持: TD3, NOISY-TD3, NOISY-TD3-TYPE2, DDPG, AETD3, PER-TD3, PER-AETD3, CFC-TD3, ST-VIM-TD3, STV-PATCH-TD3, VIM-TD3, ST-SEQ-VIM-TD3, STV-SEQ-VIM-TD3, PER-ST-VIM-TD3, ST-SVIM-TD3, MAMBA-TD3, ST-3DVIM-TD3, GAM-MAMBA-TD3, GAM-TD3, ST-DUALVIM-TD3, TD3-ASYM, PER-TD3-ASYM, ST-VIM-TD3-ASYM, SAC, LSTM-SAC, ST-VIM-SAC, PER-ST-VIM-SAC, PPO, ST-VIM-PPO。可以是单个，多个（逗号分隔），或组名 ('all', 'base', 'seq')")
     parser.add_argument("--smooth_window", type=int, default=300, help="平滑窗口大小，用于平滑学习曲线 (仅对移动平均有效)")
     parser.add_argument("--smooth_method", type=str, default="moving", choices=["moving","zero_phase_des"], help="曲线平滑方法: moving=滑动平均, zero_phase_des=零相位双重指数平滑")
     parser.add_argument("--smooth_alpha", type=float, default=0.05, help="零相位双重指数平滑的水平平滑因子 (0-1)，越大越关注近期数据")
@@ -39,7 +39,7 @@ def get_config(argv=None):
     parser.add_argument("--plot_non_cl", action='store_true', default=True, help="绘图时是否检索常规算法 (默认: True)")
     parser.add_argument("--use_percentile", action='store_true', default=False, help="使用四分位范围作为阴影带而不是均值加置信区间")
     parser.add_argument("--ci_type", type=str, default="std", choices=["std", "sem"], help="阴影区域类型: std=标准差, sem=标准误差")
-    parser.add_argument("--resample_points", type=int, default=512, help="baselines 风格曲线聚合的重采样点数")
+    parser.add_argument("--resample_points", type=int, default=1024, help="baselines 风格曲线聚合的重采样点数")
     parser.add_argument("--curve_smooth_step", type=float, default=1.0, help="baselines 风格 EMA 重采样 smooth_step")
 
     # 训练设置 (Training Setup)
@@ -51,10 +51,10 @@ def get_config(argv=None):
     parser.add_argument("--cuda_deterministic", action='store_false', default=True, help="CUDA是否确定性")
     parser.add_argument("--n_training_threads", type=int, default=1, help="训练线程数")
     parser.add_argument("--n_rollout_threads", type=int, default=1, help="Rollout线程数（在AirSim环境中必须为1）")
-    parser.add_argument("--max_timesteps", type=int, default=150000, help='要训练的环境步数 (默认: 10e6)')
+    parser.add_argument("--max_timesteps", type=int, default=100000, help='要训练的环境步数 (默认: 10e6)')
     parser.add_argument("--buffer_size", type=int, default=30000, help='经验池大小 (注意内存占用: 30000步约占用4GB)')
     parser.add_argument("--learning_starts", type=int, default=2000, help="训练开始前的时间步数 (兼容 start_timesteps)")
-    parser.add_argument("--gradient_steps", type=float, default=0.5, help="每次收集数据后的梯度更新倍数")
+    parser.add_argument("--gradient_steps", type=float, default=1.0, help="每次收集数据后的梯度更新倍数")
     parser.add_argument("--episode_length", type=int, default=300, help='每个环境中的最大回合长度')
     parser.add_argument("--eval_freq", type=int, default=5000, help="评估频率")
     parser.add_argument("--hidden_dim", type=int, default=256, help="隐藏层维度")
@@ -64,8 +64,8 @@ def get_config(argv=None):
     parser.add_argument("--batch_size", type=int, default=512, help="批次大小")
     parser.add_argument("--gamma", type=float, default=0.98, help="折扣因子") 
     parser.add_argument("--tau", type=float, default=0.003, help="软更新参数")
-    parser.add_argument("--actor_lr", type=float, default=7e-4, help="Actor学习率")
-    parser.add_argument("--critic_lr", type=float, default=7e-4, help="Critic学习率")
+    parser.add_argument("--actor_lr", type=float, default=3e-4, help="Actor学习率")
+    parser.add_argument("--critic_lr", type=float, default=3e-4, help="Critic学习率")
     parser.add_argument("--policy_noise", type=float, default=0.2, help="策略噪声")
     parser.add_argument("--noise_clip", type=float, default=0.5, help="噪声裁剪")
     parser.add_argument("--policy_freq", type=int, default=2, help="策略更新频率")
@@ -78,7 +78,7 @@ def get_config(argv=None):
     
         
     # 图像帧数参数 (所有算法统一的帧堆叠/序列长度)
-    parser.add_argument("--n_frames", type=int, default=4, help="图像帧数（非时序算法为堆叠帧数，时序算法为序列长度）")
+    parser.add_argument("--n_frames", type=int, default= 4, help="图像帧数（非时序算法为堆叠帧数，时序算法为序列长度）")
 
     # 算法专属参数已迁移到各算法目录下的 params.yaml，
     # 例如 algorithm/td3/params.yaml、algorithm/sac/params.yaml。
@@ -102,7 +102,7 @@ def get_config(argv=None):
     parser.add_argument("--takeoff_lidar_name", type=str, default="LidarSensor1", help="起飞后避障检查使用的激光雷达名称")
     parser.add_argument("--takeoff_obstacle_reset_retries", type=int, default=3, help="起飞后近障触发重置的最大重试次数")
     parser.add_argument("--reward_lidar_name", type=str, default="LidarSensor1", help="奖励计算使用的激光雷达名称")
-    parser.add_argument("--lidar_safe_distance_m", type=float, default=2.0, help="激光雷达避障惩罚安全距离阈值 (米)")
+    parser.add_argument("--lidar_safe_distance_m", type=float, default=1.5, help="激光雷达避障惩罚安全距离阈值 (米)")
     parser.add_argument("--lidar_log_penalty_weight", type=float, default=1.0, help="激光雷达对数惩罚权重")
     parser.add_argument("--lidar_log_penalty_min", type=float, default=-3.0, help="激光雷达对数惩罚最小值(下限)")
     parser.add_argument("--lidar_penalty_eps", type=float, default=1e-3, help="激光雷达惩罚数值稳定项")

@@ -177,6 +177,8 @@ class STVimSACAgent:
         )
         critic_loss = (critic_loss_elements * weights).mean() if weights is not None else critic_loss_elements.mean()
         td_errors = 0.5 * ((current_q1 - target_q).abs() + (current_q2 - target_q).abs())
+        target_q_mean_value = float(target_q.mean().detach().item())
+        current_q_mean_value = float(torch.min(current_q1, current_q2).mean().detach().item())
 
         self.critic_optimizer.zero_grad()
         critic_loss.backward()
@@ -187,6 +189,8 @@ class STVimSACAgent:
 
         actor_loss_value = None
         alpha_loss_value = None
+        mean_log_prob_value = None
+        q_pi_mean_value = None
         if self.total_it % self.policy_freq == 0:
             actor_state = self._encode_state(base_states, depths, self.actor_encoder, self.actor_base_adapter)
             actions_pi, log_prob = self.actor.action_log_prob(actor_state)
@@ -200,6 +204,8 @@ class STVimSACAgent:
                 self.alpha, dtype=torch.float32, device=self.device
             )
             actor_loss = (alpha * log_prob - min_q_pi).mean()
+            mean_log_prob_value = float(log_prob.mean().detach().item())
+            q_pi_mean_value = float(min_q_pi.mean().detach().item())
 
             self.actor_optimizer.zero_grad()
             actor_loss.backward()
@@ -221,9 +227,15 @@ class STVimSACAgent:
         result = {
             "critic_loss": float(critic_loss.item()),
             "alpha": float(self.alpha),
+            "target_q_mean": target_q_mean_value,
+            "current_q_mean": current_q_mean_value,
         }
         if actor_loss_value is not None:
             result["actor_loss"] = actor_loss_value
+        if mean_log_prob_value is not None:
+            result["mean_log_prob"] = mean_log_prob_value
+        if q_pi_mean_value is not None:
+            result["q_pi_mean"] = q_pi_mean_value
         if alpha_loss_value is not None:
             result["alpha_loss"] = alpha_loss_value
         if replay_info:

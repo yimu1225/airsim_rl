@@ -1,3 +1,4 @@
+import copy
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -5,13 +6,12 @@ from torch import nn
 from torch.optim import Adam
 
 from ..config_loader import get_algo_param
-from ..state_adapter import StateAdapter
-from .buffer import DualPrioritizedReplayBuffer
-from .networks import Actor, Critic, STVimEncoder
+from .buffer import ReplayBuffer
+from .networks import PaperFeatureExtractor, LSTMSACActor, LSTMSACCritic
 
 
-class PERSTVimSACAgent:
-    """SB3-style SAC with ST-Vim/Mamba features and prioritized replay."""
+class LSTMSACAgent:
+    """LSTM-SAC with the paper's self-supervised attention feature extractor."""
 
     def __init__(self, base_dim: int, depth_shape, action_space, args, device=None, seed=None):
         self.device = torch.device(device if device is not None else ("cuda" if torch.cuda.is_available() else "cpu"))
@@ -19,11 +19,10 @@ class PERSTVimSACAgent:
         if seed is not None:
             torch.manual_seed(seed)
 
-        self.args = args
-        self.args.depth_shape = depth_shape
-        self.base_dim = base_dim
-        self.base_feature_dim = getattr(args, "base_feature_dim", 32)
+        self.args = copy.deepcopy(args)
+        self.base_dim = int(base_dim)
         self.depth_shape = depth_shape
+        self.seq_len = int(getattr(self.args, "n_frames", 1))
         self.action_dim = action_space.shape[0]
 
         self.max_action = np.asarray(action_space.high, dtype=np.float32)
@@ -31,37 +30,35 @@ class PERSTVimSACAgent:
         self.action_scale = torch.as_tensor((self.max_action - self.min_action) / 2.0, dtype=torch.float32, device=self.device)
         self.action_bias = torch.as_tensor((self.max_action + self.min_action) / 2.0, dtype=torch.float32, device=self.device)
 
-        self.actor_encoder = STVimEncoder(args).to(self.device)
-        self.critic_encoder = STVimEncoder(args).to(self.device)
-        self.critic_encoder_target = STVimEncoder(args).to(self.device)
-        self.critic_encoder_target.load_state_dict(self.critic_encoder.state_dict())
+        _, depth_h, depth_w = depth_shape
+        feature_dim = int(get_algo_param(self.args, "lstm_sac_feature_dim", 64))
+        hidden_dim = int(get_algo_param(self.args, "lstm_sac_hidden_dim", 512))
+        self.feature_loss_weight = float(get_algo_param(self.args, "lstm_sac_feature_loss_weight", 1.0))
+        self.kl_weight = float(get_algo_param(self.args, "lstm_sac_reconstruction_kl_weight", 0.5))
 
-        self.actor_base_adapter = StateAdapter(base_dim, self.base_feature_dim).to(self.device)
-        self.critic_base_adapter = StateAdapter(base_dim, self.base_feature_dim).to(self.device)
-        self.critic_base_adapter_target = StateAdapter(base_dim, self.base_feature_dim).to(self.device)
-        self.critic_base_adapter_target.load_state_dict(self.critic_base_adapter.state_dict())
+        self.feature_extractor = PaperFeatureExtractor(depth_h, depth_w, feature_dim=feature_dim).to(self.device)
+        self.feature_extractor_target = copy.deepcopy(self.feature_extractor).to(self.device)
+        self.base_norm = nn.LayerNorm(self.base_dim, elementwise_affine=False).to(self.device)
+        self.state_dim = feature_dim + self.base_dim
 
-        self.state_dim = self.base_feature_dim + self.actor_encoder.repr_dim
-        self.actor = Actor(self.state_dim, action_space.shape, args.hidden_dim).to(self.device)
-        self.critic = Critic(self.state_dim, action_space.shape, args.hidden_dim).to(self.device)
-        self.critic_target = Critic(self.state_dim, action_space.shape, args.hidden_dim).to(self.device)
-        self.critic_target.load_state_dict(self.critic.state_dict())
+        self.actor = LSTMSACActor(self.state_dim, self.action_dim, hidden_dim=hidden_dim).to(self.device)
+        self.critic_1 = LSTMSACCritic(self.state_dim, self.action_dim, hidden_dim=hidden_dim).to(self.device)
+        self.critic_2 = LSTMSACCritic(self.state_dim, self.action_dim, hidden_dim=hidden_dim).to(self.device)
+        self.critic_1_target = copy.deepcopy(self.critic_1).to(self.device)
+        self.critic_2_target = copy.deepcopy(self.critic_2).to(self.device)
 
-        self.actor_params = (
-            list(self.actor.parameters())
-            + list(self.actor_encoder.parameters())
-            + list(self.actor_base_adapter.parameters())
+        self.actor_optimizer = Adam(self.actor.parameters(), lr=self.args.actor_lr)
+        self.critic_optimizer = Adam(
+            list(self.critic_1.parameters()) + list(self.critic_2.parameters()),
+            lr=self.args.critic_lr,
         )
-        self.critic_params = (
-            list(self.critic.parameters())
-            + list(self.critic_encoder.parameters())
-            + list(self.critic_base_adapter.parameters())
+        self.feature_optimizer = Adam(
+            self.feature_extractor.parameters(),
+            lr=self.args.critic_lr,
         )
-        self.actor_optimizer = Adam(self.actor_params, lr=args.actor_lr)
-        self.critic_optimizer = Adam(self.critic_params, lr=args.critic_lr)
 
-        self.ent_coef = get_algo_param(args, "ent_coef", "auto")
-        target_entropy = get_algo_param(args, "target_entropy", "auto")
+        self.ent_coef = get_algo_param(self.args, "ent_coef", "auto")
+        target_entropy = get_algo_param(self.args, "target_entropy", "auto")
         self.target_entropy = -float(self.action_dim) if target_entropy in (None, "auto") else float(target_entropy)
         self.log_alpha = None
         self.alpha_optimizer = None
@@ -72,27 +69,20 @@ class PERSTVimSACAgent:
                 if init_value <= 0:
                     raise ValueError("Initial ent_coef value must be greater than 0.")
             self.log_alpha = torch.log(torch.ones(1, device=self.device) * init_value).requires_grad_(True)
-            self.alpha_optimizer = Adam([self.log_alpha], lr=args.actor_lr)
+            self.alpha_optimizer = Adam([self.log_alpha], lr=self.args.actor_lr)
             self.alpha = self.log_alpha.exp().item()
             self.auto_entropy_tuning = True
         else:
             self.alpha = float(self.ent_coef)
             self.auto_entropy_tuning = False
 
-        self.replay_buffer = DualPrioritizedReplayBuffer(
-            args.buffer_size,
-            success_capacity_ratio=get_algo_param(args, "per_success_capacity_ratio", 0.3),
-            success_sample_ratio=get_algo_param(args, "per_success_sample_ratio", 0.5),
-            alpha=get_algo_param(args, "per_alpha", 0.6),
-            eps=get_algo_param(args, "per_eps", 1e-6),
-            seed=seed,
-        )
-        self.gamma = args.gamma
-        self.tau = args.tau
-        self.batch_size = args.batch_size
-        self.grad_clip = getattr(args, "grad_clip", 1.0)
-        self.policy_freq = get_algo_param(args, "policy_freq", 1)
-        self.target_update_interval = get_algo_param(args, "target_update_interval", 1)
+        self.replay_buffer = ReplayBuffer(self.args.buffer_size, seed=seed)
+        self.gamma = self.args.gamma
+        self.tau = self.args.tau
+        self.batch_size = self.args.batch_size
+        self.grad_clip = getattr(self.args, "grad_clip", 1.0)
+        self.policy_freq = int(get_algo_param(self.args, "policy_freq", 1))
+        self.target_update_interval = int(get_algo_param(self.args, "target_update_interval", 1))
         self.total_it = 0
 
     def _format_depth_sequence(self, depth_batch: torch.Tensor) -> torch.Tensor:
@@ -101,61 +91,68 @@ class PERSTVimSACAgent:
         elif depth_batch.dim() == 3:
             depth_batch = depth_batch.unsqueeze(0).unsqueeze(2)
         elif depth_batch.dim() == 4:
-            if depth_batch.size(0) == self.args.n_frames and depth_batch.size(1) == 1:
+            if depth_batch.size(0) == self.seq_len and depth_batch.size(1) == 1:
                 depth_batch = depth_batch.unsqueeze(0)
             else:
                 depth_batch = depth_batch.unsqueeze(2)
         elif depth_batch.dim() != 5:
             raise ValueError(f"Unsupported depth sequence shape: {tuple(depth_batch.shape)}")
-
+        if depth_batch.size(1) != self.seq_len:
+            raise ValueError(f"Expected seq_len={self.seq_len}, got {depth_batch.size(1)}")
         if depth_batch.size(2) != 1:
-            raise ValueError(f"Expected single-channel sequence frames, got {tuple(depth_batch.shape)}")
+            raise ValueError(f"Expected single-channel depth frames, got {tuple(depth_batch.shape)}")
         return depth_batch
 
-    def _encode_state(self, base, depth, encoder, base_adapter):
+    def _format_base_sequence(self, base: torch.Tensor, batch_size: int) -> torch.Tensor:
+        if base.dim() == 1:
+            return base.view(1, 1, self.base_dim).expand(batch_size, self.seq_len, self.base_dim)
+        if base.dim() == 2:
+            if base.shape == (self.seq_len, self.base_dim):
+                return base.unsqueeze(0)
+            if base.shape == (batch_size, self.base_dim):
+                return base.unsqueeze(1).expand(batch_size, self.seq_len, self.base_dim)
+        if base.dim() == 3 and base.shape == (batch_size, self.seq_len, self.base_dim):
+            return base
+        raise ValueError(f"Unsupported base sequence shape: {tuple(base.shape)}")
+
+    def _state_sequence(self, base: torch.Tensor, depth: torch.Tensor, extractor=None, detach_features: bool = True):
         depth = self._format_depth_sequence(depth)
-        base_features = base_adapter(base)
-        depth_features = encoder(depth)
-        return torch.cat([base_features, depth_features], dim=1)
+        base = self._format_base_sequence(base, depth.size(0))
+        extractor = extractor if extractor is not None else self.feature_extractor
+        image_features = extractor(depth)
+        base_features = self.base_norm(base)
+        if detach_features:
+            image_features = image_features.detach()
+            base_features = base_features.detach()
+        return torch.cat([image_features, base_features], dim=-1)
 
-    def _per_beta(self) -> float:
-        beta0 = float(get_algo_param(self.args, "per_beta0", 0.4))
-        beta1 = float(get_algo_param(self.args, "per_beta1", 1.0))
-        anneal_steps = max(1, int(get_algo_param(self.args, "per_beta_anneal_steps", 100000)))
-        frac = min(1.0, float(self.total_it) / float(anneal_steps))
-        return beta0 + frac * (beta1 - beta0)
-
-    def _sample_replay(self):
-        out = self.replay_buffer.sample(self.batch_size, beta=self._per_beta())
-        if out is None:
-            return None, None, None, {}
-        samples, refs, weights, mix_info = out
-        stacked = tuple(np.stack(items, axis=0) for items in zip(*samples))
-        return stacked, refs, weights, {"per_beta": self._per_beta(), **mix_info}
-
-    def _update_replay_priorities(self, refs, td_errors):
-        self.replay_buffer.update_priorities(refs, np.asarray(td_errors, dtype=np.float32))
+    def _feature_loss(self, depth: torch.Tensor):
+        depth = self._format_depth_sequence(depth)
+        batch_size, seq_len, channels, height, width = depth.shape
+        frames = depth.reshape(batch_size * seq_len, channels, height, width)
+        return self.feature_extractor.reconstruction_loss(frames, kl_weight=self.kl_weight)
 
     def select_action(self, base_state, depth, deterministic=False, with_log_prob=False, progress_ratio=0.0):
-        base = torch.as_tensor(base_state, dtype=torch.float32, device=self.device).view(1, -1)
+        del progress_ratio
+        base = torch.as_tensor(base_state, dtype=torch.float32, device=self.device)
         depth_tensor = torch.as_tensor(depth, dtype=torch.float32, device=self.device)
-
         with torch.no_grad():
-            state = self._encode_state(base, depth_tensor, self.actor_encoder, self.actor_base_adapter)
+            state_seq = self._state_sequence(base, depth_tensor, detach_features=True)
             if with_log_prob and not deterministic:
-                action, log_prob = self.actor.action_log_prob(state)
+                action, log_prob = self.actor.action_log_prob(state_seq)
                 real_action = self.action_scale * action + self.action_bias
                 return real_action.cpu().numpy().flatten(), log_prob.cpu().numpy()
-            action = self.actor(state, deterministic=deterministic)
+            action = self.actor(state_seq, deterministic=deterministic)
             real_action = self.action_scale * action + self.action_bias
             return real_action.cpu().numpy().flatten()
 
     def train(self, progress_ratio=0.0):
+        del progress_ratio
         self.total_it += 1
         if self.replay_buffer.size() < self.batch_size:
             return {}
 
-        sample, replay_refs, replay_weights, replay_info = self._sample_replay()
+        sample = self.replay_buffer.sample(self.batch_size)
         if sample is None:
             return {}
         base_states, depths, actions, rewards, next_base_states, next_depths, dones = sample
@@ -168,52 +165,61 @@ class PERSTVimSACAgent:
         next_base_states = torch.as_tensor(next_base_states, dtype=torch.float32, device=self.device)
         next_depths = torch.as_tensor(next_depths, dtype=torch.float32, device=self.device)
         dones = torch.as_tensor(dones, dtype=torch.float32, device=self.device).view(-1, 1)
-        weights = torch.as_tensor(replay_weights, dtype=torch.float32, device=self.device).view(-1, 1)
+
+        feature_loss, recon_loss, kl_loss = self._feature_loss(depths)
+        if self.feature_loss_weight > 0.0:
+            self.feature_optimizer.zero_grad()
+            (self.feature_loss_weight * feature_loss).backward()
+            nn.utils.clip_grad_norm_(
+                self.feature_extractor.parameters(),
+                self.grad_clip,
+            )
+            self.feature_optimizer.step()
 
         with torch.no_grad():
-            next_actor_state = self._encode_state(
-                next_base_states, next_depths, self.actor_encoder, self.actor_base_adapter
-            )
+            next_actor_state = self._state_sequence(next_base_states, next_depths, detach_features=True)
             next_actions, next_log_prob = self.actor.action_log_prob(next_actor_state)
-            next_target_state = self._encode_state(
-                next_base_states, next_depths, self.critic_encoder_target, self.critic_base_adapter_target
+            next_target_state = self._state_sequence(
+                next_base_states,
+                next_depths,
+                extractor=self.feature_extractor_target,
+                detach_features=True,
             )
-            next_q1, next_q2 = self.critic_target(next_target_state, next_actions)
+            next_q1 = self.critic_1_target(next_target_state, next_actions)
+            next_q2 = self.critic_2_target(next_target_state, next_actions)
             next_q = torch.min(next_q1, next_q2)
             alpha = self.log_alpha.exp().detach() if self.auto_entropy_tuning else torch.tensor(
                 self.alpha, dtype=torch.float32, device=self.device
             )
             target_q = rewards + (1.0 - dones) * self.gamma * (next_q - alpha * next_log_prob)
 
-        critic_state = self._encode_state(base_states, depths, self.critic_encoder, self.critic_base_adapter)
-        current_q1, current_q2 = self.critic(critic_state, actions)
-        critic_loss_elements = 0.5 * (
-            F.mse_loss(current_q1, target_q, reduction="none")
-            + F.mse_loss(current_q2, target_q, reduction="none")
+        critic_state = self._state_sequence(base_states, depths, detach_features=True)
+        current_q1 = self.critic_1(critic_state, actions)
+        current_q2 = self.critic_2(critic_state, actions)
+        critic_loss = 0.5 * (
+            F.mse_loss(current_q1, target_q)
+            + F.mse_loss(current_q2, target_q)
         )
-        critic_loss = (critic_loss_elements * weights).mean()
-        td_errors = 0.5 * ((current_q1 - target_q).abs() + (current_q2 - target_q).abs())
         target_q_mean_value = float(target_q.mean().detach().item())
         current_q_mean_value = float(torch.min(current_q1, current_q2).mean().detach().item())
 
         self.critic_optimizer.zero_grad()
         critic_loss.backward()
-        nn.utils.clip_grad_norm_(self.critic_params, self.grad_clip)
+        nn.utils.clip_grad_norm_(
+            list(self.critic_1.parameters()) + list(self.critic_2.parameters()),
+            self.grad_clip,
+        )
         self.critic_optimizer.step()
-        self._update_replay_priorities(replay_refs, td_errors.detach().cpu().numpy().reshape(-1))
 
         actor_loss_value = None
         alpha_loss_value = None
         mean_log_prob_value = None
         q_pi_mean_value = None
         if self.total_it % self.policy_freq == 0:
-            actor_state = self._encode_state(base_states, depths, self.actor_encoder, self.actor_base_adapter)
+            actor_state = self._state_sequence(base_states, depths, detach_features=True)
             actions_pi, log_prob = self.actor.action_log_prob(actor_state)
-            with torch.no_grad():
-                critic_state_for_pi = self._encode_state(
-                    base_states, depths, self.critic_encoder, self.critic_base_adapter
-                )
-            q1_pi, q2_pi = self.critic(critic_state_for_pi, actions_pi)
+            q1_pi = self.critic_1(actor_state, actions_pi)
+            q2_pi = self.critic_2(actor_state, actions_pi)
             min_q_pi = torch.min(q1_pi, q2_pi)
             alpha = self.log_alpha.exp().detach() if self.auto_entropy_tuning else torch.tensor(
                 self.alpha, dtype=torch.float32, device=self.device
@@ -224,7 +230,7 @@ class PERSTVimSACAgent:
 
             self.actor_optimizer.zero_grad()
             actor_loss.backward()
-            nn.utils.clip_grad_norm_(self.actor_params, self.grad_clip)
+            nn.utils.clip_grad_norm_(self.actor.parameters(), self.grad_clip)
             self.actor_optimizer.step()
             actor_loss_value = float(actor_loss.item())
 
@@ -244,6 +250,9 @@ class PERSTVimSACAgent:
             "alpha": float(self.alpha),
             "target_q_mean": target_q_mean_value,
             "current_q_mean": current_q_mean_value,
+            "feature_loss": float(feature_loss.detach().item()),
+            "recon_loss": float(recon_loss.detach().item()),
+            "kl_loss": float(kl_loss.detach().item()),
         }
         if actor_loss_value is not None:
             result["actor_loss"] = actor_loss_value
@@ -253,30 +262,29 @@ class PERSTVimSACAgent:
             result["q_pi_mean"] = q_pi_mean_value
         if alpha_loss_value is not None:
             result["alpha_loss"] = alpha_loss_value
-        result.update(replay_info)
         return result
 
     def _soft_update(self):
-        for param, target_param in zip(self.critic.parameters(), self.critic_target.parameters()):
+        for param, target_param in zip(self.feature_extractor.parameters(), self.feature_extractor_target.parameters()):
             target_param.data.copy_(self.tau * param.data + (1.0 - self.tau) * target_param.data)
-        for param, target_param in zip(self.critic_encoder.parameters(), self.critic_encoder_target.parameters()):
+        for param, target_param in zip(self.critic_1.parameters(), self.critic_1_target.parameters()):
             target_param.data.copy_(self.tau * param.data + (1.0 - self.tau) * target_param.data)
-        for param, target_param in zip(self.critic_base_adapter.parameters(), self.critic_base_adapter_target.parameters()):
+        for param, target_param in zip(self.critic_2.parameters(), self.critic_2_target.parameters()):
             target_param.data.copy_(self.tau * param.data + (1.0 - self.tau) * target_param.data)
 
     def save(self, path):
         checkpoint = {
-            "actor_encoder": self.actor_encoder.state_dict(),
-            "critic_encoder": self.critic_encoder.state_dict(),
-            "critic_encoder_target": self.critic_encoder_target.state_dict(),
-            "actor_base_adapter": self.actor_base_adapter.state_dict(),
-            "critic_base_adapter": self.critic_base_adapter.state_dict(),
-            "critic_base_adapter_target": self.critic_base_adapter_target.state_dict(),
+            "feature_extractor": self.feature_extractor.state_dict(),
+            "feature_extractor_target": self.feature_extractor_target.state_dict(),
+            "base_norm": self.base_norm.state_dict(),
             "actor": self.actor.state_dict(),
-            "critic": self.critic.state_dict(),
-            "critic_target": self.critic_target.state_dict(),
+            "critic_1": self.critic_1.state_dict(),
+            "critic_2": self.critic_2.state_dict(),
+            "critic_1_target": self.critic_1_target.state_dict(),
+            "critic_2_target": self.critic_2_target.state_dict(),
             "actor_optimizer": self.actor_optimizer.state_dict(),
             "critic_optimizer": self.critic_optimizer.state_dict(),
+            "feature_optimizer": self.feature_optimizer.state_dict(),
             "total_it": self.total_it,
             "alpha": self.alpha,
         }
@@ -287,21 +295,22 @@ class PERSTVimSACAgent:
 
     def load(self, path):
         checkpoint = torch.load(path, map_location=self.device)
-        self.actor_encoder.load_state_dict(checkpoint["actor_encoder"])
-        self.critic_encoder.load_state_dict(checkpoint["critic_encoder"])
-        self.critic_encoder_target.load_state_dict(checkpoint.get("critic_encoder_target", checkpoint["critic_encoder"]))
-        self.actor_base_adapter.load_state_dict(checkpoint["actor_base_adapter"])
-        self.critic_base_adapter.load_state_dict(checkpoint["critic_base_adapter"])
-        self.critic_base_adapter_target.load_state_dict(
-            checkpoint.get("critic_base_adapter_target", checkpoint["critic_base_adapter"])
+        self.feature_extractor.load_state_dict(checkpoint["feature_extractor"])
+        self.feature_extractor_target.load_state_dict(
+            checkpoint.get("feature_extractor_target", checkpoint["feature_extractor"])
         )
+        self.base_norm.load_state_dict(checkpoint["base_norm"])
         self.actor.load_state_dict(checkpoint["actor"])
-        self.critic.load_state_dict(checkpoint["critic"])
-        self.critic_target.load_state_dict(checkpoint.get("critic_target", checkpoint["critic"]))
+        self.critic_1.load_state_dict(checkpoint["critic_1"])
+        self.critic_2.load_state_dict(checkpoint["critic_2"])
+        self.critic_1_target.load_state_dict(checkpoint.get("critic_1_target", checkpoint["critic_1"]))
+        self.critic_2_target.load_state_dict(checkpoint.get("critic_2_target", checkpoint["critic_2"]))
         if "actor_optimizer" in checkpoint:
             self.actor_optimizer.load_state_dict(checkpoint["actor_optimizer"])
         if "critic_optimizer" in checkpoint:
             self.critic_optimizer.load_state_dict(checkpoint["critic_optimizer"])
+        if "feature_optimizer" in checkpoint:
+            self.feature_optimizer.load_state_dict(checkpoint["feature_optimizer"])
         self.total_it = checkpoint.get("total_it", 0)
         self.alpha = checkpoint.get("alpha", self.alpha)
         if self.auto_entropy_tuning and "log_alpha" in checkpoint:
@@ -309,3 +318,6 @@ class PERSTVimSACAgent:
             if "alpha_optimizer" in checkpoint:
                 self.alpha_optimizer.load_state_dict(checkpoint["alpha_optimizer"])
             self.alpha = self.log_alpha.exp().item()
+
+
+SACAgent = LSTMSACAgent
