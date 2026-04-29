@@ -43,14 +43,9 @@ from gym_airsim.envs import AirSimEnv
 
 # Algorithm Imports
 from algorithm.td3.td3 import TD3Agent
-from algorithm.noisy_td3.noisy_td3 import NoisyTD3Agent
-from algorithm.noisy_td3_type2.noisy_td3_type2 import NoisyTD3Type2Agent
 from algorithm.ddpg.ddpg import DDPGAgent
-from algorithm.aetd3.aetd3 import AETD3Agent
 from algorithm.per_td3.per_td3 import PERTD3Agent
-from algorithm.per_aetd3.per_aetd3 import PERAETD3Agent
 
-from algorithm.cfc_td3.cfc_td3 import CFCTD3Agent
 from algorithm.ST_Vim_TD3.agent import STVimTD3Agent
 from algorithm.STV_Patch_TD3.agent import VimPatchTD3Agent
 from algorithm.Vim_TD3.agent import VimTD3Agent
@@ -59,9 +54,6 @@ from algorithm.STV_Seq_Vim_TD3.agent import VimStateSeqTD3Agent
 from algorithm.PER_ST_Vim_TD3.agent import PERVimTD3Agent
 from algorithm.ST_SVim_TD3.agent import STSVimTD3Agent
 from algorithm.mamba_td3.agent import MambaTD3Agent
-from algorithm.gam_mamba_td3.td3 import GAMMambaTD3Agent
-from algorithm.gam_td3.td3 import GAMTD3Agent
-from algorithm.ST_3D_Vim_TD3.agent import ST3DVimTD3Agent
 from algorithm.st_dualvim_td3.agent import DualBranchVideoMambaTD3Agent
 from algorithm.sac.agent import SACAgent
 from algorithm.LSTM_SAC.agent import LSTMSACAgent
@@ -163,15 +155,10 @@ def get_agent_class(algo_name):
     
     agents = {
         'td3': TD3Agent,
-        'noisy_td3': NoisyTD3Agent,
-        'noisy_td3_type2': NoisyTD3Type2Agent,
         'td3_asym': AsymTD3Agent,
         'ddpg': DDPGAgent,
-        'aetd3': AETD3Agent,
         'per_td3': PERTD3Agent,
         'per_td3_asym': AsymPERTD3Agent,
-        'per_aetd3': PERAETD3Agent,
-        'cfc_td3': CFCTD3Agent,
         'st_vim_td3': STVimTD3Agent,
         'stv_patch_td3': VimPatchTD3Agent,
         'vim_td3': VimTD3Agent,
@@ -181,9 +168,6 @@ def get_agent_class(algo_name):
         'st_vim_td3_asym': AsymSTVimTD3Agent,
         'st_svim_td3': STSVimTD3Agent,
         'mamba_td3': MambaTD3Agent,
-        'gam_mamba_td3': GAMMambaTD3Agent,
-        'gam_td3': GAMTD3Agent,
-        'st_3dvim_td3': ST3DVimTD3Agent,
         'st_dualvim_td3': DualBranchVideoMambaTD3Agent,
         'sac': SACAgent,
         'lstm_sac': LSTMSACAgent,
@@ -397,7 +381,6 @@ def main():
 
             # Determine properties for this algorithm
             recurrent_algos = {
-                'cfc_td3',
                 'mamba_td3',
                 'st_vim_td3',
                 'stv_patch_td3',
@@ -407,7 +390,6 @@ def main():
                 'per_st_vim_td3',
                 'st_vim_td3_asym',
                 'st_svim_td3',
-                'st_3dvim_td3',
                 'st_dualvim_td3',
                 'lstm_sac',
                 'st_vim_sac',

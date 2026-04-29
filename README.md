@@ -167,7 +167,7 @@ python main_async.py --algorithm_name ST-VimTD3 --max_timesteps 1000000
 
 ```bash
 # 训练所有基础算法
-python main_async.py --algorithm_name "td3,aetd3,per-td3" --max_timesteps 500000
+python main_async.py --algorithm_name "td3,per-td3" --max_timesteps 500000
 
 # 训练所有时序算法
 python main_async.py --algorithm_name "cfc-td3" --max_timesteps 500000
