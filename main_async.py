@@ -42,9 +42,9 @@ import gym_airsim  # noqa: F401 - ensure env ids are registered
 from gym_airsim.envs import AirSimEnv
 
 # Algorithm Imports
-from algorithm.td3.td3 import TD3Agent
-from algorithm.ddpg.ddpg import DDPGAgent
-from algorithm.per_td3.per_td3 import PERTD3Agent
+from algorithm.TD3.td3 import TD3Agent
+from algorithm.DDPG.ddpg import DDPGAgent
+from algorithm.PER_TD3.per_td3 import PERTD3Agent
 
 from algorithm.ST_Vim_TD3.agent import STVimTD3Agent
 from algorithm.STV_Patch_TD3.agent import VimPatchTD3Agent
@@ -53,14 +53,14 @@ from algorithm.ST_Seq_Vim_TD3.agent import StateSeqVimTD3Agent
 from algorithm.STV_Seq_Vim_TD3.agent import VimStateSeqTD3Agent
 from algorithm.PER_ST_Vim_TD3.agent import PERVimTD3Agent
 from algorithm.ST_SVim_TD3.agent import STSVimTD3Agent
-from algorithm.mamba_td3.agent import MambaTD3Agent
-from algorithm.st_dualvim_td3.agent import DualBranchVideoMambaTD3Agent
-from algorithm.sac.agent import SACAgent
+from algorithm.Mamba_TD3.agent import MambaTD3Agent
+from algorithm.ST_DualVim_TD3.agent import DualBranchVideoMambaTD3Agent
+from algorithm.SAC.agent import SACAgent
 from algorithm.LSTM_SAC.agent import LSTMSACAgent
 from algorithm.ST_Vim_SAC.agent import STVimSACAgent
 from algorithm.PER_ST_Vim_SAC.agent import PERSTVimSACAgent
-from algorithm.td3_asym.td3_asym import AsymTD3Agent
-from algorithm.per_td3_asym.per_td3_asym import AsymPERTD3Agent
+from algorithm.TD3_asym.td3_asym import AsymTD3Agent
+from algorithm.PER_TD3_asym.per_td3_asym import AsymPERTD3Agent
 from algorithm.ST_Vim_TD3_asym.agent import AsymSTVimTD3Agent
 
 
@@ -154,25 +154,25 @@ def get_agent_class(algo_name):
     core_algo_name = to_internal_core_algorithm_name(algo_name)
     
     agents = {
-        'td3': TD3Agent,
-        'td3_asym': AsymTD3Agent,
-        'ddpg': DDPGAgent,
-        'per_td3': PERTD3Agent,
-        'per_td3_asym': AsymPERTD3Agent,
-        'st_vim_td3': STVimTD3Agent,
-        'stv_patch_td3': VimPatchTD3Agent,
-        'vim_td3': VimTD3Agent,
-        'st_seq_vim_td3': StateSeqVimTD3Agent,
-        'stv_seq_vim_td3': VimStateSeqTD3Agent,
-        'per_st_vim_td3': PERVimTD3Agent,
-        'st_vim_td3_asym': AsymSTVimTD3Agent,
-        'st_svim_td3': STSVimTD3Agent,
-        'mamba_td3': MambaTD3Agent,
-        'st_dualvim_td3': DualBranchVideoMambaTD3Agent,
-        'sac': SACAgent,
-        'lstm_sac': LSTMSACAgent,
-        'st_vim_sac': STVimSACAgent,
-        'per_st_vim_sac': PERSTVimSACAgent,
+        'TD3': TD3Agent,
+        'TD3_asym': AsymTD3Agent,
+        'DDPG': DDPGAgent,
+        'PER_TD3': PERTD3Agent,
+        'PER_TD3_asym': AsymPERTD3Agent,
+        'ST_Vim_TD3': STVimTD3Agent,
+        'STV_Patch_TD3': VimPatchTD3Agent,
+        'Vim_TD3': VimTD3Agent,
+        'ST_Seq_Vim_TD3': StateSeqVimTD3Agent,
+        'STV_Seq_Vim_TD3': VimStateSeqTD3Agent,
+        'PER_ST_Vim_TD3': PERVimTD3Agent,
+        'ST_Vim_TD3_asym': AsymSTVimTD3Agent,
+        'ST_SVim_TD3': STSVimTD3Agent,
+        'Mamba_TD3': MambaTD3Agent,
+        'ST_DualVim_TD3': DualBranchVideoMambaTD3Agent,
+        'SAC': SACAgent,
+        'LSTM_SAC': LSTMSACAgent,
+        'ST_Vim_SAC': STVimSACAgent,
+        'PER_ST_Vim_SAC': PERSTVimSACAgent,
     }
     if core_algo_name in agents:
         return agents[core_algo_name]
@@ -233,7 +233,7 @@ def _pause_env_simulation(env):
 
 def _is_asym_algorithm(algo_name: str) -> bool:
     core_name = to_internal_core_algorithm_name(algo_name)
-    return core_name in {"td3_asym", "per_td3_asym", "st_vim_td3_asym"}
+    return core_name in {"TD3_asym", "PER_TD3_asym", "ST_Vim_TD3_asym"}
 
 
 def _extract_last_depth_frame(depth_tensor):
@@ -381,19 +381,19 @@ def main():
 
             # Determine properties for this algorithm
             recurrent_algos = {
-                'mamba_td3',
-                'st_vim_td3',
-                'stv_patch_td3',
-                'vim_td3',
-                'st_seq_vim_td3',
-                'stv_seq_vim_td3',
-                'per_st_vim_td3',
-                'st_vim_td3_asym',
-                'st_svim_td3',
-                'st_dualvim_td3',
-                'lstm_sac',
-                'st_vim_sac',
-                'per_st_vim_sac',
+                'Mamba_TD3',
+                'ST_Vim_TD3',
+                'STV_Patch_TD3',
+                'Vim_TD3',
+                'ST_Seq_Vim_TD3',
+                'STV_Seq_Vim_TD3',
+                'PER_ST_Vim_TD3',
+                'ST_Vim_TD3_asym',
+                'ST_SVim_TD3',
+                'ST_DualVim_TD3',
+                'LSTM_SAC',
+                'ST_Vim_SAC',
+                'PER_ST_Vim_SAC',
             }
             
             is_recurrent = actual_algo_name in recurrent_algos
@@ -518,7 +518,7 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, ba
 
     state = depth_image
     base = base_state
-    base_seq_algos = {"st_seq_vim_td3", "stv_seq_vim_td3", "lstm_sac"}
+    base_seq_algos = {"ST_Seq_Vim_TD3", "STV_Seq_Vim_TD3", "LSTM_SAC"}
     use_base_sequence = bool(is_recurrent and core_algo_name in base_seq_algos)
     base_seq_deque = None
     base_seq = None
@@ -706,7 +706,7 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, ba
                 critic_priv_next = _extract_critic_privileged_lidar(env_core)
             
             if is_recurrent:
-                if core_algo_name == 'st_svim_td3':
+                if core_algo_name == 'ST_SVim_TD3':
                     has_collided = float(step_info.get("has_collided", False)) if isinstance(step_info, dict) else 0.0
                     agent.replay_buffer.add(
                         base_for_buffer,
@@ -765,7 +765,7 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, ba
                         )
             else:
                 if is_asym_algo:
-                    if core_algo_name == "per_td3_asym":
+                    if core_algo_name == "PER_TD3_asym":
                         is_success = float(step_info.get("is_success", False)) if isinstance(step_info, dict) else 0.0
                         agent.replay_buffer.add(
                             base,
@@ -837,7 +837,7 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, ba
                     csv_writer = csv.writer(f)
                     csv_writer.writerow([episode_num, total_timesteps, episode_reward, episode_timesteps, success_rate])
 
-                print(f"[{display_algo_name.upper()}] Episode {episode_num}, Reward: {episode_reward:.2f}, Length: {episode_timesteps}, Success Rate: {success_rate:.3f}, Level: {env_core.level}, Total Timesteps: {total_timesteps}, Total Successes: {env_core.success_count}")
+                print(f"[{display_algo_name}] Episode {episode_num}, Reward: {episode_reward:.2f}, Length: {episode_timesteps}, Success Rate: {success_rate:.3f}, Level: {env_core.level}, Total Timesteps: {total_timesteps}, Total Successes: {env_core.success_count}")
                 
                 # Periodic CUDA memory cleanup
                 if episode_num % 50 == 0:

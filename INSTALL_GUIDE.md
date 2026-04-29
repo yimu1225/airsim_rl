@@ -50,6 +50,10 @@ pip install torch==2.7.0 torchvision==0.22.0 torchaudio==2.7.0 --index-url https
 unset NVCC_PREPEND_FLAGS
 unset CC
 unset CXX
+
+export CUDA_HOME=$CONDA_PREFIX
+export PATH=$CUDA_HOME/bin:$PATH
+export LD_LIBRARY_PATH=$CUDA_HOME/lib:$LD_LIBRARY_PATH
 ```
 
 ### 4.2 安装库

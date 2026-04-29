@@ -1,0 +1,14 @@
+# PPO algorithm-specific parameters
+# Shared/common parameters stay in config.py
+rollout_buffer_size: 2048  # PPO rollout 缓冲区容量（每轮采样步数）
+ppo_epochs: 10  # PPO 每轮数据重复优化轮数
+ppo_batch_size: 64  # PPO 小批量大小
+clip_range: 0.2  # PPO 策略裁剪范围 epsilon
+clip_range_vf: null  # PPO 价值函数裁剪范围；null 表示不裁剪（SB3默认）
+normalize_advantage: true  # 是否按 mini-batch 标准化优势（SB3默认）
+vf_coef: 0.5  # PPO 价值损失权重
+ent_coef: 0.0  # PPO 熵正则权重
+target_kl: null  # PPO 目标 KL 阈值（超过可提前停止）
+gae_lambda: 0.95  # PPO/GAE 的 lambda 参数
+lr: 0.0007  # PPO 优化学习率
+max_grad_norm: 0.5  # PPO 梯度裁剪阈值

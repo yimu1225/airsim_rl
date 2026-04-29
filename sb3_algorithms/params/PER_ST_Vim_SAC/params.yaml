@@ -1,0 +1,27 @@
+# PER-ST-Vim-SAC algorithm-specific parameters
+ent_coef: 'auto'  # SAC 熵系数；auto 表示自动学习 alpha
+target_entropy: auto  # SAC 目标熵；auto 使用 SB3 的 -action_dim 启发式
+target_update_interval: 1  # critic target 网络更新间隔（梯度步）
+policy_freq: 1  # 保留兼容参数；SB3 SAC 默认每个梯度步更新 actor
+
+# Prioritized replay parameters.
+per_alpha: 0.6  # PER 优先级指数 alpha
+per_beta0: 0.4  # PER 重要性采样 beta 初始值
+per_beta1: 1.0  # PER 重要性采样 beta 目标值（预留退火参数）
+per_beta_anneal_steps: 100000  # beta 退火步数（预留参数）
+per_eps: 0.000001  # priority 数值稳定项
+per_success_capacity_ratio: 0.3  # 成功样本池容量比例（兼容旧参数）
+per_success_sample_ratio: 0.5  # 成功样本采样比例（兼容旧参数）
+
+# Vim + temporal Mamba visual encoder parameters, matching ST_Vim_TD3.
+st_mamba_embed_dim: 64  # VisionMamba 每帧 CLS/token 嵌入维度
+st_mamba_depth: 1  # VisionMamba block 层数
+st_mamba_patch_size: 32  # 深度图 2D patch 尺寸
+st_mamba_d_state: 32  # VisionMamba/Mamba 状态维度 d_state
+st_mamba_d_conv: 4  # Mamba 局部卷积宽度 d_conv
+st_mamba_expand: 2  # Mamba 通道扩展倍数
+st_mamba_drop_rate: 0.05  # VisionMamba dropout 概率
+st_mamba_drop_path_rate: 0.05  # VisionMamba drop-path 概率
+st_mamba_temporal_depth: 1  # 时序 Mamba 堆叠层数
+st_vim_concat_cls_before_temporal_mamba: false  # 是否先拼接多帧 CLS 再输入 Temporal Mamba
+st_vim_flatten_all_tokens: true  # 是否展平所有时序 token 作为视觉表示

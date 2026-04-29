@@ -1,0 +1,8 @@
+# Mamba_TD3 algorithm-specific parameters
+# Shared/common parameters stay in config.py
+mamba_cnn_output_dim: 128  # SB3 NatureCNN 每帧输出维度，用于后续时序 Mamba
+mamba_d_state: 16  # 时序 Mamba 的状态维度 d_state
+mamba_d_conv: 4  # 时序 Mamba 的局部卷积宽度 d_conv
+mamba_expand: 2  # 时序 Mamba 的通道扩展倍数 expand
+mamba_td3_temporal_depth: 2  # Mamba 时序模块堆叠层数
+mamba_td3_flatten_all_tokens: true  # 是否展平全部时间 token 作为最终特征

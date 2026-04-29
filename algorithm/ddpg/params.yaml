@@ -1,3 +1,0 @@
-# ddpg algorithm-specific parameters
-# Shared/common parameters stay in config.py
-{}  # 本算法当前无额外专属参数
