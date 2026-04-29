@@ -11,9 +11,12 @@ from sb3_extensions.feature_extractors.base import AirSimBaseExtractor
 
 class AirSimCNNExtractor(AirSimBaseExtractor):
     """
-    AirSim baseline extractor: depth CNN features plus base-state MLP features.
+    AirSim baseline extractor: stacked depth CNN features plus base-state MLP features.
 
-    All CNN-based SB3 agents use Stable-Baselines3's default NatureCNN.
+    Stacked depth frames are treated as CNN input channels. For the default
+    4-frame input, NatureCNN receives a (4, H, W) tensor and outputs a fixed
+    256-dimensional visual feature, which is concatenated with the 32-dimensional
+    base-state feature.
     """
 
     def __init__(
@@ -22,18 +25,25 @@ class AirSimCNNExtractor(AirSimBaseExtractor):
         features_dim: int = 256,
         base_feature_dim: int = 32,
         vision_output_dim: int | None = None,
+        cnn_feature_dim: int = 256,
         cnn_type: str = "nature",
         normalize_depth: bool = True,
         depth_scale: float | None = None,
         algorithm_params: dict | None = None,
     ) -> None:
-        del algorithm_params
+        del features_dim
+        algorithm_params = dict(algorithm_params or {})
         self.cnn_type = str(cnn_type).lower()
         if self.cnn_type != "nature":
             raise ValueError("AirSimCNNExtractor only supports SB3 NatureCNN (`cnn_type='nature'`).")
+
+        if vision_output_dim is None:
+            vision_output_dim = int(algorithm_params.get("cnn_feature_dim", cnn_feature_dim))
+        total_features_dim = int(vision_output_dim) + int(base_feature_dim)
+
         super().__init__(
             observation_space=observation_space,
-            features_dim=features_dim,
+            features_dim=total_features_dim,
             base_feature_dim=base_feature_dim,
             vision_output_dim=vision_output_dim,
             normalize_depth=normalize_depth,
@@ -41,7 +51,7 @@ class AirSimCNNExtractor(AirSimBaseExtractor):
         )
 
     def _build_vision_backbone(self, depth_space: spaces.Box, output_dim: int) -> nn.Module:
-        self.vision_backbone_name = "NatureCNN"
+        self.vision_backbone_name = "StackedNatureCNN"
         return NatureCNN(depth_space, features_dim=output_dim, normalized_image=True)
 
 
