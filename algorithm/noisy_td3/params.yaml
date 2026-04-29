@@ -1,3 +1,0 @@
-# noisy_td3 algorithm-specific parameters
-# Shared/common parameters stay in config.py
-noisy_td3_sigma_init: 0.5  # NoisyLinear 初始噪声系数，越大探索越强

@@ -18,7 +18,6 @@ _ALGO_DIR_MAP = {
     "stv_seq_vim_td3": "STV_Seq_Vim_TD3",
     "per_st_vim_td3": "PER_ST_Vim_TD3",
     "st_svim_td3": "ST_SVim_TD3",
-    "st_3dvim_td3": "ST_3D_Vim_TD3",
     "st_vim_td3_asym": "ST_Vim_TD3_asym",
     "st_vim_sac": "ST_Vim_SAC",
     "lstm_sac": "LSTM_SAC",
