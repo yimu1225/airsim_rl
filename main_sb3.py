@@ -437,7 +437,7 @@ def run_one(base_args, algorithm_name: str, seed: int) -> None:
 
 def main(argv: list[str] | None = None) -> None:
     argv = sys.argv[1:] if argv is None else argv
-    args = get_config(_default_td3_when_algorithm_omitted(argv))
+    args = get_config(argv)
     algorithm_names = _resolve_algorithms(args)
     seeds = args.seed if isinstance(args.seed, list) else [args.seed]
     for algorithm_name in algorithm_names:
