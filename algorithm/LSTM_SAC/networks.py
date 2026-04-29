@@ -19,8 +19,12 @@ class PaperFeatureExtractor(nn.Module):
     image feature omega (64x1x1).
 
     The decoder follows the paper's VAE branch:
-    omega -> FC mean/std -> z -> four transposed convolutions with kernels
-    5x7, 7x11, 9x9, 7x7.
+    omega -> FC mean/std -> z -> four transposed convolutions. For 480x720
+    input this exactly matches the paper's spatial path:
+    64x1x1 -> 32x5x7 -> 16x23x35 -> 8x119x179 -> 1x480x720.
+    For other project resolutions, the same four deconvolution stages are
+    parameterized so the final transposed convolution reconstructs that run's
+    input resolution directly.
     """
 
     def __init__(self, input_height: int, input_width: int, feature_dim: int = 64):
@@ -42,18 +46,74 @@ class PaperFeatureExtractor(nn.Module):
         self.fc_mean = nn.Linear(64, 64)
         self.fc_log_std = nn.Linear(64, 64)
 
-        self.deconv1 = nn.ConvTranspose2d(64, 32, kernel_size=(5, 7), stride=1)
-        self.deconv2 = nn.ConvTranspose2d(32, 16, kernel_size=(7, 11), stride=4)
-        self.deconv3 = nn.ConvTranspose2d(16, 8, kernel_size=(9, 9), stride=5)
+        h3, h4_pad, h4_out_pad = self._solve_deconv_axis(self.input_height, kernel=7, stride=4)
+        w3, w4_pad, w4_out_pad = self._solve_deconv_axis(self.input_width, kernel=7, stride=4)
+        h2, h3_pad, h3_out_pad = self._solve_deconv_axis(h3, kernel=9, stride=5)
+        w2, w3_pad, w3_out_pad = self._solve_deconv_axis(w3, kernel=9, stride=5)
+        h1, h2_pad, h2_out_pad = self._solve_deconv_axis(h2, kernel=7, stride=4)
+        w1, w2_pad, w2_out_pad = self._solve_deconv_axis(w2, kernel=11, stride=4)
+
+        self.decoder_shapes = {
+            "z": (1, 1),
+            "deconv1": (h1, w1),
+            "deconv2": (h2, w2),
+            "deconv3": (h3, w3),
+            "deconv4": (self.input_height, self.input_width),
+        }
+
+        self.deconv1 = nn.ConvTranspose2d(64, 32, kernel_size=(h1, w1), stride=1)
+        self.deconv2 = nn.ConvTranspose2d(
+            32,
+            16,
+            kernel_size=(7, 11),
+            stride=4,
+            padding=(h2_pad, w2_pad),
+            output_padding=(h2_out_pad, w2_out_pad),
+        )
+        self.deconv3 = nn.ConvTranspose2d(
+            16,
+            8,
+            kernel_size=(9, 9),
+            stride=5,
+            padding=(h3_pad, w3_pad),
+            output_padding=(h3_out_pad, w3_out_pad),
+        )
         self.deconv4 = nn.ConvTranspose2d(
             8,
             1,
             kernel_size=(7, 7),
             stride=4,
-            output_padding=(1, 1),
+            padding=(h4_pad, w4_pad),
+            output_padding=(h4_out_pad, w4_out_pad),
         )
 
         self.apply(self._init_weights)
+
+    @staticmethod
+    def _solve_deconv_axis(target_size: int, kernel: int, stride: int):
+        """Find input size, padding, and output_padding for exact deconv output."""
+        if target_size <= 0:
+            raise ValueError(f"Decoder target size must be positive, got {target_size}")
+
+        start = max(1, int(np.floor((target_size - kernel) / stride)) + 1)
+        best = None
+        for input_size in range(start, start + stride + kernel + 8):
+            base = (input_size - 1) * stride + kernel
+            for output_padding in range(stride):
+                diff = base + output_padding - target_size
+                if diff < 0 or diff % 2 != 0:
+                    continue
+                padding = diff // 2
+                candidate = (padding, input_size, output_padding)
+                if best is None or candidate < best:
+                    best = candidate
+        if best is None:
+            raise ValueError(
+                f"Cannot solve ConvTranspose axis for target={target_size}, "
+                f"kernel={kernel}, stride={stride}"
+            )
+        padding, input_size, output_padding = best
+        return input_size, padding, output_padding
 
     @staticmethod
     def _init_weights(module):
@@ -97,13 +157,6 @@ class PaperFeatureExtractor(nn.Module):
         x = F.relu(self.deconv2(x), inplace=True)
         x = F.relu(self.deconv3(x), inplace=True)
         reconstruction = self.deconv4(x)
-        if reconstruction.shape[-2:] != (self.input_height, self.input_width):
-            reconstruction = F.interpolate(
-                reconstruction,
-                size=(self.input_height, self.input_width),
-                mode="bilinear",
-                align_corners=False,
-            )
         return reconstruction, mean, log_std
 
     def reconstruction_loss(self, frames: torch.Tensor, kl_weight: float = 0.5):
