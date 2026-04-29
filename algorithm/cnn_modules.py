@@ -1,6 +1,7 @@
-import torch
 import torch.nn as nn
-from torchvision import models
+import numpy as np
+from gymnasium import spaces
+from stable_baselines3.common.torch_layers import NatureCNN
 
 
 class BaseStateExpander(nn.Module):
@@ -30,7 +31,7 @@ class BaseStateExpander(nn.Module):
 
 class CNN(nn.Module):
     """
-    Unified visual encoder based on MobileNetV3-Small.
+    Unified visual encoder based on Stable-Baselines3 NatureCNN.
     Accepts depth input and returns projected visual features.
 
     Behavior:
@@ -57,43 +58,13 @@ class CNN(nn.Module):
         self.sequence_length = self.input_channels if self.frame_wise else 1
         backbone_in_channels = 1 if self.frame_wise else self.input_channels
 
-        width_mult = 0.35
-        try:
-            mobilenet = models.mobilenet_v3_small(weights=None, width_mult=width_mult)
-        except TypeError:
-            mobilenet = models.mobilenet_v3_small(pretrained=False, width_mult=width_mult)
-
-        self.net = mobilenet.features
-
-        if backbone_in_channels != 3:
-            first_conv = self.net[0][0]
-            self.net[0][0] = nn.Conv2d(
-                backbone_in_channels,
-                first_conv.out_channels,
-                kernel_size=first_conv.kernel_size,
-                stride=first_conv.stride,
-                padding=first_conv.padding,
-                bias=first_conv.bias is not None,
-            )
-            nn.init.kaiming_normal_(self.net[0][0].weight, mode='fan_out', nonlinearity='relu')
-            if self.net[0][0].bias is not None:
-                nn.init.zeros_(self.net[0][0].bias)
-
-        self.pool = nn.AdaptiveAvgPool2d((1, 1))
-
-        # Infer pooled feature size from backbone output to stay robust across torchvision versions.
-        probe_h = max(32, int(input_height))
-        probe_w = max(32, int(input_width))
-        with torch.no_grad():
-            probe = torch.zeros(1, backbone_in_channels, probe_h, probe_w)
-            feat = self.pool(self.net(probe))
-            feature_dim = int(feat.view(1, -1).shape[-1])
-
-        self.proj = nn.Sequential(
-            nn.Linear(feature_dim, output_dim),
-            nn.LayerNorm(output_dim),
-            nn.ReLU(inplace=True),
+        observation_space = spaces.Box(
+            low=np.float32(0.0),
+            high=np.float32(1.0),
+            shape=(backbone_in_channels, int(input_height), int(input_width)),
+            dtype=np.float32,
         )
+        self.net = NatureCNN(observation_space, features_dim=output_dim, normalized_image=True)
         self.single_frame_dim = output_dim
         self.repr_dim = (
             output_dim * self.sequence_length
@@ -125,13 +96,16 @@ class CNN(nn.Module):
         return x
 
     def forward(self, x):
+        x = x.float()
+        if x.numel() > 0 and float(x.detach().max().item()) > 1.5:
+            x = x / 255.0
+        x = x.clamp(0.0, 1.0)
+
         if self.frame_wise:
             seq = self._prepare_frame_sequence(x)  # (B, T, H, W)
             batch_size, seq_len, height, width = seq.shape
             frames = seq.reshape(batch_size * seq_len, 1, height, width)
-            feats = self.net(frames)
-            feats = self.pool(feats).view(batch_size * seq_len, -1)
-            feats = self.proj(feats).view(batch_size, seq_len, self.single_frame_dim)
+            feats = self.net(frames).view(batch_size, seq_len, self.single_frame_dim)
             if self.flatten_all_tokens:
                 return feats.reshape(batch_size, seq_len * self.single_frame_dim)
             return feats[:, -1, :]
@@ -146,7 +120,4 @@ class CNN(nn.Module):
             else:
                 x = x.unsqueeze(1)
 
-        x = self.net(x)
-        x = self.pool(x).view(x.size(0), -1)
-        x = self.proj(x)
-        return x
+        return self.net(x)

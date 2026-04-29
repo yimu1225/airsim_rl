@@ -10,24 +10,9 @@ from algo_name_utils import to_internal_core_algorithm_name
 
 _ALGO_DIR = Path(__file__).resolve().parent
 
-_ALGO_DIR_MAP = {
-    "st_vim_td3": "ST_Vim_TD3",
-    "stv_patch_td3": "STV_Patch_TD3",
-    "vim_td3": "Vim_TD3",
-    "st_seq_vim_td3": "ST_Seq_Vim_TD3",
-    "stv_seq_vim_td3": "STV_Seq_Vim_TD3",
-    "per_st_vim_td3": "PER_ST_Vim_TD3",
-    "st_svim_td3": "ST_SVim_TD3",
-    "st_vim_td3_asym": "ST_Vim_TD3_asym",
-    "st_vim_sac": "ST_Vim_SAC",
-    "lstm_sac": "LSTM_SAC",
-    "per_st_vim_sac": "PER_ST_Vim_SAC",
-    "st_vim_ppo": "ST_Vim_PPO",
-}
-
 def _resolve_algorithm_dir(algorithm_name: str) -> Path:
     core_name = to_internal_core_algorithm_name(algorithm_name)
-    folder_name = _ALGO_DIR_MAP.get(core_name, core_name)
+    folder_name = core_name
     folder_path = _ALGO_DIR / folder_name
     if not folder_path.is_dir():
         raise ValueError(

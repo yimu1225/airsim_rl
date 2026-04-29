@@ -21,7 +21,7 @@ def _safe_to_internal_algo_name(name):
 
 def _safe_to_plot_label(name):
     try:
-        return to_kebab_algorithm_name(name, upper=True)
+        return to_kebab_algorithm_name(name, upper=False)
     except ValueError:
         return str(name).strip().replace("_", "-").upper()
 
@@ -429,7 +429,7 @@ def main():
         if core_name not in algos_to_plot:
             algos_to_plot.append(core_name)
 
-    display_algos = [to_kebab_algorithm_name(name, upper=True) for name in algos_to_plot]
+    display_algos = [to_kebab_algorithm_name(name, upper=False) for name in algos_to_plot]
     print(f"Plotting curves for: {display_algos}")
     print(f"Plot CL algorithms: {args.plot_cl}")
     print(f"Plot non-CL algorithms: {args.plot_non_cl}")

@@ -29,8 +29,8 @@ def get_config(argv=None):
     parser.add_argument("--env_name", type=str, default='AirSimEnv-v42', help="要训练的环境名称")
 
     # 算法选择 (Algorithm Selection)
-    parser.add_argument("--algorithm_name", type=str, default='CL-PER-ST-VIM-SAC,CL-ST-VIM-SAC,CL-SAC',
-                        help="要训练的算法。支持: TD3, NOISY-TD3, NOISY-TD3-TYPE2, DDPG, AETD3, PER-TD3, PER-AETD3, CFC-TD3, ST-VIM-TD3, STV-PATCH-TD3, VIM-TD3, ST-SEQ-VIM-TD3, STV-SEQ-VIM-TD3, PER-ST-VIM-TD3, ST-SVIM-TD3, MAMBA-TD3, ST-3DVIM-TD3, GAM-MAMBA-TD3, GAM-TD3, ST-DUALVIM-TD3, TD3-ASYM, PER-TD3-ASYM, ST-VIM-TD3-ASYM, SAC, LSTM-SAC, ST-VIM-SAC, PER-ST-VIM-SAC, PPO, ST-VIM-PPO。可以是单个，多个（逗号分隔），或组名 ('all', 'base', 'seq')")
+    parser.add_argument("--algorithm_name", type=str, default='CL-PER-ST-Vim-SAC,CL-ST-Vim-SAC,CL-SAC',
+                        help="要训练的算法。支持: TD3, DDPG, PER_TD3, ST_Vim_TD3, STV_Patch_TD3, Vim_TD3, ST_Seq_Vim_TD3, STV_Seq_Vim_TD3, PER_ST_Vim_TD3, ST_SVim_TD3, Mamba_TD3, ST_DualVim_TD3, SAC, LSTM_SAC, ST_Vim_SAC, PER_ST_Vim_SAC, PPO, ST_Vim_PPO, TD3_asym, PER_TD3_asym, ST_Vim_TD3_asym")
     parser.add_argument("--smooth_window", type=int, default=300, help="平滑窗口大小，用于平滑学习曲线 (仅对移动平均有效)")
     parser.add_argument("--smooth_method", type=str, default="moving", choices=["moving","zero_phase_des"], help="曲线平滑方法: moving=滑动平均, zero_phase_des=零相位双重指数平滑")
     parser.add_argument("--smooth_alpha", type=float, default=0.05, help="零相位双重指数平滑的水平平滑因子 (0-1)，越大越关注近期数据")
@@ -81,7 +81,7 @@ def get_config(argv=None):
     parser.add_argument("--n_frames", type=int, default= 4, help="图像帧数（非时序算法为堆叠帧数，时序算法为序列长度）")
 
     # 算法专属参数已迁移到各算法目录下的 params.yaml，
-    # 例如 algorithm/td3/params.yaml、algorithm/sac/params.yaml。
+    # 例如 algorithm/TD3/params.yaml、algorithm/SAC/params.yaml。
     # 这里只保留公共参数定义。
     # 连续控制参数 (Continuous Control Parameters)
     parser.add_argument("--min_forward_speed", type=float, default=0.0, help="最小前进速度 (m/s)")

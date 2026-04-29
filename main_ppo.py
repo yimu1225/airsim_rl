@@ -34,7 +34,7 @@ import gym_airsim  # noqa: F401 - ensure env ids are registered
 from gym_airsim.envs import AirSimEnv
 
 # On-Policy Algorithm Imports
-from algorithm.ppo.ppo import PPOAgent
+from algorithm.PPO.ppo import PPOAgent
 from algorithm.ST_Vim_PPO.agent import STVimPPOAgent
 
 
@@ -114,8 +114,8 @@ def get_agent_class(algo_name):
     core_algo_name = to_internal_core_algorithm_name(algo_name)
     
     agents = {
-        'ppo': PPOAgent,
-        'st_vim_ppo': STVimPPOAgent,
+        'PPO': PPOAgent,
+        'ST_Vim_PPO': STVimPPOAgent,
     }
     if core_algo_name in agents:
         return agents[core_algo_name]
@@ -319,7 +319,7 @@ def train_ppo_algorithm(env, agent, args, algo_name, device, base_state, depth_i
                     csv_writer = csv.writer(f)
                     csv_writer.writerow([episode_num, total_timesteps, episode_reward, episode_timesteps, success_rate])
 
-                print(f"[{display_algo_name.upper()}] Episode {episode_num}, Reward: {episode_reward:.2f}, Length: {episode_timesteps}, Success Rate: {success_rate:.2f}, Level: {env_core.level}, Total Timesteps: {total_timesteps}, Total Successes: {env_core.success_count}")
+                print(f"[{display_algo_name}] Episode {episode_num}, Reward: {episode_reward:.2f}, Length: {episode_timesteps}, Success Rate: {success_rate:.2f}, Level: {env_core.level}, Total Timesteps: {total_timesteps}, Total Successes: {env_core.success_count}")
                 
                 episode_num += 1
                 episode_reward = 0
@@ -431,7 +431,7 @@ def main():
         for algo_name in algorithms:
             algo_name = to_internal_algorithm_name(algo_name)
             core_algo_name = to_internal_core_algorithm_name(algo_name)
-            if core_algo_name not in {"ppo", "st_vim_ppo"}:
+            if core_algo_name not in {"PPO", "ST_Vim_PPO"}:
                 print(f"Skipping unsupported on-policy algorithm in main_ppo.py: {algo_name}")
                 continue
 
@@ -455,7 +455,7 @@ def main():
                 print(f"  [Curriculum Learning Disabled] {algo_name}")
 
             # ST-Vim-PPO consumes the stacked depth frames as a temporal sequence.
-            is_recurrent = core_algo_name == "st_vim_ppo"
+            is_recurrent = core_algo_name == "ST_Vim_PPO"
             n_frames = args.n_frames
 
             # Initialize Environment

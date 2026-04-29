@@ -3,73 +3,75 @@ from __future__ import annotations
 from typing import Dict, List, Tuple
 
 _CANONICAL_ALGORITHMS: Tuple[str, ...] = (
-    "td3",
-    "ddpg",
-    "per_td3",
-    "st_vim_td3",
-    "stv_patch_td3",
-    "vim_td3",
-    "st_seq_vim_td3",
-    "stv_seq_vim_td3",
-    "per_st_vim_td3",
-    "st_svim_td3",
-    "mamba_td3",
-    "st_dualvim_td3",
-    "sac",
-    "lstm_sac",
-    "st_vim_sac",
-    "per_st_vim_sac",
-    "ppo",
-    "st_vim_ppo",
-    "td3_asym",
-    "per_td3_asym",
-    "st_vim_td3_asym",
+    "TD3",
+    "DDPG",
+    "PER_TD3",
+    "ST_Vim_TD3",
+    "STV_Patch_TD3",
+    "Vim_TD3",
+    "ST_Seq_Vim_TD3",
+    "STV_Seq_Vim_TD3",
+    "PER_ST_Vim_TD3",
+    "ST_SVim_TD3",
+    "Mamba_TD3",
+    "ST_DualVim_TD3",
+    "SAC",
+    "LSTM_SAC",
+    "ST_Vim_SAC",
+    "PER_ST_Vim_SAC",
+    "PPO",
+    "ST_Vim_PPO",
+    "TD3_asym",
+    "PER_TD3_asym",
+    "ST_Vim_TD3_asym",
 )
 
 ALGORITHM_GROUPS: Dict[str, List[str]] = {
     "all": [
-        "td3",
-        "ddpg",
-        "per_td3",
-        "st_vim_td3",
-        "stv_patch_td3",
-        "vim_td3",
-        "st_seq_vim_td3",
-        "stv_seq_vim_td3",
-        "per_st_vim_td3",
-        "st_svim_td3",
-        "mamba_td3",
-        "st_dualvim_td3",
-        "sac",
-        "lstm_sac",
-        "st_vim_sac",
-        "per_st_vim_sac",
-        "td3_asym",
-        "per_td3_asym",
-        "st_vim_td3_asym",
+        "TD3",
+        "DDPG",
+        "PER_TD3",
+        "ST_Vim_TD3",
+        "STV_Patch_TD3",
+        "Vim_TD3",
+        "ST_Seq_Vim_TD3",
+        "STV_Seq_Vim_TD3",
+        "PER_ST_Vim_TD3",
+        "ST_SVim_TD3",
+        "Mamba_TD3",
+        "ST_DualVim_TD3",
+        "SAC",
+        "LSTM_SAC",
+        "ST_Vim_SAC",
+        "PER_ST_Vim_SAC",
+        "PPO",
+        "ST_Vim_PPO",
+        "TD3_asym",
+        "PER_TD3_asym",
+        "ST_Vim_TD3_asym",
     ],
     "base": [
-        "td3",
-        "ddpg",
-        "per_td3",
-        "sac",
-        "td3_asym",
-        "per_td3_asym",
+        "TD3",
+        "DDPG",
+        "PER_TD3",
+        "SAC",
+        "TD3_asym",
+        "PER_TD3_asym",
     ],
     "seq": [
-        "st_vim_td3",
-        "stv_patch_td3",
-        "vim_td3",
-        "st_seq_vim_td3",
-        "stv_seq_vim_td3",
-        "per_st_vim_td3",
-        "st_svim_td3",
-        "mamba_td3",
-        "st_dualvim_td3",
-        "st_vim_td3_asym",
-        "lstm_sac",
-        "st_vim_sac",
-        "per_st_vim_sac",
+        "ST_Vim_TD3",
+        "STV_Patch_TD3",
+        "Vim_TD3",
+        "ST_Seq_Vim_TD3",
+        "STV_Seq_Vim_TD3",
+        "PER_ST_Vim_TD3",
+        "ST_SVim_TD3",
+        "Mamba_TD3",
+        "ST_DualVim_TD3",
+        "ST_Vim_TD3_asym",
+        "LSTM_SAC",
+        "ST_Vim_SAC",
+        "PER_ST_Vim_SAC",
     ],
 }
 
@@ -84,44 +86,6 @@ _ALIAS_TO_CANONICAL: Dict[str, str] = {}
 for _algo in _CANONICAL_ALGORITHMS:
     _ALIAS_TO_CANONICAL[_normalize_key(_algo)] = _algo
     _ALIAS_TO_CANONICAL[_normalize_key(_algo.replace("_", "-"))] = _algo
-
-
-_EXTRA_ALIASES = {
-    "st-vimtd3": "st_vim_td3",
-    "st_vimtd3": "st_vim_td3",
-    "stvimtd3": "st_vim_td3",
-    "stvpatchtd3": "stv_patch_td3",
-    "vim-td3": "vim_td3",
-    "vim_td3": "vim_td3",
-    "st-seqvimtd3": "st_seq_vim_td3",
-    "stseqvimtd3": "st_seq_vim_td3",
-    "stv-seqvimtd3": "stv_seq_vim_td3",
-    "stvseqvimtd3": "stv_seq_vim_td3",
-    "per-st-vimtd3": "per_st_vim_td3",
-    "per_st_vimtd3": "per_st_vim_td3",
-    "st-svimtd3": "st_svim_td3",
-    "st_svimtd3": "st_svim_td3",
-    "st-dualvimtd3": "st_dualvim_td3",
-    "stdualvimtd3": "st_dualvim_td3",
-    "st-vimtd3-asym": "st_vim_td3_asym",
-    "st-vimtd3_asym": "st_vim_td3_asym",
-    "st_vimtd3-asym": "st_vim_td3_asym",
-    "st_vimtd3_asym": "st_vim_td3_asym",
-    "st-vimsac": "st_vim_sac",
-    "st_vimsac": "st_vim_sac",
-    "stvimsac": "st_vim_sac",
-    "lstm-sac": "lstm_sac",
-    "lstm_sac": "lstm_sac",
-    "lstmsac": "lstm_sac",
-    "per-st-vimsac": "per_st_vim_sac",
-    "per_st_vimsac": "per_st_vim_sac",
-    "perstvimsac": "per_st_vim_sac",
-    "st-vimppo": "st_vim_ppo",
-    "st_vimppo": "st_vim_ppo",
-    "stvimppo": "st_vim_ppo",
-}
-for _alias, _canonical in _EXTRA_ALIASES.items():
-    _ALIAS_TO_CANONICAL[_normalize_key(_alias)] = _canonical
 
 
 def split_curriculum_prefix(algorithm_name: str) -> Tuple[bool, str]:
@@ -147,8 +111,9 @@ def to_internal_core_algorithm_name(algorithm_name: str) -> str:
         return canonical
 
     fallback = core_key.replace("-", "_")
-    if fallback in _CANONICAL_ALGORITHMS:
-        return fallback
+    canonical = _ALIAS_TO_CANONICAL.get(fallback)
+    if canonical is not None:
+        return canonical
 
     supported = ", ".join(sorted(_CANONICAL_ALGORITHMS))
     raise ValueError(f"Unknown algorithm '{algorithm_name}'. Supported: {supported}")
@@ -178,7 +143,7 @@ def normalize_algorithm_name_for_config(algorithm_value: str) -> str:
         key = _normalize_key(raw_value)
         if key in ALGORITHM_GROUPS:
             return key
-        return to_kebab_algorithm_name(raw_value, upper=True)
+        return to_kebab_algorithm_name(raw_value, upper=False)
 
     normalized: List[str] = []
     for token in raw_value.split(","):
@@ -189,7 +154,7 @@ def normalize_algorithm_name_for_config(algorithm_value: str) -> str:
         if key in ALGORITHM_GROUPS:
             normalized.append(key)
         else:
-            normalized.append(to_kebab_algorithm_name(token, upper=True))
+            normalized.append(to_kebab_algorithm_name(token, upper=False))
     return ",".join(normalized)
 
 

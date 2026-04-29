@@ -1,0 +1,11 @@
+# LSTM-SAC parameters following Liu Bokai et al.:
+# self-supervised attention depth feature extractor + FC512/LSTM512/FC512 SAC.
+ent_coef: 'auto'  # SAC 熵系数；auto 表示自动学习 alpha
+target_entropy: auto  # SAC 目标熵；auto 使用 SB3 的 -action_dim 启发式
+target_update_interval: 1  # critic target 网络更新间隔（梯度步）
+policy_freq: 2  # 保留兼容参数；SB3 SAC 默认每个梯度步更新 actor
+
+lstm_sac_feature_dim: 64  # 论文 depth attention extractor 输出维度（固定 64）
+lstm_sac_hidden_dim: 512  # FC/LSTM/FC 隐藏维度
+lstm_sac_feature_loss_weight: 1.0  # 旧自监督特征损失权重（SB3 当前预留）
+lstm_sac_reconstruction_kl_weight: 0.5  # 旧 VAE KL 权重（SB3 当前预留）
