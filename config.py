@@ -29,7 +29,7 @@ def get_config(argv=None):
     parser.add_argument("--env_name", type=str, default='AirSimEnv-v42', help="要训练的环境名称")
 
     # 算法选择 (Algorithm Selection)
-    parser.add_argument("--algorithm_name", type=str, default='CL-ST-VIM-SAC,CL-PER-ST-VIM-SAC,CL-SAC',
+    parser.add_argument("--algorithm_name", type=str, default='CL-PER-ST-VIM-SAC,CL-ST-VIM-SAC,CL-SAC',
                         help="要训练的算法。支持: TD3, NOISY-TD3, NOISY-TD3-TYPE2, DDPG, AETD3, PER-TD3, PER-AETD3, CFC-TD3, ST-VIM-TD3, STV-PATCH-TD3, VIM-TD3, ST-SEQ-VIM-TD3, STV-SEQ-VIM-TD3, PER-ST-VIM-TD3, ST-SVIM-TD3, MAMBA-TD3, ST-3DVIM-TD3, GAM-MAMBA-TD3, GAM-TD3, ST-DUALVIM-TD3, TD3-ASYM, PER-TD3-ASYM, ST-VIM-TD3-ASYM, SAC, LSTM-SAC, ST-VIM-SAC, PER-ST-VIM-SAC, PPO, ST-VIM-PPO。可以是单个，多个（逗号分隔），或组名 ('all', 'base', 'seq')")
     parser.add_argument("--smooth_window", type=int, default=300, help="平滑窗口大小，用于平滑学习曲线 (仅对移动平均有效)")
     parser.add_argument("--smooth_method", type=str, default="moving", choices=["moving","zero_phase_des"], help="曲线平滑方法: moving=滑动平均, zero_phase_des=零相位双重指数平滑")
