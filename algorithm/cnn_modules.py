@@ -9,7 +9,7 @@ class BaseStateExpander(nn.Module):
     Used by all temporal algorithms (LSTM, GRU, CFC) to enrich low-dimensional
     base state before combining with visual features.
     """
-    def __init__(self, base_dim, expanded_dim=32):
+    def __init__(self, base_dim, expanded_dim=64):
         super().__init__()
         self.fc = nn.Sequential(
             nn.Linear(base_dim, expanded_dim),

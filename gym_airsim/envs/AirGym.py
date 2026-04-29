@@ -611,8 +611,8 @@ class AirSimEnv(gym.Env):
              curvature_penalty = curvature_weight * (angle_change ** 2) 
              curvature_penalty = float(np.clip(curvature_penalty, 0.0, 1.0))
 
-        # step_penalty = self.stepN * 0.005
-        step_penalty = 0.1
+        step_penalty = self.stepN * 0.005
+        # step_penalty = 0.1
 
         # Stagnation penalty: penalize when total displacement in recent N steps is too small
         stagnation_penalty = 0.0
@@ -625,7 +625,7 @@ class AirSimEnv(gym.Env):
 
         lidar_penalty = self._compute_lidar_scan_log_penalty(self.last_lidar_scan_distance)
         self.last_lidar_obstacle_penalty = float(lidar_penalty)
-        r += 5 * float(lidar_penalty)
+        r += 10 * float(lidar_penalty)
         # print(f"Reward components: r_vel={reward_vel:.3f}, distance_penalty={distance_penalty:.3f}, smooth_penalty={smooth_penalty:.3f}, curvature_penalty={curvature_penalty:.3f}, step_penalty={step_penalty:.3f}, stagnation_penalty={stagnation_penalty:.3f}, lidar_penalty={lidar_penalty:.3f}, total_reward={r:.3f}")
 
          

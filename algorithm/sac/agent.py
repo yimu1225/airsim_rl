@@ -307,6 +307,8 @@ class SACAgent:
         else:
             critic_loss = critic_loss_elements.mean()
         td_errors = 0.5 * ((current_q1 - target_q).abs() + (current_q2 - target_q).abs())
+        target_q_mean_value = float(target_q.mean().detach().item())
+        current_q_mean_value = float(torch.min(current_q1, current_q2).mean().detach().item())
 
         # Optimize Critic
         self.critic_optimizer.zero_grad()
@@ -319,6 +321,8 @@ class SACAgent:
         # ============ Actor and Alpha Update ============
         actor_loss_value = None
         alpha_loss_value = None
+        mean_log_prob_value = None
+        q_pi_mean_value = None
         
         if self.total_it % self.policy_freq == 0:
             # Encode current observations (Actor)
@@ -348,6 +352,8 @@ class SACAgent:
                 alpha = torch.as_tensor(self.alpha, dtype=torch.float32, device=self.device)
             
             actor_loss = (alpha * log_probs - q_new).mean()
+            mean_log_prob_value = float(log_probs.mean().detach().item())
+            q_pi_mean_value = float(q_new.mean().detach().item())
 
             # Optimize Actor
             self.actor_optimizer.zero_grad()
@@ -376,11 +382,17 @@ class SACAgent:
         result = {
             "critic_loss": float(critic_loss.item()),
             "alpha": self.alpha if isinstance(self.alpha, float) else self.alpha.item(),
+            "target_q_mean": target_q_mean_value,
+            "current_q_mean": current_q_mean_value,
         }
         if replay_info:
             result.update(replay_info)
         if actor_loss_value is not None:
             result["actor_loss"] = actor_loss_value
+        if mean_log_prob_value is not None:
+            result["mean_log_prob"] = mean_log_prob_value
+        if q_pi_mean_value is not None:
+            result["q_pi_mean"] = q_pi_mean_value
         if alpha_loss_value is not None:
             result["alpha_loss"] = alpha_loss_value
         return result
