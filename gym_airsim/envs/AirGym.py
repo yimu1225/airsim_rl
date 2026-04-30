@@ -650,7 +650,6 @@ class AirSimEnv(gym.Env):
         self.last_distance_sensor_obstacle_penalty = 5 * float(distance_sensor_penalty)
         r += self.last_distance_sensor_obstacle_penalty
         # print(f"Reward components: r_vel={reward_vel:.3f}, smooth_penalty={smooth_penalty:.3f}, step_penalty={step_penalty:.3f},distance_sensor_penalty={self.last_distance_sensor_obstacle_penalty:.3f}, total_reward={r:.3f}")
-         
 
         return r
 
