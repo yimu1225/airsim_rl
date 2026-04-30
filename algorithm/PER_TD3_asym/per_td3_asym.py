@@ -23,7 +23,7 @@ class AsymPERTD3Agent:
             getattr(
                 args,
                 "critic_priv_dim",
-                getattr(args, "lidar_h_bins", 36) * getattr(args, "lidar_v_bins", 3),
+                getattr(args, "distance_sensor_count", 36),
             )
         )
         self.critic_priv_feature_dim = int(getattr(args, "critic_priv_feature_dim", 64))

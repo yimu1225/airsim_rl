@@ -185,32 +185,30 @@ class AirSimEnv(gym.Env):
         self._cached_window_alive = None
 
         self.enable_takeoff_obstacle_check = bool(config.enable_takeoff_obstacle_check)
-        self.takeoff_obstacle_threshold_m = float(config.takeoff_obstacle_threshold_m)
         self.takeoff_obstacle_reset_retries = max(0, int(config.takeoff_obstacle_reset_retries))
-        self.takeoff_lidar_name = str(config.takeoff_lidar_name).strip()
-        self.reward_lidar_name = str(config.reward_lidar_name).strip()
-        if self.reward_lidar_name == "":
-            self.reward_lidar_name = self.takeoff_lidar_name
-        self.lidar_safe_distance_m = max(0.05, float(config.lidar_safe_distance_m))
-        self.lidar_log_penalty_weight = float(config.lidar_log_penalty_weight)
-        self.lidar_log_penalty_min = float(config.lidar_log_penalty_min)
-        self.lidar_penalty_eps = max(1e-6, float(config.lidar_penalty_eps))
-        self.lidar_distance_cap_m = max(
-            self.lidar_safe_distance_m,
-            float(config.lidar_distance_cap_m),
+        self.distance_sensor_count = max(1, int(config.distance_sensor_count))
+        self.distance_sensor_prefix = str(config.distance_sensor_prefix).strip()
+        self.distance_sensor_start_index = int(config.distance_sensor_start_index)
+        self.distance_sensor_names = self.airgym._resolve_distance_sensor_names(
+            sensor_names=config.distance_sensor_names,
+            sensor_prefix=self.distance_sensor_prefix,
+            sensor_count=self.distance_sensor_count,
+            start_index=self.distance_sensor_start_index,
         )
-        self.lidar_query_max_attempts = max(1, int(config.lidar_query_max_attempts))
-        self.lidar_query_retry_sleep = max(0.0, float(config.lidar_query_retry_sleep))
-        self.lidar_h_bins = max(4, int(config.lidar_h_bins))
-        self.lidar_v_bins = max(1, int(config.lidar_v_bins))
-        self.lidar_vfov_min_deg = float(config.lidar_vfov_min_deg)
-        self.lidar_vfov_max_deg = float(config.lidar_vfov_max_deg)
-        self.last_lidar_obstacle_penalty = 0.0
-        self.last_lidar_scan_distance = np.full(
-            (self.lidar_h_bins, self.lidar_v_bins),
-            self.lidar_distance_cap_m,
+        self.distance_sensor_count = len(self.distance_sensor_names)
+        self.distance_sensor_log_penalty_weight = float(config.distance_sensor_log_penalty_weight)
+        self.distance_sensor_log_penalty_min = float(config.distance_sensor_log_penalty_min)
+        self.distance_sensor_penalty_eps = max(1e-6, float(config.distance_sensor_penalty_eps))
+        self.distance_sensor_query_max_attempts = max(1, int(config.distance_sensor_query_max_attempts))
+        self.distance_sensor_query_retry_sleep = max(0.0, float(config.distance_sensor_query_retry_sleep))
+        self.last_distance_sensor_obstacle_penalty = 0.0
+        self.last_distance_sensor_max_distance = np.ones((self.distance_sensor_count,), dtype=np.float32)
+        self.last_distance_sensor_scan_distance = np.full(
+            (self.distance_sensor_count,),
+            1.0,
             dtype=np.float32,
         )
+        self.distance_sensor_read_fail_count = 0
 
         # Initialize previous action for jerk penalty calculation
         if hasattr(self.action_space, 'shape') and self.action_space.shape:
@@ -489,13 +487,14 @@ class AirSimEnv(gym.Env):
         """
         return inform
 
-    def _compute_lidar_scan_log_penalty(self, scan_distance):
+    def _compute_distance_sensor_log_penalty(self, scan_distance, max_distance=None):
         """
-        NavRL-like safety shaping on lidar beams:
-        use all beams (not only nearest one), with mean(log(distance)) style.
-        Here we anchor to safe distance so penalty <= 0 and equals 0 when all beams >= safe.
+        Safety shaping on distance sensor beams:
+        use all sensors (not only nearest one), with mean(log(distance)) style.
+        The sensor MaxDistance from settings.json is the penalty range. A beam at
+        MaxDistance contributes 0 risk; beams shorter than MaxDistance are penalized.
         """
-        if self.lidar_log_penalty_weight <= 0.0:
+        if self.distance_sensor_log_penalty_weight <= 0.0:
             return 0.0
         if scan_distance is None:
             return 0.0
@@ -507,41 +506,61 @@ class AirSimEnv(gym.Env):
         if d.size == 0:
             return 0.0
 
-        safe_dist = max(self.lidar_safe_distance_m, self.lidar_penalty_eps)
-        # Clamp above safe distance: far beams contribute 0 risk.
-        d_clip = np.clip(d, self.lidar_penalty_eps, safe_dist)
-        mean_log_gap = float(np.mean(np.log(d_clip) - math.log(safe_dist)))
-        penalty = self.lidar_log_penalty_weight * mean_log_gap
-        return float(max(penalty, self.lidar_log_penalty_min))
+        if max_distance is None:
+            max_distance = getattr(self, "last_distance_sensor_max_distance", None)
+        penalty_range = np.asarray(max_distance, dtype=np.float32) if max_distance is not None else np.ones_like(d)
+        if penalty_range.size == 1:
+            penalty_range = np.full_like(d, float(penalty_range.item()), dtype=np.float32)
+        if penalty_range.size != d.size:
+            penalty_range = np.resize(penalty_range, d.shape)
+        penalty_range = np.maximum(penalty_range, self.distance_sensor_penalty_eps)
 
-    def _update_lidar_obstacle_distance(self):
+        # Clamp above sensor MaxDistance: readings at the sensor limit contribute 0 risk.
+        d_clip = np.clip(d, self.distance_sensor_penalty_eps, penalty_range)
+        mean_log_gap = float(np.mean(np.log(d_clip) - np.log(penalty_range)))
+        penalty = self.distance_sensor_log_penalty_weight * mean_log_gap
+        return float(max(penalty, self.distance_sensor_log_penalty_min))
+
+    def _update_distance_sensor_obstacle_distance(self):
         try:
-            scan_distance, _ = self.airgym.get_lidar_scan_grid(
-                lidar_name=self.reward_lidar_name,
-                horizontal_bins=self.lidar_h_bins,
-                vertical_bins=self.lidar_v_bins,
-                vfov_min_deg=self.lidar_vfov_min_deg,
-                vfov_max_deg=self.lidar_vfov_max_deg,
-                max_range_m=self.lidar_distance_cap_m,
-                max_attempts=self.lidar_query_max_attempts,
-                retry_sleep=self.lidar_query_retry_sleep,
+            scan_distance, meta = self.airgym.get_distance_sensor_scan(
+                sensor_names=self.distance_sensor_names,
+                sensor_prefix=self.distance_sensor_prefix,
+                sensor_count=self.distance_sensor_count,
+                start_index=self.distance_sensor_start_index,
+                max_attempts=self.distance_sensor_query_max_attempts,
+                retry_sleep=self.distance_sensor_query_retry_sleep,
             )
-        except Exception:
-            self.last_lidar_obstacle_penalty = self._compute_lidar_scan_log_penalty(
-                self.last_lidar_scan_distance
+        except Exception as e:
+            self.distance_sensor_read_fail_count += 1
+            if self.distance_sensor_read_fail_count <= 5 or self.distance_sensor_read_fail_count % 100 == 0:
+                print(
+                    "Distance sensor read failed "
+                    f"({self.distance_sensor_read_fail_count}): {e}"
+                )
+            self.last_distance_sensor_obstacle_penalty = self._compute_distance_sensor_log_penalty(
+                self.last_distance_sensor_scan_distance,
+                self.last_distance_sensor_max_distance,
             )
             return False
 
         scan_distance = np.asarray(scan_distance, dtype=np.float32)
-        if scan_distance.ndim != 2 or scan_distance.size == 0:
-            self.last_lidar_obstacle_penalty = self._compute_lidar_scan_log_penalty(
-                self.last_lidar_scan_distance
+        if scan_distance.ndim != 1 or scan_distance.size == 0:
+            self.last_distance_sensor_obstacle_penalty = self._compute_distance_sensor_log_penalty(
+                self.last_distance_sensor_scan_distance,
+                self.last_distance_sensor_max_distance,
             )
             return False
 
-        self.last_lidar_scan_distance = scan_distance.copy()
+        max_ranges = np.asarray(meta.get("max_ranges_m", self.last_distance_sensor_max_distance), dtype=np.float32)
+        if max_ranges.ndim != 1 or max_ranges.size != scan_distance.size:
+            max_ranges = np.full_like(scan_distance, 1.0, dtype=np.float32)
 
-        self.last_lidar_obstacle_penalty = self._compute_lidar_scan_log_penalty(scan_distance)
+        self.last_distance_sensor_scan_distance = scan_distance.copy()
+        self.last_distance_sensor_max_distance = max_ranges.copy()
+        self.distance_sensor_read_fail_count = 0
+
+        self.last_distance_sensor_obstacle_penalty = self._compute_distance_sensor_log_penalty(scan_distance, max_ranges)
         return True
 
 
@@ -611,8 +630,8 @@ class AirSimEnv(gym.Env):
              curvature_penalty = curvature_weight * (angle_change ** 2) 
              curvature_penalty = float(np.clip(curvature_penalty, 0.0, 1.0))
 
-        step_penalty = self.stepN * 0.005
-        # step_penalty = 0.1
+        # step_penalty = self.stepN * 0.005
+        step_penalty = 0.2
 
         # Stagnation penalty: penalize when total displacement in recent N steps is too small
         stagnation_penalty = 0.0
@@ -623,11 +642,16 @@ class AirSimEnv(gym.Env):
         # Add penalties to reward
         r -= smooth_penalty * smooth_penalty_weight  + step_penalty + stagnation_penalty
 
-        lidar_penalty = self._compute_lidar_scan_log_penalty(self.last_lidar_scan_distance)
-        self.last_lidar_obstacle_penalty = float(lidar_penalty)
-        r += 10 * float(lidar_penalty)
-        # print(f"Reward components: r_vel={reward_vel:.3f}, distance_penalty={distance_penalty:.3f}, smooth_penalty={smooth_penalty:.3f}, curvature_penalty={curvature_penalty:.3f}, step_penalty={step_penalty:.3f}, stagnation_penalty={stagnation_penalty:.3f}, lidar_penalty={lidar_penalty:.3f}, total_reward={r:.3f}")
-
+        distance_sensor_penalty = self._compute_distance_sensor_log_penalty(
+            self.last_distance_sensor_scan_distance,
+            self.last_distance_sensor_max_distance,
+        )
+        self.last_distance_sensor_obstacle_penalty = float(distance_sensor_penalty)
+        r += 10 * float(distance_sensor_penalty)
+        print(f"Reward components: r_vel={reward_vel:.3f}, distance_penalty={distance_penalty:.3f}, "
+              f"smooth_penalty={smooth_penalty:.3f}, curvature_penalty={curvature_penalty:.3f}, step_penalty={step_penalty:.3f}, "
+              f"stagnation_penalty={stagnation_penalty:.3f}, distance_sensor_penalty={distance_sensor_penalty:.3f}, total_reward={r:.3f}")
+    
          
 
         return r
@@ -664,7 +688,7 @@ class AirSimEnv(gym.Env):
                 "altitude_violation": False,
                 "is_success": False,
                 "ue4_restarted": True,
-                "lidar_obstacle_log_penalty": float(self.last_lidar_obstacle_penalty),
+                "distance_sensor_obstacle_log_penalty": float(self.last_distance_sensor_obstacle_penalty),
             }
             return state, 0.0, True, False, info
         
@@ -720,7 +744,7 @@ class AirSimEnv(gym.Env):
         clean_depth_img = np.asarray(depth_img, dtype=np.float32) if depth_fetch_failed else self._get_latest_clean_depth(depth_img)
         self.depth_stack.append(depth_img)
         self.clean_depth_stack.append(clean_depth_img)
-        self._update_lidar_obstacle_distance()
+        self._update_distance_sensor_obstacle_distance()
 
         # Get observation
         state = self.get_obs()
@@ -806,7 +830,7 @@ class AirSimEnv(gym.Env):
             "has_collided": bool(collided),
             "altitude_violation": bool(altitude_violation),
             "is_success": bool(self.success),
-            "lidar_obstacle_log_penalty": float(self.last_lidar_obstacle_penalty),
+            "distance_sensor_obstacle_log_penalty": float(self.last_distance_sensor_obstacle_penalty),
         }
         return state, reward, done, False, info
 
@@ -820,12 +844,14 @@ class AirSimEnv(gym.Env):
         self.stepN = 0
         self.episodeN += 1
         self.episode_reward = 0  # Reset reward accumulator for new episode
-        self.last_lidar_obstacle_penalty = 0.0
-        self.last_lidar_scan_distance = np.full(
-            (self.lidar_h_bins, self.lidar_v_bins),
-            self.lidar_distance_cap_m,
+        self.last_distance_sensor_obstacle_penalty = 0.0
+        self.last_distance_sensor_max_distance = np.ones((self.distance_sensor_count,), dtype=np.float32)
+        self.last_distance_sensor_scan_distance = np.full(
+            (self.distance_sensor_count,),
+            1.0,
             dtype=np.float32,
         )
+        self.distance_sensor_read_fail_count = 0
 
     def reset(self, *, seed=None, options=None):
         """
@@ -894,8 +920,8 @@ class AirSimEnv(gym.Env):
                 self.airgym.client.reset()
                 self.airgym.client.enableApiControl(True)
                 self.airgym.client.armDisarm(True)
-                self.airgym.client.moveToZAsync(float(self.airgym.z), 1.0)
-                time.sleep(1.0)
+                self.airgym.client.moveToZAsync(float(self.airgym.z), 1.0).join()
+                # time.sleep(1.0)
                 self.airgym.client.hoverAsync().join()
                 print(f"AirSim drone soft reset done. Time: {time.time() - soft_start:.2f}s")
             except Exception:
@@ -959,13 +985,16 @@ class AirSimEnv(gym.Env):
         now = _ensure_takeoff_ok()
 
         if self.enable_takeoff_obstacle_check:
-            # 起飞后激光雷达避障检查：若最近障碍距离 < 阈值，重置环境并重新起飞。
+            # 起飞后距离传感器避障检查：若最近障碍距离 < 阈值，重置环境并重新起飞。
             obstacle_retry_count = 0
             while True:
                 try:
-                    too_close, min_distance, per_direction = self.airgym.is_obstacle_too_close_lidar(
-                        threshold_m=self.takeoff_obstacle_threshold_m,
-                        lidar_name=self.takeoff_lidar_name,
+                    too_close, min_distance, per_direction = self.airgym.is_obstacle_too_close_distance_sensor(
+                        threshold_m=None,
+                        sensor_names=self.distance_sensor_names,
+                        sensor_prefix=self.distance_sensor_prefix,
+                        sensor_count=self.distance_sensor_count,
+                        start_index=self.distance_sensor_start_index,
                         max_attempts=3,
                         retry_sleep=0.1,
                     )
@@ -977,7 +1006,7 @@ class AirSimEnv(gym.Env):
                     break
 
                 print(
-                    f"Takeoff obstacle too close: min={min_distance:.2f}m < {self.takeoff_obstacle_threshold_m:.2f}m, "
+                    f"Takeoff obstacle too close within distance sensor MaxDistance: min={min_distance:.2f}m, "
                     f"per_direction={per_direction}"
                 )
 
@@ -1009,7 +1038,7 @@ class AirSimEnv(gym.Env):
         start_time = time.time()
         self.on_episode_start()
         state = self.init_state_f()
-        self._update_lidar_obstacle_distance()
+        self._update_distance_sensor_obstacle_distance()
         print(f"Initial state acquisition time: {time.time() - start_time:.2f}s")
         
         # # 打印当前 episode 的 JSON 配置

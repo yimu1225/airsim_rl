@@ -329,18 +329,19 @@ def _build_critic_depth_like(env_core, actor_depth):
     return actor_arr
 
 
-def _extract_critic_privileged_lidar(env_core):
-    scan = getattr(env_core, "last_lidar_scan_distance", None)
+def _extract_critic_privileged_distance_sensor(env_core):
+    scan = getattr(env_core, "last_distance_sensor_scan_distance", None)
     if scan is None:
         cfg = getattr(env_core, "config", None)
-        h_bins = int(getattr(env_core, "lidar_h_bins", getattr(cfg, "lidar_h_bins", 36)))
-        v_bins = int(getattr(env_core, "lidar_v_bins", getattr(cfg, "lidar_v_bins", 3)))
-        cap = float(getattr(env_core, "lidar_distance_cap_m", getattr(cfg, "lidar_distance_cap_m", 10.0)))
-        return np.full((v_bins * h_bins,), cap, dtype=np.float32)
+        count = int(getattr(env_core, "distance_sensor_count", getattr(cfg, "distance_sensor_count", 36)))
+        max_distance = getattr(env_core, "last_distance_sensor_max_distance", None)
+        if max_distance is not None:
+            max_distance = np.asarray(max_distance, dtype=np.float32).reshape(-1)
+            if max_distance.size == count:
+                return max_distance.copy()
+        return np.ones((count,), dtype=np.float32)
 
     arr = np.asarray(scan, dtype=np.float32)
-    if arr.ndim == 2:
-        arr = arr.T
     return arr.reshape(-1).astype(np.float32)
 
 def main():
@@ -437,7 +438,7 @@ def main():
 
             if _is_asym_algorithm(algo_name):
                 env_core = _get_env_core(env)
-                inferred_priv = _extract_critic_privileged_lidar(env_core)
+                inferred_priv = _extract_critic_privileged_distance_sensor(env_core)
                 setattr(args, "critic_priv_dim", int(np.asarray(inferred_priv).reshape(-1).shape[0]))
             
             # pass seed to agent so it can create its own RNG
@@ -560,7 +561,7 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, ba
             if is_asym_algo:
                 env_core = _get_env_core(env)
                 critic_depth_current = _build_critic_depth_like(env_core, actor_depth_current)
-                critic_priv_current = _extract_critic_privileged_lidar(env_core)
+                critic_priv_current = _extract_critic_privileged_distance_sensor(env_core)
 
             env_core_for_signal = _get_env_core(env)
             success_rate_signal = 0.0
@@ -703,7 +704,7 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, ba
             if is_asym_algo:
                 env_core = _get_env_core(env)
                 critic_depth_next = _build_critic_depth_like(env_core, actor_depth_next)
-                critic_priv_next = _extract_critic_privileged_lidar(env_core)
+                critic_priv_next = _extract_critic_privileged_distance_sensor(env_core)
             
             if is_recurrent:
                 if core_algo_name == 'ST_SVim_TD3':
