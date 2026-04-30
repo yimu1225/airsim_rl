@@ -1,4 +1,4 @@
-"""Asymmetric critic policies for TD3."""
+"""Privileged-learning critic policies for off-policy control."""
 
 from __future__ import annotations
 
@@ -7,11 +7,12 @@ from gymnasium import spaces
 from stable_baselines3.common.policies import ContinuousCritic
 from stable_baselines3.common.preprocessing import get_action_dim
 from stable_baselines3.common.torch_layers import BaseFeaturesExtractor, create_mlp
+from stable_baselines3.sac.policies import SACPolicy
 from stable_baselines3.td3.policies import TD3Policy
 from torch import nn
 
 
-class AsymContinuousCritic(ContinuousCritic):
+class PLContinuousCritic(ContinuousCritic):
     """Critic that appends raw privileged observation features to encoded state features."""
 
     def __init__(
@@ -25,7 +26,7 @@ class AsymContinuousCritic(ContinuousCritic):
         normalize_images: bool = True,
         n_critics: int = 2,
         share_features_extractor: bool = True,
-        privileged_key: str = "base",
+        privileged_key: str = "distance_sensor",
     ) -> None:
         self.privileged_key = privileged_key
         self.privileged_dim = 0
@@ -74,15 +75,27 @@ class AsymContinuousCritic(ContinuousCritic):
         return self.q_networks[0](qvalue_input)
 
 
-class AsymTD3Policy(TD3Policy):
-    """TD3 policy with an asymmetric critic."""
+class PLTD3Policy(TD3Policy):
+    """TD3 policy with a privileged-learning critic."""
 
-    def __init__(self, *args, privileged_key: str = "base", **kwargs) -> None:
+    def __init__(self, *args, privileged_key: str = "distance_sensor", **kwargs) -> None:
         self.privileged_key = privileged_key
         super().__init__(*args, **kwargs)
 
-    def make_critic(self, features_extractor: BaseFeaturesExtractor | None = None) -> AsymContinuousCritic:
+    def make_critic(self, features_extractor: BaseFeaturesExtractor | None = None) -> PLContinuousCritic:
         critic_kwargs = self._update_features_extractor(self.critic_kwargs, features_extractor)
         critic_kwargs.update(privileged_key=self.privileged_key)
-        return AsymContinuousCritic(**critic_kwargs).to(self.device)
+        return PLContinuousCritic(**critic_kwargs).to(self.device)
 
+
+class PLSACPolicy(SACPolicy):
+    """SAC policy with a privileged-learning critic."""
+
+    def __init__(self, *args, privileged_key: str = "distance_sensor", **kwargs) -> None:
+        self.privileged_key = privileged_key
+        super().__init__(*args, **kwargs)
+
+    def make_critic(self, features_extractor: BaseFeaturesExtractor | None = None) -> PLContinuousCritic:
+        critic_kwargs = self._update_features_extractor(self.critic_kwargs, features_extractor)
+        critic_kwargs.update(privileged_key=self.privileged_key)
+        return PLContinuousCritic(**critic_kwargs).to(self.device)

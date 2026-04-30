@@ -56,12 +56,14 @@ from algorithm.ST_SVim_TD3.agent import STSVimTD3Agent
 from algorithm.Mamba_TD3.agent import MambaTD3Agent
 from algorithm.ST_DualVim_TD3.agent import DualBranchVideoMambaTD3Agent
 from algorithm.SAC.agent import SACAgent
+from algorithm.PL_SAC.agent import PLSACAgent
+from algorithm.PL_PER_ST_Vim_SAC.agent import PLPERSTVimSACAgent
 from algorithm.LSTM_SAC.agent import LSTMSACAgent
 from algorithm.ST_Vim_SAC.agent import STVimSACAgent
 from algorithm.PER_ST_Vim_SAC.agent import PERSTVimSACAgent
-from algorithm.TD3_asym.td3_asym import AsymTD3Agent
-from algorithm.PER_TD3_asym.per_td3_asym import AsymPERTD3Agent
-from algorithm.ST_Vim_TD3_asym.agent import AsymSTVimTD3Agent
+from algorithm.PL_TD3.pl_td3 import PLTD3Agent
+from algorithm.PL_PER_TD3.pl_per_td3 import PLPERTD3Agent
+from algorithm.PL_ST_Vim_TD3.agent import PLSTVimTD3Agent
 
 
 
@@ -155,21 +157,23 @@ def get_agent_class(algo_name):
     
     agents = {
         'TD3': TD3Agent,
-        'TD3_asym': AsymTD3Agent,
+        'PL_TD3': PLTD3Agent,
         'DDPG': DDPGAgent,
         'PER_TD3': PERTD3Agent,
-        'PER_TD3_asym': AsymPERTD3Agent,
+        'PL_PER_TD3': PLPERTD3Agent,
         'ST_Vim_TD3': STVimTD3Agent,
         'STV_Patch_TD3': VimPatchTD3Agent,
         'Vim_TD3': VimTD3Agent,
         'ST_Seq_Vim_TD3': StateSeqVimTD3Agent,
         'STV_Seq_Vim_TD3': VimStateSeqTD3Agent,
         'PER_ST_Vim_TD3': PERVimTD3Agent,
-        'ST_Vim_TD3_asym': AsymSTVimTD3Agent,
+        'PL_ST_Vim_TD3': PLSTVimTD3Agent,
         'ST_SVim_TD3': STSVimTD3Agent,
         'Mamba_TD3': MambaTD3Agent,
         'ST_DualVim_TD3': DualBranchVideoMambaTD3Agent,
         'SAC': SACAgent,
+        'PL_SAC': PLSACAgent,
+        'PL_PER_ST_Vim_SAC': PLPERSTVimSACAgent,
         'LSTM_SAC': LSTMSACAgent,
         'ST_Vim_SAC': STVimSACAgent,
         'PER_ST_Vim_SAC': PERSTVimSACAgent,
@@ -231,9 +235,9 @@ def _pause_env_simulation(env):
         print(f"WARNING: failed to pause simulator before training update: {exc}")
 
 
-def _is_asym_algorithm(algo_name: str) -> bool:
+def _is_pl_algorithm(algo_name: str) -> bool:
     core_name = to_internal_core_algorithm_name(algo_name)
-    return core_name in {"TD3_asym", "PER_TD3_asym", "ST_Vim_TD3_asym"}
+    return core_name in {"PL_TD3", "PL_PER_TD3", "PL_ST_Vim_TD3", "PL_SAC", "PL_PER_ST_Vim_SAC"}
 
 
 def _extract_last_depth_frame(depth_tensor):
@@ -389,7 +393,8 @@ def main():
                 'ST_Seq_Vim_TD3',
                 'STV_Seq_Vim_TD3',
                 'PER_ST_Vim_TD3',
-                'ST_Vim_TD3_asym',
+                'PL_ST_Vim_TD3',
+                'PL_PER_ST_Vim_SAC',
                 'ST_SVim_TD3',
                 'ST_DualVim_TD3',
                 'LSTM_SAC',
@@ -436,7 +441,7 @@ def main():
             device = torch.device("cuda" if args.cuda and torch.cuda.is_available() else "cpu")
             AgentClass = get_agent_class(algo_name)
 
-            if _is_asym_algorithm(algo_name):
+            if _is_pl_algorithm(algo_name):
                 env_core = _get_env_core(env)
                 inferred_priv = _extract_critic_privileged_distance_sensor(env_core)
                 setattr(args, "critic_priv_dim", int(np.asarray(inferred_priv).reshape(-1).shape[0]))
@@ -469,7 +474,7 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, ba
     # algo_name 已经包含了 CL- 前缀（如果启用课程学习），直接使用即可
     display_algo_name = algo_name
     core_algo_name = to_internal_core_algorithm_name(algo_name)
-    is_asym_algo = _is_asym_algorithm(algo_name)
+    is_pl_algo = _is_pl_algorithm(algo_name)
     print(f"Start Asynchronous Training {display_algo_name}...")
 
     # Restart interval for refreshing UE4 memory
@@ -558,7 +563,7 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, ba
 
             critic_depth_current = None
             critic_priv_current = None
-            if is_asym_algo:
+            if is_pl_algo:
                 env_core = _get_env_core(env)
                 critic_depth_current = _build_critic_depth_like(env_core, actor_depth_current)
                 critic_priv_current = _extract_critic_privileged_distance_sensor(env_core)
@@ -701,7 +706,7 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, ba
 
             critic_depth_next = None
             critic_priv_next = None
-            if is_asym_algo:
+            if is_pl_algo:
                 env_core = _get_env_core(env)
                 critic_depth_next = _build_critic_depth_like(env_core, actor_depth_next)
                 critic_priv_next = _extract_critic_privileged_distance_sensor(env_core)
@@ -719,7 +724,17 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, ba
                         done_bool,
                         has_collided
                     )
-                elif is_asym_algo:
+                elif is_pl_algo:
+                    add_kwargs = dict(
+                        critic_priv=critic_priv_current,
+                        next_critic_priv=critic_priv_next,
+                        critic_depth=critic_depth_current,
+                        next_critic_depth=critic_depth_next,
+                    )
+                    if core_algo_name == "PL_PER_ST_Vim_SAC":
+                        add_kwargs["is_success"] = (
+                            float(step_info.get("is_success", False)) if isinstance(step_info, dict) else 0.0
+                        )
                     agent.replay_buffer.add(
                         base_for_buffer,
                         depth_seq,
@@ -728,10 +743,7 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, ba
                         next_base_for_buffer,
                         next_depth_seq,
                         done_bool,
-                        critic_priv=critic_priv_current,
-                        next_critic_priv=critic_priv_next,
-                        critic_depth=critic_depth_current,
-                        next_critic_depth=critic_depth_next,
+                        **add_kwargs,
                     )
                 else:
                     add_fn = getattr(agent.replay_buffer, "add", None)
@@ -765,8 +777,8 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, ba
                             done_bool
                         )
             else:
-                if is_asym_algo:
-                    if core_algo_name == "PER_TD3_asym":
+                if is_pl_algo:
+                    if core_algo_name == "PL_PER_TD3":
                         is_success = float(step_info.get("is_success", False)) if isinstance(step_info, dict) else 0.0
                         agent.replay_buffer.add(
                             base,

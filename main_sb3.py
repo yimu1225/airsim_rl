@@ -22,11 +22,14 @@ from stable_baselines3.common.noise import NormalActionNoise
 from algo_name_utils import expand_algorithm_spec, split_curriculum_prefix, to_internal_core_algorithm_name
 from config import get_config
 from sb3_algorithms import (
-    AsymTD3,
     DualVimTD3,
     LSTMSAC,
     MambaTD3,
-    PERAsymTD3,
+    PLPERTD3,
+    PLPERSTVimSAC,
+    PLSAC,
+    PLSTVimTD3,
+    PLTD3,
     PERSAC,
     PERSTVimSAC,
     PERSTVimTD3,
@@ -34,7 +37,6 @@ from sb3_algorithms import (
     STSeqVimTD3,
     STSVimTD3,
     STVSeqVimTD3,
-    STVimAsymTD3,
     STVimPPO,
     STVimSAC,
     STVimTD3,
@@ -67,8 +69,8 @@ SUPPORTED_ALGORITHMS = {
     "SAC": SAC,
     "PPO": PPO,
     "PER_TD3": PERTD3,
-    "PER_TD3_asym": PERAsymTD3,
-    "TD3_asym": AsymTD3,
+    "PL_PER_TD3": PLPERTD3,
+    "PL_TD3": PLTD3,
     "ST_Vim_TD3": STVimTD3,
     "STV_Patch_TD3": VimPatchTD3,
     "Vim_TD3": VimTD3,
@@ -82,7 +84,9 @@ SUPPORTED_ALGORITHMS = {
     "ST_Vim_SAC": STVimSAC,
     "PER_ST_Vim_SAC": PERSTVimSAC,
     "ST_Vim_PPO": STVimPPO,
-    "ST_Vim_TD3_asym": STVimAsymTD3,
+    "PL_ST_Vim_TD3": PLSTVimTD3,
+    "PL_SAC": PLSAC,
+    "PL_PER_ST_Vim_SAC": PLPERSTVimSAC,
 }
 
 NORMALIZED_TO_CANONICAL_ALGORITHM = {name.lower(): name for name in SUPPORTED_ALGORITHMS}
@@ -94,14 +98,16 @@ FEATURE_EXTRACTORS = {
     "SAC": AirSimCNNExtractor,
     "PPO": AirSimCNNExtractor,
     "PER_TD3": AirSimCNNExtractor,
-    "PER_TD3_asym": AirSimCNNExtractor,
-    "TD3_asym": AirSimCNNExtractor,
+    "PL_PER_TD3": AirSimCNNExtractor,
+    "PL_TD3": AirSimCNNExtractor,
+    "PL_SAC": AirSimCNNExtractor,
     "Vim_TD3": VimFeatureExtractor,
     "ST_Vim_TD3": STVimFeatureExtractor,
     "PER_ST_Vim_TD3": STVimFeatureExtractor,
-    "ST_Vim_TD3_asym": STVimFeatureExtractor,
+    "PL_ST_Vim_TD3": STVimFeatureExtractor,
     "ST_Vim_SAC": STVimFeatureExtractor,
     "PER_ST_Vim_SAC": STVimFeatureExtractor,
+    "PL_PER_ST_Vim_SAC": STVimFeatureExtractor,
     "ST_Vim_PPO": STVimFeatureExtractor,
     "ST_Seq_Vim_TD3": STSeqVimFeatureExtractor,
     "STV_Seq_Vim_TD3": STVSeqVimFeatureExtractor,
@@ -112,8 +118,8 @@ FEATURE_EXTRACTORS = {
     "LSTM_SAC": LSTMExtractor,
 }
 
-PER_ALGORITHMS = {"PER_TD3", "PER_TD3_asym", "PER_ST_Vim_TD3", "PER_ST_Vim_SAC"}
-SAC_ALGORITHMS = {"SAC", "LSTM_SAC", "ST_Vim_SAC", "PER_ST_Vim_SAC"}
+PER_ALGORITHMS = {"PER_TD3", "PL_PER_TD3", "PER_ST_Vim_TD3", "PER_ST_Vim_SAC", "PL_PER_ST_Vim_SAC"}
+SAC_ALGORITHMS = {"SAC", "LSTM_SAC", "ST_Vim_SAC", "PER_ST_Vim_SAC", "PL_SAC", "PL_PER_ST_Vim_SAC"}
 PPO_ALGORITHMS = {"PPO", "ST_Vim_PPO"}
 
 

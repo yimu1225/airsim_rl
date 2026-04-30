@@ -21,7 +21,7 @@ class AirSimBaseExtractor(BaseFeaturesExtractor):
     Base extractor for AirSim dict observations.
 
     Expected observation format:
-      {"depth": (..., H, W), "base": (base_dim,)}
+      {"depth": (..., H, W), "base": (base_dim,), ...}
 
     Leading depth dimensions are flattened into CNN channels, so both
     (T, H, W) and (T, C, H, W) can be consumed by channel-first CNN backbones.
@@ -133,4 +133,3 @@ class AirSimBaseExtractor(BaseFeaturesExtractor):
         vision_features = self.vision_net(depth)
         base_features = self.base_net(base)
         return th.cat((vision_features, base_features), dim=1)
-

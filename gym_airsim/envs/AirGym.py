@@ -148,11 +148,43 @@ class AirSimEnv(gym.Env):
         except Exception as e:
             print(f"WARNING: Failed to get depth sample during init, falling back to 128x128: {e}")
             STATE_DEPTH_H, STATE_DEPTH_W = 128, 128
+
+        self.enable_takeoff_obstacle_check = bool(config.enable_takeoff_obstacle_check)
+        self.takeoff_obstacle_reset_retries = max(0, int(config.takeoff_obstacle_reset_retries))
+        self.distance_sensor_count = max(1, int(config.distance_sensor_count))
+        self.distance_sensor_prefix = str(config.distance_sensor_prefix).strip()
+        self.distance_sensor_start_index = int(config.distance_sensor_start_index)
+        self.distance_sensor_names = self.airgym._resolve_distance_sensor_names(
+            sensor_names=config.distance_sensor_names,
+            sensor_prefix=self.distance_sensor_prefix,
+            sensor_count=self.distance_sensor_count,
+            start_index=self.distance_sensor_start_index,
+        )
+        self.distance_sensor_count = len(self.distance_sensor_names)
+        self.distance_sensor_log_penalty_weight = float(config.distance_sensor_log_penalty_weight)
+        self.distance_sensor_log_penalty_min = float(config.distance_sensor_log_penalty_min)
+        self.distance_sensor_penalty_eps = max(1e-6, float(config.distance_sensor_penalty_eps))
+        self.distance_sensor_query_max_attempts = max(1, int(config.distance_sensor_query_max_attempts))
+        self.distance_sensor_query_retry_sleep = max(0.0, float(config.distance_sensor_query_retry_sleep))
+        self.last_distance_sensor_obstacle_penalty = 0.0
+        self.last_distance_sensor_max_distance = np.ones((self.distance_sensor_count,), dtype=np.float32)
+        self.last_distance_sensor_scan_distance = np.full(
+            (self.distance_sensor_count,),
+            1.0,
+            dtype=np.float32,
+        )
+        self.distance_sensor_read_fail_count = 0
         
         self.depth_shape = (self.stack_frames, STATE_DEPTH_H, STATE_DEPTH_W)
         self.observation_space = spaces.Dict({
             "depth": spaces.Box(low=np.float32(0), high=np.float32(255), shape=self.depth_shape, dtype=np.float32),
-            "base": spaces.Box(low=-np.inf, high=np.inf, shape=(self.base_dim,), dtype=np.float32)
+            "base": spaces.Box(low=-np.inf, high=np.inf, shape=(self.base_dim,), dtype=np.float32),
+            "distance_sensor": spaces.Box(
+                low=0.0,
+                high=np.inf,
+                shape=(self.distance_sensor_count,),
+                dtype=np.float32,
+            ),
         })
 
         # 动作持续时间使用仿真时间，不再跟 AirSim ClockSpeed 绑定。
@@ -183,32 +215,6 @@ class AirSimEnv(gym.Env):
         self._last_window_check_ts = 0.0
         self._cached_process_alive = True
         self._cached_window_alive = None
-
-        self.enable_takeoff_obstacle_check = bool(config.enable_takeoff_obstacle_check)
-        self.takeoff_obstacle_reset_retries = max(0, int(config.takeoff_obstacle_reset_retries))
-        self.distance_sensor_count = max(1, int(config.distance_sensor_count))
-        self.distance_sensor_prefix = str(config.distance_sensor_prefix).strip()
-        self.distance_sensor_start_index = int(config.distance_sensor_start_index)
-        self.distance_sensor_names = self.airgym._resolve_distance_sensor_names(
-            sensor_names=config.distance_sensor_names,
-            sensor_prefix=self.distance_sensor_prefix,
-            sensor_count=self.distance_sensor_count,
-            start_index=self.distance_sensor_start_index,
-        )
-        self.distance_sensor_count = len(self.distance_sensor_names)
-        self.distance_sensor_log_penalty_weight = float(config.distance_sensor_log_penalty_weight)
-        self.distance_sensor_log_penalty_min = float(config.distance_sensor_log_penalty_min)
-        self.distance_sensor_penalty_eps = max(1e-6, float(config.distance_sensor_penalty_eps))
-        self.distance_sensor_query_max_attempts = max(1, int(config.distance_sensor_query_max_attempts))
-        self.distance_sensor_query_retry_sleep = max(0.0, float(config.distance_sensor_query_retry_sleep))
-        self.last_distance_sensor_obstacle_penalty = 0.0
-        self.last_distance_sensor_max_distance = np.ones((self.distance_sensor_count,), dtype=np.float32)
-        self.last_distance_sensor_scan_distance = np.full(
-            (self.distance_sensor_count,),
-            1.0,
-            dtype=np.float32,
-        )
-        self.distance_sensor_read_fail_count = 0
 
         # Initialize previous action for jerk penalty calculation
         if hasattr(self.action_space, 'shape') and self.action_space.shape:
@@ -370,7 +376,8 @@ class AirSimEnv(gym.Env):
         depth_stack_np = np.array(self.depth_stack, dtype=np.float32)
         return {
             "depth": depth_stack_np,
-            "base": inform
+            "base": inform,
+            "distance_sensor": np.asarray(self.last_distance_sensor_scan_distance, dtype=np.float32).reshape(-1),
         }
 
     def _get_zero_depth(self):
