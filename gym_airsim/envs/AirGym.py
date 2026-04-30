@@ -607,13 +607,14 @@ class AirSimEnv(gym.Env):
         r = 2 * reward_vel 
 
         # NavRL-style smoothness penalty: ||v_t - v_{t-1}||
+        smooth_penalty_weight = 0.1
         if velocity_after is not None:
             curr_v = np.asarray(velocity_after, dtype=np.float32)
             prev_v = np.asarray(self.prev_velocity, dtype=np.float32)
-            smooth_penalty = float(np.linalg.norm(curr_v - prev_v))
+            smooth_penalty = smooth_penalty_weight * float(np.linalg.norm(curr_v - prev_v))
         else:
             smooth_penalty = 0.0
-        smooth_penalty_weight = 0.1
+        
 
         # Curvature penalty with speed gating and angle deadzone.
         curvature_penalty = 0.0
@@ -640,18 +641,17 @@ class AirSimEnv(gym.Env):
             stagnation_penalty = max(0.0, self.stagnation_window_threshold - total_displacement) * self.stagnation_weight
 
         # Add penalties to reward
-        r -= smooth_penalty * smooth_penalty_weight  + step_penalty 
+        r -= smooth_penalty  + step_penalty + stagnation_penalty
 
         distance_sensor_penalty = self._compute_distance_sensor_log_penalty(
             self.last_distance_sensor_scan_distance,
             self.last_distance_sensor_max_distance,
         )
-        self.last_distance_sensor_obstacle_penalty = float(distance_sensor_penalty)
-        r += 10 * float(distance_sensor_penalty)
-        print(f"Reward components: r_vel={reward_vel:.3f}, distance_penalty={distance_penalty:.3f}, "
-              f"smooth_penalty={smooth_penalty:.3f}, curvature_penalty={curvature_penalty:.3f}, step_penalty={step_penalty:.3f}, "
-              f"stagnation_penalty={stagnation_penalty:.3f}, distance_sensor_penalty={distance_sensor_penalty:.3f}, total_reward={r:.3f}")
-    
+        self.last_distance_sensor_obstacle_penalty = 10 * float(distance_sensor_penalty)
+        r += self.last_distance_sensor_obstacle_penalty
+        print(f"Reward components: r_vel={reward_vel:.3f},  "
+              f"smooth_penalty={smooth_penalty:.3f},  step_penalty={step_penalty:.3f}, "
+              f"distance_sensor_penalty={distance_sensor_penalty:.3f}, total_reward={r:.3f}")    
          
 
         return r
