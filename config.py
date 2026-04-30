@@ -46,7 +46,7 @@ def get_config(argv=None):
     parser.add_argument("--seed", type=str, default="5", help="随机种子 (支持逗号分隔多个种子)")
     parser.add_argument("--curriculum_start_level", type=int, default=0, choices=[0, 1, 2, 3], help="课程学习起始等级 (0-3, 默认: 0)。注意：算法名以 'CL-' 前缀开头时自动启用课程学习")
     parser.add_argument("--non_curriculum_level", type=int, default=2, choices=[0, 1, 2, 3], help="非课程学习时的固定难度等级 (0-3, 默认: 3)")
-    parser.add_argument("--steps_per_update", type=int, default=200, help='每次更新前收集的步数')
+    parser.add_argument("--steps_per_update", type=int, default=100, help='每次更新前收集的步数')
     parser.add_argument("--cuda", action='store_false', default=True, help="是否使用CUDA")
     parser.add_argument("--cuda_deterministic", action='store_false', default=True, help="CUDA是否确定性")
     parser.add_argument("--n_training_threads", type=int, default=1, help="训练线程数")
@@ -54,7 +54,7 @@ def get_config(argv=None):
     parser.add_argument("--max_timesteps", type=int, default=100000, help='要训练的环境步数 (默认: 10e6)')
     parser.add_argument("--buffer_size", type=int, default=30000, help='经验池大小 (注意内存占用: 30000步约占用4GB)')
     parser.add_argument("--learning_starts", type=int, default=2000, help="训练开始前的时间步数 (兼容 start_timesteps)")
-    parser.add_argument("--gradient_steps", type=float, default=1.0, help="每次收集数据后的梯度更新倍数")
+    parser.add_argument("--gradient_steps", type=float, default=0.5, help="每次收集数据后的梯度更新倍数")
     parser.add_argument("--episode_length", type=int, default=300, help='每个环境中的最大回合长度')
     parser.add_argument("--eval_freq", type=int, default=5000, help="评估频率")
     parser.add_argument("--hidden_dim", type=int, default=256, help="隐藏层维度")
@@ -72,7 +72,7 @@ def get_config(argv=None):
     parser.add_argument("--grad_clip", type=float, default=1e6, help="梯度裁剪")
 
     # 可视化 (Visualization)
-    parser.add_argument("--render_window", action='store_true', default=True, help="显示实时可视化窗口 (默认开启，可用 --no-render_window 关闭)")
+    parser.add_argument("--render_window", action='store_true', default=False, help="显示实时可视化窗口 (默认开启，可用 --no-render_window 关闭)")
     parser.add_argument("--depth_view_scale", type=float, default=2.5, help="深度图显示窗口放大倍数")
     
     
