@@ -255,204 +255,205 @@ class AirLearningClient(object):
 
         raise RuntimeError(f"getScreenDepth failed after {max_attempts} attempts")
 
-    def get_lidar_min_distance(self, lidar_name="", max_attempts=3, retry_sleep=0.1):
-        """
-        使用激光雷达点云估计无人机周围四个方向的最近障碍距离（米）。
+    def _resolve_distance_sensor_names(
+        self,
+        sensor_names=None,
+        sensor_prefix="DistanceSensor",
+        sensor_count=36,
+        start_index=0,
+    ):
+        if isinstance(sensor_names, str):
+            names = [name.strip() for name in sensor_names.split(",") if name.strip()]
+        elif sensor_names is None:
+            names = []
+        else:
+            names = [str(name).strip() for name in sensor_names if str(name).strip()]
 
-        Args:
-            lidar_name (str): 雷达名称。空字符串时使用默认雷达。
-            max_attempts (int): RPC 重试次数。
-            retry_sleep (float): 重试间隔秒数。
+        if names:
+            return names
+
+        sensor_count = max(1, int(sensor_count))
+        start_index = int(start_index)
+        sensor_prefix = str(sensor_prefix).strip() or "DistanceSensor"
+        return [f"{sensor_prefix}{idx}" for idx in range(start_index, start_index + sensor_count)]
+
+    @staticmethod
+    def _extract_distance_sensor_field(sensor_data, field_name, default=None):
+        if isinstance(sensor_data, dict):
+            value = sensor_data.get(field_name, sensor_data.get(field_name.encode("utf-8")))
+        else:
+            value = getattr(sensor_data, field_name, None)
+        if value is None:
+            if default is not None:
+                return float(default)
+            raise RuntimeError(f"distance sensor response has no {field_name} field")
+        return float(value)
+
+    @staticmethod
+    def _extract_distance_sensor_distance(sensor_data):
+        return AirLearningClient._extract_distance_sensor_field(sensor_data, "distance")
+
+    def _get_distance_sensor_data(self, sensor_name, vehicle_name="SimpleFlight"):
+        if hasattr(self.client, "getDistanceSensorData"):
+            try:
+                return self.client.getDistanceSensorData(
+                    distance_sensor_name=sensor_name,
+                    vehicle_name=vehicle_name,
+                )
+            except TypeError:
+                return self.client.getDistanceSensorData(sensor_name, vehicle_name)
+        return self.client.client.call("getDistanceSensorData", sensor_name, vehicle_name)
+
+    def get_distance_sensor_scan(
+        self,
+        sensor_names=None,
+        sensor_prefix="DistanceSensor",
+        sensor_count=36,
+        start_index=0,
+        max_range_m=None,
+        max_attempts=3,
+        retry_sleep=0.1,
+    ):
+        """
+        读取无人机所在水平面内均匀分布的距离传感器。
+
+        默认名称为 DistanceSensor0..DistanceSensor35；如 settings.json 使用不同命名，
+        可通过 sensor_names 传入逗号分隔或列表形式的名称。
+
+        Returns:
+            tuple:
+              - scan_distance_m: shape [N]，每个传感器测距(米)
+              - meta: 包含传感器名称和默认均匀方位角
+        """
+        fallback_max_range_m = 15.0 if max_range_m is None else max(0.1, float(max_range_m))
+        max_attempts = max(1, int(max_attempts))
+        names = self._resolve_distance_sensor_names(
+            sensor_names=sensor_names,
+            sensor_prefix=sensor_prefix,
+            sensor_count=sensor_count,
+            start_index=start_index,
+        )
+
+        last_err = None
+        for attempt in range(1, max_attempts + 1):
+            distances = []
+            max_ranges = []
+            try:
+                for name in names:
+                    sensor_data = self._get_distance_sensor_data(name)
+                    distance = self._extract_distance_sensor_distance(sensor_data)
+                    sensor_max_range = self._extract_distance_sensor_field(
+                        sensor_data,
+                        "max_distance",
+                        default=fallback_max_range_m,
+                    )
+                    sensor_max_range = max(0.1, float(sensor_max_range))
+                    if not np.isfinite(distance) or distance <= 0.0:
+                        distance = sensor_max_range
+                    distances.append(float(np.clip(distance, 0.0, sensor_max_range)))
+                    max_ranges.append(sensor_max_range)
+            except Exception as e:
+                last_err = e
+                if attempt < max_attempts:
+                    print(f"get_distance_sensor_scan RPC error (attempt {attempt}/{max_attempts}): {e}, retrying...")
+                    time.sleep(retry_sleep)
+                    continue
+                raise RuntimeError(f"get_distance_sensor_scan failed after {max_attempts} attempts: {e}") from e
+
+            scan_distance = np.asarray(distances, dtype=np.float32)
+            max_ranges = np.asarray(max_ranges, dtype=np.float32)
+            yaw_centers = np.arange(len(names), dtype=np.float32) * (360.0 / max(1, len(names)))
+            meta = {
+                "sensor_names": names,
+                "yaw_centers_deg": yaw_centers,
+                "max_ranges_m": max_ranges,
+            }
+            return scan_distance, meta
+
+        raise RuntimeError(f"get_distance_sensor_scan failed after {max_attempts} attempts: {last_err}")
+
+    def get_distance_sensor_min_distance(
+        self,
+        sensor_names=None,
+        sensor_prefix="DistanceSensor",
+        sensor_count=36,
+        start_index=0,
+        max_range_m=None,
+        max_attempts=3,
+        retry_sleep=0.1,
+    ):
+        """
+        使用平面距离传感器估计周围四个方向的最近障碍距离（米）。
 
         Returns:
             tuple: (global_min_distance_m, per_direction_min_distance_dict)
         """
-        max_attempts = max(1, int(max_attempts))
+        scan_distance, meta = self.get_distance_sensor_scan(
+            sensor_names=sensor_names,
+            sensor_prefix=sensor_prefix,
+            sensor_count=sensor_count,
+            start_index=start_index,
+            max_range_m=max_range_m,
+            max_attempts=max_attempts,
+            retry_sleep=retry_sleep,
+        )
 
-        for attempt in range(1, max_attempts + 1):
-            try:
-                lidar_data = self.client.getLidarData(lidar_name=lidar_name, vehicle_name='SimpleFlight')
-            except Exception as e:
-                if attempt < max_attempts:
-                    print(f"get_lidar_min_distance RPC error (attempt {attempt}/{max_attempts}): {e}, retrying...")
-                    time.sleep(retry_sleep)
-                    continue
-                raise RuntimeError(f"get_lidar_min_distance failed after {max_attempts} attempts: {e}") from e
+        yaws = np.asarray(meta["yaw_centers_deg"], dtype=np.float32)
+        wrapped = ((yaws + 180.0) % 360.0) - 180.0
+        masks = {
+            "front": np.abs(wrapped) < 45.0,
+            "right": np.logical_and(wrapped >= 45.0, wrapped < 135.0),
+            "back": np.abs(wrapped) >= 135.0,
+            "left": np.logical_and(wrapped <= -45.0, wrapped > -135.0),
+        }
 
-            point_cloud = np.array(lidar_data.point_cloud, dtype=np.float32)
-            if point_cloud.size < 3:
-                if attempt < max_attempts:
-                    print(f"get_lidar_min_distance empty point cloud (attempt {attempt}/{max_attempts}), retrying...")
-                    time.sleep(retry_sleep)
-                    continue
-                raise RuntimeError("get_lidar_min_distance failed: empty point cloud")
+        per_direction = {}
+        for direction, mask in masks.items():
+            if np.any(mask):
+                per_direction[direction] = float(np.min(scan_distance[mask]))
 
-            points = point_cloud.reshape(-1, 3)
-            points = points[np.isfinite(points).all(axis=1)]
-            if points.shape[0] == 0:
-                if attempt < max_attempts:
-                    print(f"get_lidar_min_distance invalid point cloud (attempt {attempt}/{max_attempts}), retrying...")
-                    time.sleep(retry_sleep)
-                    continue
-                raise RuntimeError("get_lidar_min_distance failed: invalid point cloud")
-
-            xy = points[:, :2]
-            distances = np.linalg.norm(points, axis=1)
-            angles = np.degrees(np.arctan2(xy[:, 1], xy[:, 0]))
-
-            masks = {
-                "front": np.logical_and(angles >= -45.0, angles < 45.0),
-                "right": np.logical_and(angles >= 45.0, angles < 135.0),
-                "left": np.logical_and(angles >= -135.0, angles < -45.0),
-                "back": np.logical_or(angles >= 135.0, angles < -135.0),
+        max_ranges = np.asarray(meta.get("max_ranges_m", []), dtype=np.float32)
+        fallback_max_range = float(np.max(max_ranges)) if max_ranges.size else 15.0
+        global_min = float(np.min(scan_distance)) if scan_distance.size else fallback_max_range
+        if len(per_direction) == 0:
+            per_direction = {
+                "front": global_min,
+                "right": global_min,
+                "back": global_min,
+                "left": global_min,
             }
 
-            per_direction = {}
-            for direction, mask in masks.items():
-                if np.any(mask):
-                    per_direction[direction] = float(np.min(distances[mask]))
+        return global_min, per_direction, meta
 
-            if len(per_direction) == 0:
-                # 回退：若方位划分后为空，直接使用全局最小距离。
-                global_min = float(np.min(distances))
-                per_direction = {
-                    "front": global_min,
-                    "right": global_min,
-                    "back": global_min,
-                    "left": global_min,
-                }
-            else:
-                global_min = min(per_direction.values())
-
-            return global_min, per_direction
-
-        raise RuntimeError(f"get_lidar_min_distance failed after {max_attempts} attempts")
-
-    def get_lidar_scan_grid(
+    def is_obstacle_too_close_distance_sensor(
         self,
-        lidar_name="",
-        horizontal_bins=36,
-        vertical_bins=3,
-        vfov_min_deg=-10.0,
-        vfov_max_deg=20.0,
-        max_range_m=15.0,
+        threshold_m=None,
+        sensor_names=None,
+        sensor_prefix="DistanceSensor",
+        sensor_count=36,
+        start_index=0,
+        max_range_m=None,
         max_attempts=3,
         retry_sleep=0.1,
     ):
         """
-        将激光雷达点云按方位角/俯仰角离散成固定束网格，类似 NavRL 的 36xN 表达。
-
-        Returns:
-            tuple:
-              - scan_distance_m: shape [horizontal_bins, vertical_bins]，每束最小距离(米)
-              - meta: 包含方位/俯仰中心角等信息
-        """
-        horizontal_bins = max(4, int(horizontal_bins))
-        vertical_bins = max(1, int(vertical_bins))
-        max_range_m = max(0.1, float(max_range_m))
-        max_attempts = max(1, int(max_attempts))
-
-        vmin = float(min(vfov_min_deg, vfov_max_deg))
-        vmax = float(max(vfov_min_deg, vfov_max_deg))
-        if abs(vmax - vmin) < 1e-6:
-            vmin -= 1.0
-            vmax += 1.0
-
-        for attempt in range(1, max_attempts + 1):
-            try:
-                lidar_data = self.client.getLidarData(lidar_name=lidar_name, vehicle_name='SimpleFlight')
-            except Exception as e:
-                if attempt < max_attempts:
-                    print(f"get_lidar_scan_grid RPC error (attempt {attempt}/{max_attempts}): {e}, retrying...")
-                    time.sleep(retry_sleep)
-                    continue
-                raise RuntimeError(f"get_lidar_scan_grid failed after {max_attempts} attempts: {e}") from e
-
-            point_cloud = np.array(lidar_data.point_cloud, dtype=np.float32)
-            if point_cloud.size < 3:
-                if attempt < max_attempts:
-                    print(f"get_lidar_scan_grid empty point cloud (attempt {attempt}/{max_attempts}), retrying...")
-                    time.sleep(retry_sleep)
-                    continue
-                raise RuntimeError("get_lidar_scan_grid failed: empty point cloud")
-
-            points = point_cloud.reshape(-1, 3)
-            points = points[np.isfinite(points).all(axis=1)]
-            if points.shape[0] == 0:
-                if attempt < max_attempts:
-                    print(f"get_lidar_scan_grid invalid point cloud (attempt {attempt}/{max_attempts}), retrying...")
-                    time.sleep(retry_sleep)
-                    continue
-                raise RuntimeError("get_lidar_scan_grid failed: invalid point cloud")
-
-            x = points[:, 0]
-            y = points[:, 1]
-            z = points[:, 2]
-            xy_norm = np.sqrt(x * x + y * y)
-            distances = np.sqrt(x * x + y * y + z * z)
-            valid = np.isfinite(distances) & (distances > 1e-4)
-            if not np.any(valid):
-                if attempt < max_attempts:
-                    print(f"get_lidar_scan_grid no valid points (attempt {attempt}/{max_attempts}), retrying...")
-                    time.sleep(retry_sleep)
-                    continue
-                raise RuntimeError("get_lidar_scan_grid failed: no valid points")
-
-            x = x[valid]
-            y = y[valid]
-            z = z[valid]
-            xy_norm = xy_norm[valid]
-            distances = np.clip(distances[valid], 0.0, max_range_m)
-
-            azimuth = np.degrees(np.arctan2(y, x))  # [-180, 180]
-            elevation = np.degrees(np.arctan2(z, np.maximum(xy_norm, 1e-6)))
-
-            h_idx = np.floor((azimuth + 180.0) * (horizontal_bins / 360.0)).astype(np.int32)
-            h_idx = np.clip(h_idx, 0, horizontal_bins - 1)
-
-            v_idx = np.floor((elevation - vmin) * (vertical_bins / (vmax - vmin))).astype(np.int32)
-            v_valid = (v_idx >= 0) & (v_idx < vertical_bins)
-            if not np.any(v_valid):
-                # 全部超出垂直FOV，返回全max_range网格。
-                scan_distance = np.full((horizontal_bins, vertical_bins), max_range_m, dtype=np.float32)
-            else:
-                h_idx = h_idx[v_valid]
-                v_idx = v_idx[v_valid]
-                d = distances[v_valid].astype(np.float32)
-
-                scan_distance = np.full((horizontal_bins, vertical_bins), max_range_m, dtype=np.float32)
-                np.minimum.at(scan_distance, (h_idx, v_idx), d)
-
-            az_centers = -180.0 + (np.arange(horizontal_bins, dtype=np.float32) + 0.5) * (360.0 / horizontal_bins)
-            el_centers = vmin + (np.arange(vertical_bins, dtype=np.float32) + 0.5) * ((vmax - vmin) / vertical_bins)
-            meta = {
-                "azimuth_centers_deg": az_centers,
-                "elevation_centers_deg": el_centers,
-                "vfov_min_deg": vmin,
-                "vfov_max_deg": vmax,
-            }
-            return scan_distance, meta
-
-        raise RuntimeError(f"get_lidar_scan_grid failed after {max_attempts} attempts")
-
-    def is_obstacle_too_close_lidar(
-        self,
-        threshold_m=3.0,
-        lidar_name="",
-        max_attempts=3,
-        retry_sleep=0.1,
-    ):
-        """
-        使用激光雷达检查周围障碍距离是否低于阈值。
+        使用距离传感器检查周围障碍距离是否低于阈值。
 
         Returns:
             tuple: (is_too_close, global_min_distance_m, per_direction_min_distance_dict)
         """
-        min_distance, per_direction = self.get_lidar_min_distance(
-            lidar_name=lidar_name,
+        min_distance, per_direction, meta = self.get_distance_sensor_min_distance(
+            sensor_names=sensor_names,
+            sensor_prefix=sensor_prefix,
+            sensor_count=sensor_count,
+            start_index=start_index,
+            max_range_m=max_range_m,
             max_attempts=max_attempts,
             retry_sleep=retry_sleep,
         )
+        if threshold_m is None:
+            max_ranges = np.asarray(meta.get("max_ranges_m", []), dtype=np.float32)
+            threshold_m = float(np.max(max_ranges)) if max_ranges.size else 15.0
         return min_distance < float(threshold_m), min_distance, per_direction
 
 
