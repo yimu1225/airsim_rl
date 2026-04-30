@@ -37,10 +37,10 @@ class DualVimTD3(TD3):
     pass
 
 
-class STVimAsymTD3(TD3):
+class PLSTVimTD3(TD3):
     def __init__(self, policy="MultiInputPolicy", *args, **kwargs) -> None:
-        from sb3_extensions.policies import AsymTD3Policy
+        from sb3_extensions.policies import PLTD3Policy
 
         if policy == "MultiInputPolicy":
-            policy = AsymTD3Policy
+            policy = PLTD3Policy
         super().__init__(policy, *args, **kwargs)

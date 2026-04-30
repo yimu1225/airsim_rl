@@ -21,9 +21,11 @@ _CANONICAL_ALGORITHMS: Tuple[str, ...] = (
     "PER_ST_Vim_SAC",
     "PPO",
     "ST_Vim_PPO",
-    "TD3_asym",
-    "PER_TD3_asym",
-    "ST_Vim_TD3_asym",
+    "PL_TD3",
+    "PL_PER_TD3",
+    "PL_ST_Vim_TD3",
+    "PL_SAC",
+    "PL_PER_ST_Vim_SAC",
 )
 
 ALGORITHM_GROUPS: Dict[str, List[str]] = {
@@ -46,17 +48,20 @@ ALGORITHM_GROUPS: Dict[str, List[str]] = {
         "PER_ST_Vim_SAC",
         "PPO",
         "ST_Vim_PPO",
-        "TD3_asym",
-        "PER_TD3_asym",
-        "ST_Vim_TD3_asym",
+        "PL_TD3",
+        "PL_PER_TD3",
+        "PL_ST_Vim_TD3",
+        "PL_SAC",
+        "PL_PER_ST_Vim_SAC",
     ],
     "base": [
         "TD3",
         "DDPG",
         "PER_TD3",
         "SAC",
-        "TD3_asym",
-        "PER_TD3_asym",
+        "PL_TD3",
+        "PL_PER_TD3",
+        "PL_SAC",
     ],
     "seq": [
         "ST_Vim_TD3",
@@ -68,10 +73,11 @@ ALGORITHM_GROUPS: Dict[str, List[str]] = {
         "ST_SVim_TD3",
         "Mamba_TD3",
         "ST_DualVim_TD3",
-        "ST_Vim_TD3_asym",
+        "PL_ST_Vim_TD3",
         "LSTM_SAC",
         "ST_Vim_SAC",
         "PER_ST_Vim_SAC",
+        "PL_PER_ST_Vim_SAC",
     ],
 }
 

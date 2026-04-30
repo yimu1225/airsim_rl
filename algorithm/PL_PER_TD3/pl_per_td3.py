@@ -4,11 +4,12 @@ import torch.nn.functional as F
 from torch.optim import Adam
 
 from ..state_adapter import StateAdapter
+from ..config_loader import get_algo_param
+from .buffer import DualPrioritizedReplayBuffer
 from .networks import Actor, Critic, Encoder
-from .buffer import ReplayBuffer
 
 
-class AsymTD3Agent:
+class PLPERTD3Agent:
     def __init__(self, base_dim: int, depth_shape, action_space, args, device=None, seed=None):
         self.device = torch.device(device if device is not None else ("cuda" if torch.cuda.is_available() else "cpu"))
         self.rng = np.random.default_rng(seed)
@@ -25,9 +26,7 @@ class AsymTD3Agent:
                 getattr(args, "distance_sensor_count", 36),
             )
         )
-        self.critic_priv_feature_dim = int(getattr(args, "critic_priv_feature_dim", 64))
-
-        self.depth_shape = depth_shape  # (C, H, W)
+        self.depth_shape = depth_shape
         self.action_dim = action_space.shape[0]
         self.max_action = np.array(action_space.high, dtype=np.float32)
         self.min_action = np.array(action_space.low, dtype=np.float32)
@@ -42,7 +41,6 @@ class AsymTD3Agent:
         self.grad_clip = getattr(args, "grad_clip", 1.0)
 
         C, depth_h, depth_w = depth_shape
-
         self.actor_encoder = Encoder(input_height=depth_h, input_width=depth_w, input_channels=C).to(self.device)
         self.critic_encoder = Encoder(input_height=depth_h, input_width=depth_w, input_channels=C).to(self.device)
 
@@ -54,7 +52,6 @@ class AsymTD3Agent:
 
         self.actor_base_adapter = StateAdapter(self.base_dim, self.base_feature_dim).to(self.device)
         self.critic_base_adapter = StateAdapter(self.base_dim, self.base_feature_dim).to(self.device)
-        self.critic_priv_adapter = StateAdapter(self.critic_priv_dim, self.critic_priv_feature_dim).to(self.device)
 
         self.actor_base_adapter_target = StateAdapter(self.base_dim, self.base_feature_dim).to(self.device)
         self.actor_base_adapter_target.load_state_dict(self.actor_base_adapter.state_dict())
@@ -62,11 +59,8 @@ class AsymTD3Agent:
         self.critic_base_adapter_target = StateAdapter(self.base_dim, self.base_feature_dim).to(self.device)
         self.critic_base_adapter_target.load_state_dict(self.critic_base_adapter.state_dict())
 
-        self.critic_priv_adapter_target = StateAdapter(self.critic_priv_dim, self.critic_priv_feature_dim).to(self.device)
-        self.critic_priv_adapter_target.load_state_dict(self.critic_priv_adapter.state_dict())
-
         self.actor_state_dim = self.base_feature_dim + self.actor_encoder.repr_dim
-        self.critic_state_dim = self.base_feature_dim + self.critic_encoder.repr_dim + self.critic_priv_feature_dim
+        self.critic_state_dim = self.base_feature_dim + self.critic_encoder.repr_dim + self.critic_priv_dim
 
         self.actor = Actor(self.actor_state_dim, action_space.shape, args.hidden_dim).to(self.device)
         self.actor_target = Actor(self.actor_state_dim, action_space.shape, args.hidden_dim).to(self.device)
@@ -87,11 +81,17 @@ class AsymTD3Agent:
             list(self.critic.parameters())
             + list(self.critic_encoder.parameters())
             + list(self.critic_base_adapter.parameters())
-            + list(self.critic_priv_adapter.parameters())
         )
         self.critic_optimizer = Adam(self.critic_params, lr=args.critic_lr)
 
-        self.replay_buffer = ReplayBuffer(args.buffer_size, seed=seed)
+        self.replay_buffer = DualPrioritizedReplayBuffer(
+            capacity=args.buffer_size,
+            success_capacity_ratio=get_algo_param(args, "per_td3_success_capacity_ratio", 0.3),
+            success_sample_ratio=float(get_algo_param(args, "per_td3_mu_low", 0.15)),
+            alpha=get_algo_param(args, "per_td3_alpha", 0.6),
+            eps=get_algo_param(args, "per_td3_priority_eps", 1e-6),
+            seed=seed,
+        )
 
         self.gamma = args.gamma
         self.tau = args.tau
@@ -100,9 +100,45 @@ class AsymTD3Agent:
         self.policy_freq = args.policy_freq
         self.batch_size = args.batch_size
 
+        self.per_beta_start = get_algo_param(args, "per_td3_beta_start", 0.4)
+        self.per_beta_final = get_algo_param(args, "per_td3_beta_final", 1.0)
+
+        # Staircase schedule for success-prioritized sampling ratio mu.
+        self.mu_low = float(get_algo_param(args, "per_td3_mu_low", 0.15))
+        self.mu_mid = float(get_algo_param(args, "per_td3_mu_mid", 0.30))
+        self.mu_high = float(get_algo_param(args, "per_td3_mu_high", 0.45))
+        self.mu_step1 = float(get_algo_param(args, "per_td3_mu_step1", 0.25))
+        self.mu_step2 = float(get_algo_param(args, "per_td3_mu_step2", 0.65))
+
         self.exploration_noise = args.exploration_noise
 
+        # Optional sync mode for debugging asynchronous CUDA failures.
+        self.cuda_sync_debug = bool(getattr(args, "cuda_sync_debug", False))
+
         self.total_it = 0
+
+    def _sync_cuda(self, stage: str):
+        if self.device.type != "cuda":
+            return
+        if not self.cuda_sync_debug:
+            return
+        try:
+            torch.cuda.synchronize(self.device)
+        except RuntimeError as exc:
+            raise RuntimeError(f"CUDA failure during PER-TD3 stage '{stage}': {exc}") from exc
+
+    @staticmethod
+    def _ensure_finite(tensor: torch.Tensor, name: str):
+        if not torch.isfinite(tensor).all():
+            raise RuntimeError(f"Non-finite tensor detected in PER-TD3: {name}")
+
+    @staticmethod
+    def _to_float(value):
+        if isinstance(value, torch.Tensor):
+            if value.numel() != 1:
+                value = value.mean()
+            return float(value.detach().cpu().item())
+        return float(value)
 
     def _encode(self, depth_batch: torch.Tensor, encoder_net) -> torch.Tensor:
         if depth_batch.dim() == 3:
@@ -142,18 +178,30 @@ class AsymTD3Agent:
         priv: torch.Tensor,
         encoder_net,
         base_adapter,
-        priv_adapter,
         detach_encoder: bool = False,
     ) -> torch.Tensor:
         base_features = base_adapter(base)
         depth_features = self._encode(depth, encoder_net)
         if detach_encoder:
             depth_features = depth_features.detach()
-        priv_features = priv_adapter(self._prepare_priv(priv))
-        return torch.cat([base_features, depth_features, priv_features], dim=1)
+        return torch.cat([base_features, depth_features, self._prepare_priv(priv)], dim=1)
 
     def _get_current_noise(self, progress_ratio: float) -> float:
         return max(float(self.exploration_noise), 1e-8)
+    def _get_current_beta(self, progress_ratio: float) -> float:
+        p = float(np.clip(progress_ratio, 0.0, 1.0))
+        return self.per_beta_start * (1.0 - p) + self.per_beta_final * p
+
+    def _get_current_success_sample_ratio(self, progress_ratio: float) -> float:
+        p = float(np.clip(progress_ratio, 0.0, 1.0))
+        if p < self.mu_step1:
+            mu = self.mu_low
+        elif p < self.mu_step2:
+            mu = self.mu_mid
+        else:
+            mu = self.mu_high
+        return float(np.clip(mu, 0.0, 0.8))
+
     def select_action(self, base_state, depth, noise: bool = True, progress_ratio: float = 0.0):
         base_tensor = torch.as_tensor(base_state, dtype=torch.float32, device=self.device).view(1, -1)
         depth_tensor = torch.as_tensor(depth, dtype=torch.float32, device=self.device)
@@ -163,8 +211,8 @@ class AsymTD3Agent:
 
         if noise:
             current_noise = self._get_current_noise(progress_ratio)
-            noise = self.rng.normal(0, current_noise, size=self.action_dim)
-            action = action + noise
+            noise_vec = self.rng.normal(0, current_noise, size=self.action_dim)
+            action = action + noise_vec
 
         action = np.clip(action, -1.0, 1.0)
         real_action = self.action_scale.cpu().numpy() * action + self.action_bias.cpu().numpy()
@@ -176,6 +224,15 @@ class AsymTD3Agent:
         if self.replay_buffer.size() < self.batch_size:
             return {}
 
+        current_mu = self._get_current_success_sample_ratio(progress_ratio)
+        self.replay_buffer.success_sample_ratio = current_mu
+
+        beta = self._get_current_beta(progress_ratio)
+        sampled = self.replay_buffer.sample(self.batch_size, beta=beta)
+        if sampled is None:
+            return {}
+
+        samples, refs, importance_weights, mix_info = sampled
         (
             base_states,
             actor_depths,
@@ -188,22 +245,23 @@ class AsymTD3Agent:
             next_critic_depths,
             next_critic_privs,
             dones,
-        ) = self.replay_buffer.sample(self.batch_size)
+        ) = zip(*samples)
 
-        base_states = torch.as_tensor(base_states, dtype=torch.float32, device=self.device)
-        actor_depths = torch.as_tensor(actor_depths, dtype=torch.float32, device=self.device)
-        critic_depths = torch.as_tensor(critic_depths, dtype=torch.float32, device=self.device)
-        critic_privs = torch.as_tensor(critic_privs, dtype=torch.float32, device=self.device)
-
-        real_actions = torch.as_tensor(actions, dtype=torch.float32, device=self.device)
+        base_states = torch.as_tensor(np.array(base_states), dtype=torch.float32, device=self.device)
+        actor_depths = torch.as_tensor(np.array(actor_depths), dtype=torch.float32, device=self.device)
+        critic_depths = torch.as_tensor(np.array(critic_depths), dtype=torch.float32, device=self.device)
+        critic_privs = torch.as_tensor(np.array(critic_privs), dtype=torch.float32, device=self.device)
+        real_actions = torch.as_tensor(np.array(actions), dtype=torch.float32, device=self.device)
         actions = (real_actions - self.action_bias) / self.action_scale
+        actions = actions.clamp(-1.0, 1.0)
 
-        rewards = torch.as_tensor(rewards, dtype=torch.float32, device=self.device).view(-1, 1)
-        next_base_states = torch.as_tensor(next_base_states, dtype=torch.float32, device=self.device)
-        next_actor_depths = torch.as_tensor(next_actor_depths, dtype=torch.float32, device=self.device)
-        next_critic_depths = torch.as_tensor(next_critic_depths, dtype=torch.float32, device=self.device)
-        next_critic_privs = torch.as_tensor(next_critic_privs, dtype=torch.float32, device=self.device)
-        dones = torch.as_tensor(dones, dtype=torch.float32, device=self.device).view(-1, 1)
+        rewards = torch.as_tensor(np.array(rewards), dtype=torch.float32, device=self.device).unsqueeze(1)
+        next_base_states = torch.as_tensor(np.array(next_base_states), dtype=torch.float32, device=self.device)
+        next_actor_depths = torch.as_tensor(np.array(next_actor_depths), dtype=torch.float32, device=self.device)
+        next_critic_depths = torch.as_tensor(np.array(next_critic_depths), dtype=torch.float32, device=self.device)
+        next_critic_privs = torch.as_tensor(np.array(next_critic_privs), dtype=torch.float32, device=self.device)
+        dones = torch.as_tensor(np.array(dones), dtype=torch.float32, device=self.device).unsqueeze(1)
+        weights = torch.as_tensor(importance_weights, dtype=torch.float32, device=self.device).unsqueeze(1)
 
         states_critic = self._concat_critic_state(
             base_states,
@@ -211,7 +269,6 @@ class AsymTD3Agent:
             critic_privs,
             self.critic_encoder,
             self.critic_base_adapter,
-            self.critic_priv_adapter,
         )
 
         with torch.no_grad():
@@ -221,7 +278,6 @@ class AsymTD3Agent:
                 next_critic_privs,
                 self.critic_encoder_target,
                 self.critic_base_adapter_target,
-                self.critic_priv_adapter_target,
             )
 
             next_states_actor = self._concat_actor_state(
@@ -239,12 +295,30 @@ class AsymTD3Agent:
             target_Q = rewards + (1 - dones) * self.gamma * target_Q
 
         current_Q1, current_Q2 = self.critic(states_critic, actions)
-        critic_loss = F.mse_loss(current_Q1, target_Q) + F.mse_loss(current_Q2, target_Q)
+
+        td_error = 0.5 * ((current_Q1 - target_Q).abs() + (current_Q2 - target_Q).abs())
+        critic_loss = (
+            weights
+            * (
+                F.mse_loss(current_Q1, target_Q, reduction="none")
+                + F.mse_loss(current_Q2, target_Q, reduction="none")
+            )
+        ).mean()
+
+        self._ensure_finite(target_Q, "target_Q")
+        self._ensure_finite(current_Q1, "current_Q1")
+        self._ensure_finite(current_Q2, "current_Q2")
+        self._ensure_finite(critic_loss, "critic_loss")
+        self._ensure_finite(td_error, "td_error")
 
         self.critic_optimizer.zero_grad()
         critic_loss.backward()
         torch.nn.utils.clip_grad_norm_(self.critic_params, max_norm=self.grad_clip)
         self.critic_optimizer.step()
+        self._sync_cuda("critic_step")
+
+        new_priorities = td_error.detach().cpu().numpy().flatten()
+        self.replay_buffer.update_priorities(refs, new_priorities)
 
         actor_loss_value = None
         if self.total_it % self.policy_freq == 0:
@@ -262,19 +336,19 @@ class AsymTD3Agent:
                     critic_privs,
                     self.critic_encoder,
                     self.critic_base_adapter,
-                    self.critic_priv_adapter,
                 )
 
             q1, _ = self.critic(states_critic_fixed, self.actor(states_actor))
             actor_loss = -q1.mean()
+            self._ensure_finite(actor_loss, "actor_loss")
             actor_loss_value = float(actor_loss.item())
 
             self.actor_optimizer.zero_grad()
             actor_loss.backward()
             torch.nn.utils.clip_grad_norm_(self.actor_params, max_norm=self.grad_clip)
             self.actor_optimizer.step()
+            self._sync_cuda("actor_step")
 
-            # Soft update targets
             for param, target_param in zip(self.actor.parameters(), self.actor_target.parameters()):
                 target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
             for param, target_param in zip(self.actor_encoder.parameters(), self.actor_encoder_target.parameters()):
@@ -288,11 +362,16 @@ class AsymTD3Agent:
                 target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
             for param, target_param in zip(self.critic_base_adapter.parameters(), self.critic_base_adapter_target.parameters()):
                 target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
-            for param, target_param in zip(self.critic_priv_adapter.parameters(), self.critic_priv_adapter_target.parameters()):
-                target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
+
+        self._sync_cuda("train_metrics")
 
         result = {
             "critic_loss": float(critic_loss.item()),
+            "per_beta": float(beta),
+            "replay/success_sample_ratio_target": float(current_mu),
+            "replay/success_batch_fraction": mix_info["batch_success_fraction"],
+            "replay/success_size": float(mix_info["success_size"]),
+            "replay/regular_size": float(mix_info["regular_size"]),
         }
         if actor_loss_value is not None:
             result["actor_loss"] = actor_loss_value
@@ -311,12 +390,10 @@ class AsymTD3Agent:
                 "actor_base_adapter": self.actor_base_adapter.state_dict(),
                 "critic_encoder": self.critic_encoder.state_dict(),
                 "critic_base_adapter": self.critic_base_adapter.state_dict(),
-                "critic_priv_adapter": self.critic_priv_adapter.state_dict(),
                 "actor_encoder_target": self.actor_encoder_target.state_dict(),
                 "actor_base_adapter_target": self.actor_base_adapter_target.state_dict(),
                 "critic_encoder_target": self.critic_encoder_target.state_dict(),
                 "critic_base_adapter_target": self.critic_base_adapter_target.state_dict(),
-                "critic_priv_adapter_target": self.critic_priv_adapter_target.state_dict(),
                 "total_it": self.total_it,
             },
             filename,
@@ -330,11 +407,10 @@ class AsymTD3Agent:
             self.actor_target.load_state_dict(checkpoint["actor_target"])
         if "critic_target" in checkpoint:
             self.critic_target.load_state_dict(checkpoint["critic_target"])
-        
+
         self.actor_optimizer.load_state_dict(checkpoint["actor_optimizer"])
         self.critic_optimizer.load_state_dict(checkpoint["critic_optimizer"])
-        
-        # Backward compatibility or new structure loading
+
         if "actor_encoder" in checkpoint:
             self.actor_encoder.load_state_dict(checkpoint["actor_encoder"])
             self.critic_encoder.load_state_dict(checkpoint["critic_encoder"])
@@ -344,30 +420,17 @@ class AsymTD3Agent:
                 self.actor_base_adapter.load_state_dict(checkpoint["actor_base_adapter"])
             if "critic_base_adapter" in checkpoint:
                 self.critic_base_adapter.load_state_dict(checkpoint["critic_base_adapter"])
-            if "critic_priv_adapter" in checkpoint:
-                self.critic_priv_adapter.load_state_dict(checkpoint["critic_priv_adapter"])
             if "actor_base_adapter_target" in checkpoint:
                 self.actor_base_adapter_target.load_state_dict(checkpoint["actor_base_adapter_target"])
             if "critic_base_adapter_target" in checkpoint:
                 self.critic_base_adapter_target.load_state_dict(checkpoint["critic_base_adapter_target"])
-            if "critic_priv_adapter_target" in checkpoint:
-                self.critic_priv_adapter_target.load_state_dict(checkpoint["critic_priv_adapter_target"])
         elif "encoder" in checkpoint:
             self.actor_encoder.load_state_dict(checkpoint["encoder"])
             self.critic_encoder.load_state_dict(checkpoint["encoder"])
             self.actor_encoder_target.load_state_dict(checkpoint["encoder"])
             self.critic_encoder_target.load_state_dict(checkpoint["encoder"])
+
         self.total_it = checkpoint.get("total_it", 0)
 
 
-def make_agent(env, initial_obs, args, device=None) -> AsymTD3Agent:
-    base_state = initial_obs["base"]
-    depth = initial_obs["depth"]
-    agent = AsymTD3Agent(
-        base_dim=base_state.shape[0],
-        depth_shape=depth.shape,
-        action_space=env.action_space,
-        args=args,
-        device=device,
-    )
-    return agent
+PERTD3Agent = PLPERTD3Agent

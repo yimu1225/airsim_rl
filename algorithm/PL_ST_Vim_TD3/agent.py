@@ -11,7 +11,7 @@ from .buffer import ReplayBuffer
 # “定位型”NaN/Inf监控
 
 
-class AsymSTVimTD3Agent:
+class PLSTVimTD3Agent:
     def __init__(self, base_dim, depth_shape, action_space, args, device=None, seed=None):
         self.device = torch.device(device if device is not None else ("cuda" if torch.cuda.is_available() else "cpu"))
         print(f"ST-Mamba-VimTokens-TD3 Agent using device: {self.device}")
@@ -31,8 +31,6 @@ class AsymSTVimTD3Agent:
                 getattr(args, "distance_sensor_count", 36),
             )
         )
-        self.critic_priv_feature_dim = int(getattr(args, "critic_priv_feature_dim", 64))
-
         self.depth_shape = depth_shape
         if not hasattr(self.args, "depth_shape"):
             self.args.depth_shape = depth_shape
@@ -59,13 +57,12 @@ class AsymSTVimTD3Agent:
 
         self.critic_encoder = STVimEncoder(args).to(self.device)
         self.critic_base_net = StateAdapter(self.base_dim, self.base_feature_dim).to(self.device)
-        self.critic_priv_net = StateAdapter(self.critic_priv_dim, self.critic_priv_feature_dim).to(self.device)
         if self.critic_encoder.repr_dim != self.visual_feature_dim:
             raise ValueError(
                 f"Actor/Critic visual dims mismatch: {self.visual_feature_dim} vs {self.critic_encoder.repr_dim}"
             )
 
-        self.critic_fused_feature_dim = self.visual_feature_dim + self.base_feature_dim + self.critic_priv_feature_dim
+        self.critic_fused_feature_dim = self.visual_feature_dim + self.base_feature_dim + self.critic_priv_dim
         self.critic_1 = Critic(
             feature_dim=self.critic_fused_feature_dim,
             action_dim=self.action_dim,
@@ -82,7 +79,6 @@ class AsymSTVimTD3Agent:
         self.actor_target = copy.deepcopy(self.actor)
         self.critic_encoder_target = copy.deepcopy(self.critic_encoder)
         self.critic_base_net_target = copy.deepcopy(self.critic_base_net)
-        self.critic_priv_net_target = copy.deepcopy(self.critic_priv_net)
         self.critic_1_target = copy.deepcopy(self.critic_1)
         self.critic_2_target = copy.deepcopy(self.critic_2)
 
@@ -93,7 +89,6 @@ class AsymSTVimTD3Agent:
         self.critic_optimizer = Adam(
             list(self.critic_encoder.parameters())
             + list(self.critic_base_net.parameters())
-            + list(self.critic_priv_net.parameters())
             + list(self.critic_1.parameters())
             + list(self.critic_2.parameters()),
             lr=args.critic_lr
@@ -240,7 +235,7 @@ class AsymSTVimTD3Agent:
             target_visual = self.critic_encoder_target(next_critic_depth)
             self._assert_finite_tensor("train.target_visual", target_visual)
             target_base = self.critic_base_net_target(next_state)
-            target_priv = self.critic_priv_net_target(self._prepare_priv(next_critic_priv))
+            target_priv = self._prepare_priv(next_critic_priv)
             target_input = torch.cat([target_visual, target_base, target_priv], dim=-1)
             target_Q1 = self.critic_1_target(target_input, next_action)
             target_Q2 = self.critic_2_target(target_input, next_action)
@@ -253,7 +248,7 @@ class AsymSTVimTD3Agent:
         current_visual = self.critic_encoder(critic_depth)
         self._assert_finite_tensor("train.current_visual", current_visual)
         current_base = self.critic_base_net(state)
-        current_priv = self.critic_priv_net(self._prepare_priv(critic_priv))
+        current_priv = self._prepare_priv(critic_priv)
         critic_input = torch.cat([current_visual, current_base, current_priv], dim=-1)
         current_Q1 = self.critic_1(critic_input, action)
         current_Q2 = self.critic_2(critic_input, action)
@@ -268,7 +263,6 @@ class AsymSTVimTD3Agent:
         nn.utils.clip_grad_norm_(
             list(self.critic_encoder.parameters())
             + list(self.critic_base_net.parameters())
-            + list(self.critic_priv_net.parameters())
             + list(self.critic_1.parameters())
             + list(self.critic_2.parameters()),
             self.grad_clip,
@@ -288,7 +282,6 @@ class AsymSTVimTD3Agent:
             critic_params = (
                 list(self.critic_encoder.parameters())
                 + list(self.critic_base_net.parameters())
-                + list(self.critic_priv_net.parameters())
                 + list(self.critic_1.parameters())
                 + list(self.critic_2.parameters())
             )
@@ -300,7 +293,7 @@ class AsymSTVimTD3Agent:
                 with torch.no_grad():
                     q_visual = self.critic_encoder(critic_depth)
                     q_base = self.critic_base_net(state)
-                    q_priv = self.critic_priv_net(self._prepare_priv(critic_priv))
+                    q_priv = self._prepare_priv(critic_priv)
                 self._assert_finite_tensor("train.q_visual", q_visual)
                 q_input = torch.cat([q_visual, q_base, q_priv], dim=-1)
                 actor_loss = -self.critic_1(q_input, actor_action).mean()
@@ -322,7 +315,6 @@ class AsymSTVimTD3Agent:
             self.soft_update(self.actor, self.actor_target, self.tau)
             self.soft_update(self.critic_encoder, self.critic_encoder_target, self.tau)
             self.soft_update(self.critic_base_net, self.critic_base_net_target, self.tau)
-            self.soft_update(self.critic_priv_net, self.critic_priv_net_target, self.tau)
             self.soft_update(self.critic_1, self.critic_1_target, self.tau)
             self.soft_update(self.critic_2, self.critic_2_target, self.tau)
 
@@ -348,7 +340,6 @@ class AsymSTVimTD3Agent:
                 "actor": self.actor.state_dict(),
                 "critic_encoder": self.critic_encoder.state_dict(),
                 "critic_base_net": self.critic_base_net.state_dict(),
-                "critic_priv_net": self.critic_priv_net.state_dict(),
                 "critic_1": self.critic_1.state_dict(),
                 "critic_2": self.critic_2.state_dict(),
                 "actor_encoder_target": self.actor_encoder_target.state_dict(),
@@ -356,7 +347,6 @@ class AsymSTVimTD3Agent:
                 "actor_target": self.actor_target.state_dict(),
                 "critic_encoder_target": self.critic_encoder_target.state_dict(),
                 "critic_base_net_target": self.critic_base_net_target.state_dict(),
-                "critic_priv_net_target": self.critic_priv_net_target.state_dict(),
                 "critic_1_target": self.critic_1_target.state_dict(),
                 "critic_2_target": self.critic_2_target.state_dict(),
                 "actor_optimizer": self.actor_optimizer.state_dict(),
@@ -375,8 +365,6 @@ class AsymSTVimTD3Agent:
         self.critic_encoder.load_state_dict(checkpoint["critic_encoder"])
         if "critic_base_net" in checkpoint:
             self.critic_base_net.load_state_dict(checkpoint["critic_base_net"])
-        if "critic_priv_net" in checkpoint:
-            self.critic_priv_net.load_state_dict(checkpoint["critic_priv_net"])
         self.critic_1.load_state_dict(checkpoint["critic_1"])
         self.critic_2.load_state_dict(checkpoint["critic_2"])
         if "actor_encoder_target" in checkpoint:
@@ -389,8 +377,6 @@ class AsymSTVimTD3Agent:
             self.critic_encoder_target.load_state_dict(checkpoint["critic_encoder_target"])
         if "critic_base_net_target" in checkpoint:
             self.critic_base_net_target.load_state_dict(checkpoint["critic_base_net_target"])
-        if "critic_priv_net_target" in checkpoint:
-            self.critic_priv_net_target.load_state_dict(checkpoint["critic_priv_net_target"])
         if "critic_1_target" in checkpoint:
             self.critic_1_target.load_state_dict(checkpoint["critic_1_target"])
         if "critic_2_target" in checkpoint:
@@ -401,6 +387,3 @@ class AsymSTVimTD3Agent:
             self.critic_optimizer.load_state_dict(checkpoint["critic_optimizer"])
         if "total_it" in checkpoint:
             self.total_it = checkpoint["total_it"]
-
-
-STVimTD3Agent = AsymSTVimTD3Agent

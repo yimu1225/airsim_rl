@@ -1,4 +1,4 @@
-# PER_TD3_asym algorithm-specific parameters
+# PL_PER_TD3 algorithm-specific parameters
 # Shared/common parameters stay in config.py
 per_td3_success_capacity_ratio: 0.3  # PER 双池中成功样本池容量占比
 per_td3_alpha: 0.6  # PER 优先级指数 alpha

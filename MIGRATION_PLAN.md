@@ -1,6 +1,6 @@
 # AirSim RL 项目 SB3 迁移计划
 
-> 目标：将当前手写训练框架迁移到 Stable-Baselines3 (SB3)，基线算法由 SB3 提供，所有改进模块（Vim/Mamba/PER/Noisy/Asymmetric 等）仍自主实现，CNN 模块统一使用 SB3 默认卷积模块。
+> 目标：将当前手写训练框架迁移到 Stable-Baselines3 (SB3)，基线算法由 SB3 提供，所有改进模块（Vim/Mamba/PER/Noisy/PL 等）仍自主实现，CNN 模块统一使用 SB3 默认卷积模块。
 
 ---
 
@@ -38,9 +38,9 @@
 |------|------|--------|---------|
 | `noisy_td3` | TD3 | Noisy Network | 自定义 `NoisyTD3Policy` 继承 `TD3Policy`，`make_actor()` 中使用 `NoisyLinear` |
 | `noisy_td3_type2` | TD3 | Noisy Network Type2 | 同上，参数化噪声方案不同 |
-| `td3_asym` | TD3 | Asymmetric Critic | 自定义 `AsymCritic` + `AsymTD3Policy`，Critic 输入 privileged info |
-| `per_td3_asym` | TD3 | PER + Asymmetric | 组合：Asym Critic + PER Buffer |
-| `ST_Vim_TD3_asym` | TD3 | ST-Vim + Asymmetric | 组合：ST-Vim Feature Extractor + Asym Critic |
+| `PL_TD3` | TD3 | Privileged Learning Critic | 自定义 `PLContinuousCritic` + `PLTD3Policy`，Critic 输入 privileged info |
+| `PL_PER_TD3` | TD3 | PER + Privileged Learning | 组合：PL Critic + PER Buffer |
+| `PL_ST_Vim_TD3` | TD3 | ST-Vim + Privileged Learning | 组合：ST-Vim Feature Extractor + PL Critic |
 | `aetd3` | TD3 | AutoEncoder | 自定义 Feature Extractor 加重建分支，Actor/Critic 共享编码器 |
 
 ---
@@ -163,7 +163,7 @@ sb3_extensions/
 │   └── cfc_extractors.py       # CFCExtractor
 ├── policies/
 │   ├── __init__.py
-│   ├── asym_policies.py        # AsymTD3Policy, AsymSACPolicy
+│   ├── pl_policies.py          # PLTD3Policy, PLSACPolicy
 │   └── noisy_policies.py       # NoisyTD3Policy
 ├── buffers/
 │   ├── __init__.py
@@ -185,8 +185,8 @@ sb3_algorithms/
 ├── per_aetd3.py
 ├── noisy_td3.py
 ├── noisy_td3_type2.py
-├── asym_td3.py
-├── per_asym_td3.py
+├── pl_td3.py
+├── pl_per_td3.py
 ├── aetd3.py
 ├── Vim_TD3.py
 ├── ST_Vim_TD3.py
@@ -284,7 +284,7 @@ from sb3_extensions.feature_extractors import (
     # ... 按需导入
 )
 from sb3_algorithms import (
-    PERTD3, NoisyTD3, AsymTD3, 
+    PERTD3, NoisyTD3, PLTD3,
     STVimTD3, STVimSAC, LSTMSAC,
     # ...
 )
@@ -365,10 +365,10 @@ def main():
 - [ ] `NoisyLinear` 层实现
 - [ ] `noisy_td3`、`noisy_td3_type2` 实现
 
-### 里程碑 3：Asymmetric 系列（3~4 天）
-- [ ] `AsymCritic` + `AsymTD3Policy` 实现
-- [ ] `td3_asym`、`per_td3_asym` 实现
-- [ ] `ST_Vim_TD3_asym` 实现
+### 里程碑 3：PL 系列（3~4 天）
+- [ ] `PLContinuousCritic` + `PLTD3Policy` 实现
+- [ ] `PL_TD3`、`PL_PER_TD3` 实现
+- [ ] `PL_ST_Vim_TD3` 实现
 
 ### 里程碑 4：时序 Backbone 系列（2 周）
 - [ ] `LSTMExtractor` + `LSTM_SAC` 实现
@@ -433,7 +433,7 @@ Conv(8,4) → Conv(4,2) → Conv(3,1) → Flatten → Linear
 2. **Task 2**：`sb3_extensions/callbacks/`（Curriculum + AirSimHealth）
 3. **Task 3**：`sb3_extensions/buffers/prioritized_replay.py` + `sb3_algorithms/per_td3.py`
 4. **Task 4**：`sb3_extensions/policies/noisy_policies.py` + `sb3_algorithms/noisy_td3.py`
-5. **Task 5**：`sb3_extensions/policies/asym_policies.py` + `sb3_algorithms/asym_td3.py`
+5. **Task 5**：`sb3_extensions/policies/pl_policies.py` + `sb3_algorithms/pl_td3.py`
 6. **Task 6+**：时序 Extractor 系列（每次 2~3 个算法）
 
 ---
@@ -445,7 +445,7 @@ Conv(8,4) → Conv(4,2) → Conv(3,1) → Flatten → Linear
 | td3 / sac / ppo / ddpg | ❌ (AirSimCNNExtractor) | ❌ | ❌ |
 | per_td3 / per_sac / per_aetd3 | ❌ | ❌ | ✅ |
 | noisy_td3 / noisy_td3_type2 | ❌ | ✅ (Actor 换 NoisyLinear) | ❌ |
-| td3_asym / per_td3_asym | ❌ | ✅ (Critic 加 privileged) | 部分 |
+| PL_TD3 / PL_PER_TD3 | ❌ | ✅ (Critic 加 privileged) | 部分 |
 | aetd3 | ✅ (加重建分支) | ❌ | ❌ |
 | LSTM_SAC | ✅ (LSTMExtractor) | ❌ | ❌ |
 | Vim_TD3 | ✅ (VimExtractor) | ❌ | ❌ |
@@ -459,5 +459,5 @@ Conv(8,4) → Conv(4,2) → Conv(3,1) → Flatten → Linear
 | mamba_td3 | ✅ (MambaExtractor) | ❌ | ❌ |
 | gam_td3 | ✅ (GAMCNNExtractor) | ❌ | ❌ |
 | gam_mamba_td3 | ✅ (GAMMambaExtractor) | ❌ | ❌ |
-| ST_Vim_TD3_asym | ✅ (STVimExtractor) | ✅ (Asym Critic) | ❌ |
+| PL_ST_Vim_TD3 | ✅ (STVimExtractor) | ✅ (PL Critic) | ❌ |
 | PER_ST_Vim_TD3 / PER_ST_Vim_SAC | ✅ (STVimExtractor) | ❌ | ✅ |
