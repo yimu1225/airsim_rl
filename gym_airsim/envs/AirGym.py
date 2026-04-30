@@ -611,7 +611,7 @@ class AirSimEnv(gym.Env):
         if velocity_after is not None:
             curr_v = np.asarray(velocity_after, dtype=np.float32)
             prev_v = np.asarray(self.prev_velocity, dtype=np.float32)
-            smooth_penalty = smooth_penalty_weight * float(np.linalg.norm(curr_v - prev_v))
+            smooth_penalty =  2 * float(np.linalg.norm(curr_v - prev_v))
         else:
             smooth_penalty = 0.0
         
@@ -641,17 +641,15 @@ class AirSimEnv(gym.Env):
             stagnation_penalty = max(0.0, self.stagnation_window_threshold - total_displacement) * self.stagnation_weight
 
         # Add penalties to reward
-        r -= smooth_penalty  + step_penalty + stagnation_penalty
+        r -= smooth_penalty  + step_penalty 
 
         distance_sensor_penalty = self._compute_distance_sensor_log_penalty(
             self.last_distance_sensor_scan_distance,
             self.last_distance_sensor_max_distance,
         )
-        self.last_distance_sensor_obstacle_penalty = 10 * float(distance_sensor_penalty)
+        self.last_distance_sensor_obstacle_penalty = 5 * float(distance_sensor_penalty)
         r += self.last_distance_sensor_obstacle_penalty
-        print(f"Reward components: r_vel={reward_vel:.3f},  "
-              f"smooth_penalty={smooth_penalty:.3f},  step_penalty={step_penalty:.3f}, "
-              f"distance_sensor_penalty={distance_sensor_penalty:.3f}, total_reward={r:.3f}")    
+        # print(f"Reward components: r_vel={reward_vel:.3f}, smooth_penalty={smooth_penalty:.3f}, step_penalty={step_penalty:.3f},distance_sensor_penalty={self.last_distance_sensor_obstacle_penalty:.3f}, total_reward={r:.3f}")    
          
 
         return r
