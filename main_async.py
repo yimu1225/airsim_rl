@@ -64,6 +64,7 @@ from algorithm.PER_ST_Vim_SAC.agent import PERSTVimSACAgent
 from algorithm.PL_TD3.pl_td3 import PLTD3Agent
 from algorithm.PL_PER_TD3.pl_per_td3 import PLPERTD3Agent
 from algorithm.PL_ST_Vim_TD3.agent import PLSTVimTD3Agent
+from algorithm.AETD3.aetd3 import AETD3Agent
 
 
 
@@ -171,6 +172,7 @@ def get_agent_class(algo_name):
         'ST_SVim_TD3': STSVimTD3Agent,
         'Mamba_TD3': MambaTD3Agent,
         'ST_DualVim_TD3': DualBranchVideoMambaTD3Agent,
+        'AETD3': AETD3Agent,
         'SAC': SACAgent,
         'PL_SAC': PLSACAgent,
         'PL_PER_ST_Vim_SAC': PLPERSTVimSACAgent,
