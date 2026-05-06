@@ -237,7 +237,10 @@ def _pause_env_simulation(env):
 
 def _is_pl_algorithm(algo_name: str) -> bool:
     core_name = to_internal_core_algorithm_name(algo_name)
-    return core_name in {"PL_TD3", "PL_PER_TD3", "PL_ST_Vim_TD3", "PL_SAC", "PL_PER_ST_Vim_SAC"}
+    return core_name in {
+        "PL_TD3", "PL_PER_TD3", "PL_ST_Vim_TD3", "PL_SAC",
+        "PL_PER_ST_Vim_SAC", "PL_ST_Vim_PPO",
+    }
 
 
 def _extract_last_depth_frame(depth_tensor):

@@ -38,7 +38,6 @@ class PLSTVimPPOAgent(STVimPPOAgent):
             device=self.device,
             gamma=self.gamma,
             gae_lambda=self.gae_lambda,
-            critic_priv_dim=self.critic_priv_dim,
         )
 
     def _prepare_priv(self, critic_priv, batch_size: int, dtype: torch.dtype, device: torch.device) -> torch.Tensor:
