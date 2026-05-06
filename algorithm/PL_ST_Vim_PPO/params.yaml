@@ -12,9 +12,6 @@ gae_lambda: 0.95
 lr: 0.0007
 max_grad_norm: 0.5
 
-# Privileged critic dimension (distance sensor readings)
-critic_priv_dim: 8
-
 # Vim + temporal Mamba visual encoder parameters, matching ST_Vim_PPO.
 st_mamba_embed_dim: 32
 st_mamba_depth: 1
