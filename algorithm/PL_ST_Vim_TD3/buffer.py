@@ -42,6 +42,10 @@ class ReplayBuffer:
         if target_dim is not None and arr.size != target_dim:
             raise ValueError(f"critic_priv dim mismatch: expected {target_dim}, got {arr.size}")
         return arr
+    
+    @staticmethod
+    def _encode_depth(depth):
+        return np.clip(np.rint(np.asarray(depth, dtype=np.float32)), 0.0, 255.0).astype(np.uint8)
 
     def add(
         self,
@@ -73,14 +77,14 @@ class ReplayBuffer:
             self.critic_priv_dim = int(critic_priv_flat.size)
 
             self.base_buf = np.zeros((self.max_size, *self.base_shape), dtype=np.float32)
-            self.depth_buf = np.zeros((self.max_size, *self.depth_shape), dtype=np.float16)
-            self.critic_depth_buf = np.zeros((self.max_size, *self.critic_depth_shape), dtype=np.float16)
+            self.depth_buf = np.zeros((self.max_size, *self.depth_shape), dtype=np.uint8)
+            self.critic_depth_buf = np.zeros((self.max_size, *self.critic_depth_shape), dtype=np.uint8)
             self.critic_priv_buf = np.zeros((self.max_size, self.critic_priv_dim), dtype=np.float32)
             self.action_buf = np.zeros((self.max_size, *self.action_shape), dtype=np.float32)
             self.reward_buf = np.zeros((self.max_size, 1), dtype=np.float32)
             self.next_base_buf = np.zeros((self.max_size, *self.base_shape), dtype=np.float32)
-            self.next_depth_buf = np.zeros((self.max_size, *self.depth_shape), dtype=np.float16)
-            self.next_critic_depth_buf = np.zeros((self.max_size, *self.critic_depth_shape), dtype=np.float16)
+            self.next_depth_buf = np.zeros((self.max_size, *self.depth_shape), dtype=np.uint8)
+            self.next_critic_depth_buf = np.zeros((self.max_size, *self.critic_depth_shape), dtype=np.uint8)
             self.next_critic_priv_buf = np.zeros((self.max_size, self.critic_priv_dim), dtype=np.float32)
             self.done_buf = np.zeros((self.max_size, 1), dtype=np.float32)
         else:
@@ -88,14 +92,14 @@ class ReplayBuffer:
             next_critic_priv_flat = self._flatten_priv(next_critic_priv, target_dim=self.critic_priv_dim)
 
         self.base_buf[self.ptr] = base_state
-        self.depth_buf[self.ptr] = depth.astype(np.float16)
-        self.critic_depth_buf[self.ptr] = np.asarray(critic_depth, dtype=np.float32).astype(np.float16)
+        self.depth_buf[self.ptr] = self._encode_depth(depth)
+        self.critic_depth_buf[self.ptr] = self._encode_depth(critic_depth)
         self.critic_priv_buf[self.ptr] = critic_priv_flat
         self.action_buf[self.ptr] = action
         self.reward_buf[self.ptr] = reward
         self.next_base_buf[self.ptr] = next_base_state
-        self.next_depth_buf[self.ptr] = next_depth.astype(np.float16)
-        self.next_critic_depth_buf[self.ptr] = np.asarray(next_critic_depth, dtype=np.float32).astype(np.float16)
+        self.next_depth_buf[self.ptr] = self._encode_depth(next_depth)
+        self.next_critic_depth_buf[self.ptr] = self._encode_depth(next_critic_depth)
         self.next_critic_priv_buf[self.ptr] = next_critic_priv_flat
         self.done_buf[self.ptr] = done
 

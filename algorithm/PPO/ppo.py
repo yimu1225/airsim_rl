@@ -165,7 +165,7 @@ class PPOAgent:
         """Public method to get state representation for external use."""
         return self._concat_state(base, depth)
     
-    def select_action(self, base_state, depth, deterministic=False, progress_ratio=0.0):
+    def select_action(self, base_state, depth, deterministic=False, progress_ratio=0.0, critic_priv=None):
         """
         Select action using the current policy.
         
@@ -200,7 +200,7 @@ class PPOAgent:
         
         return real_action, value_np, log_prob_np
     
-    def store_transition(self, base_state, depth, action, reward, value, log_prob, done):
+    def store_transition(self, base_state, depth, action, reward, value, log_prob, done, critic_priv=None):
         """
         Store a transition in the rollout buffer.
         
@@ -226,7 +226,7 @@ class PPOAgent:
         
         self.rollout_buffer.add(base_state, depth, normalized_action, reward, value, log_prob, done)
     
-    def finish_trajectory(self, last_base_state, last_depth, last_done):
+    def finish_trajectory(self, last_base_state, last_depth, last_done, critic_priv=None):
         """
         Finish the current trajectory and compute advantages.
         

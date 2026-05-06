@@ -1,12 +1,15 @@
-"""Privileged-learning critic policies for off-policy control."""
+"""Privileged-learning critic/value policies for AirSim control."""
 
 from __future__ import annotations
 
 import torch as th
 from gymnasium import spaces
-from stable_baselines3.common.policies import ContinuousCritic
+from stable_baselines3.common.policies import BaseModel, ContinuousCritic
+from stable_baselines3.common.policies import MultiInputActorCriticPolicy
 from stable_baselines3.common.preprocessing import get_action_dim
 from stable_baselines3.common.torch_layers import BaseFeaturesExtractor, create_mlp
+from stable_baselines3.common.torch_layers import MlpExtractor
+from stable_baselines3.common.type_aliases import PyTorchObs
 from stable_baselines3.sac.policies import SACPolicy
 from stable_baselines3.td3.policies import TD3Policy
 from torch import nn
@@ -73,6 +76,106 @@ class PLContinuousCritic(ContinuousCritic):
     def q1_forward(self, obs, actions: th.Tensor) -> th.Tensor:
         qvalue_input = self._q_input(obs, actions, detach_features=True)
         return self.q_networks[0](qvalue_input)
+
+
+class PLActorCriticPolicy(MultiInputActorCriticPolicy):
+    """PPO actor-critic policy with privileged inputs for the value branch only."""
+
+    def __init__(self, *args, privileged_key: str = "distance_sensor", **kwargs) -> None:
+        observation_space = args[0] if args else kwargs.get("observation_space")
+        self.privileged_key = str(privileged_key)
+        self.privileged_dim = self._infer_privileged_dim(observation_space, self.privileged_key)
+        super().__init__(*args, **kwargs)
+
+    @staticmethod
+    def _infer_privileged_dim(observation_space: spaces.Space | None, privileged_key: str) -> int:
+        if isinstance(observation_space, spaces.Dict) and privileged_key in observation_space.spaces:
+            return int(spaces.utils.flatdim(observation_space.spaces[privileged_key]))
+        return 0
+
+    def _get_constructor_parameters(self) -> dict:
+        data = super()._get_constructor_parameters()
+        data.update(privileged_key=self.privileged_key)
+        return data
+
+    def _build_mlp_extractor(self) -> None:
+        self.mlp_extractor = MlpExtractor(
+            self.features_dim + self.privileged_dim,
+            net_arch=self.net_arch,
+            activation_fn=self.activation_fn,
+            device=self.device,
+        )
+
+    def _privileged_features(self, obs: PyTorchObs, batch_size: int, dtype: th.dtype, device: th.device) -> th.Tensor:
+        if self.privileged_dim <= 0:
+            return th.empty((batch_size, 0), dtype=dtype, device=device)
+        if isinstance(obs, dict) and self.privileged_key in obs:
+            privileged = obs[self.privileged_key].float()
+            if privileged.dim() == 1:
+                privileged = privileged.unsqueeze(0)
+            privileged = privileged.reshape(privileged.shape[0], -1).to(device=device, dtype=dtype)
+            if privileged.shape[1] > self.privileged_dim:
+                privileged = privileged[:, : self.privileged_dim]
+            elif privileged.shape[1] < self.privileged_dim:
+                pad = th.zeros(
+                    (privileged.shape[0], self.privileged_dim - privileged.shape[1]),
+                    dtype=dtype,
+                    device=device,
+                )
+                privileged = th.cat([privileged, pad], dim=1)
+            return privileged
+        return th.zeros((batch_size, self.privileged_dim), dtype=dtype, device=device)
+
+    def _actor_features(self, features: th.Tensor) -> th.Tensor:
+        if self.privileged_dim <= 0:
+            return features
+        zeros = th.zeros((features.shape[0], self.privileged_dim), dtype=features.dtype, device=features.device)
+        return th.cat([features, zeros], dim=1)
+
+    def _critic_features(self, features: th.Tensor, obs: PyTorchObs) -> th.Tensor:
+        privileged = self._privileged_features(obs, features.shape[0], features.dtype, features.device)
+        return th.cat([features, privileged], dim=1)
+
+    def forward(self, obs: PyTorchObs, deterministic: bool = False) -> tuple[th.Tensor, th.Tensor, th.Tensor]:
+        features = self.extract_features(obs)
+        if self.share_features_extractor:
+            latent_pi = self.mlp_extractor.forward_actor(self._actor_features(features))
+            latent_vf = self.mlp_extractor.forward_critic(self._critic_features(features, obs))
+        else:
+            pi_features, vf_features = features
+            latent_pi = self.mlp_extractor.forward_actor(self._actor_features(pi_features))
+            latent_vf = self.mlp_extractor.forward_critic(self._critic_features(vf_features, obs))
+        values = self.value_net(latent_vf)
+        distribution = self._get_action_dist_from_latent(latent_pi)
+        actions = distribution.get_actions(deterministic=deterministic)
+        log_prob = distribution.log_prob(actions)
+        actions = actions.reshape((-1, *self.action_space.shape))
+        return actions, values, log_prob
+
+    def evaluate_actions(self, obs: PyTorchObs, actions: th.Tensor) -> tuple[th.Tensor, th.Tensor, th.Tensor | None]:
+        features = self.extract_features(obs)
+        if self.share_features_extractor:
+            latent_pi = self.mlp_extractor.forward_actor(self._actor_features(features))
+            latent_vf = self.mlp_extractor.forward_critic(self._critic_features(features, obs))
+        else:
+            pi_features, vf_features = features
+            latent_pi = self.mlp_extractor.forward_actor(self._actor_features(pi_features))
+            latent_vf = self.mlp_extractor.forward_critic(self._critic_features(vf_features, obs))
+        distribution = self._get_action_dist_from_latent(latent_pi)
+        log_prob = distribution.log_prob(actions)
+        values = self.value_net(latent_vf)
+        entropy = distribution.entropy()
+        return values, log_prob, entropy
+
+    def get_distribution(self, obs: PyTorchObs):
+        features = BaseModel.extract_features(self, obs, self.pi_features_extractor)
+        latent_pi = self.mlp_extractor.forward_actor(self._actor_features(features))
+        return self._get_action_dist_from_latent(latent_pi)
+
+    def predict_values(self, obs: PyTorchObs) -> th.Tensor:
+        features = BaseModel.extract_features(self, obs, self.vf_features_extractor)
+        latent_vf = self.mlp_extractor.forward_critic(self._critic_features(features, obs))
+        return self.value_net(latent_vf)
 
 
 class PLTD3Policy(TD3Policy):

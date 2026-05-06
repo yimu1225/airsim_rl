@@ -80,7 +80,7 @@ class PLSACAgent:
                     init_value = 1.0
             # learn log_alpha (log(ent_coef))
             self.log_alpha = torch.log(torch.ones(1, device=self.device) * init_value).requires_grad_(True)
-            self.alpha_optimizer = Adam([self.log_alpha], lr=args.actor_lr)
+            self.alpha_optimizer = Adam([self.log_alpha], lr=float(get_algo_param(args, "alpha_lr")))
             # alpha property returns current scalar value via exp()
             self.alpha = self.log_alpha.exp()
             self.auto_entropy_tuning = True

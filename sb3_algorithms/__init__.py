@@ -7,7 +7,7 @@ from sb3_algorithms.per_sac import PERSAC
 from sb3_algorithms.per_st_vim_sac import PERSTVimSAC
 from sb3_algorithms.per_st_vim_td3 import PERSTVimTD3
 from sb3_algorithms.per_td3 import PERTD3
-from sb3_algorithms.ppo_wrappers import STVimPPO
+from sb3_algorithms.ppo_wrappers import PLSTVimPPO, STVimPPO
 from sb3_algorithms.sac_wrappers import LSTMSAC, PLSAC, STVimSAC
 from sb3_algorithms.td3_wrappers import (
     DualVimTD3,
@@ -28,6 +28,7 @@ __all__ = [
     "PLPERTD3",
     "PLPERSTVimSAC",
     "PLSAC",
+    "PLSTVimPPO",
     "PLSTVimTD3",
     "PLTD3",
     "PERSAC",

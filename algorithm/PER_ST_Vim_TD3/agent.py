@@ -172,16 +172,19 @@ class PERVimTD3Agent:
             return {}
 
         samples, refs, importance_weights, mix_info = sampled
-        state, depth, action, reward, next_state, next_depth, dones = zip(*samples)
+        if isinstance(samples, tuple):
+            state, depth, action, reward, next_state, next_depth, dones = samples
+        else:
+            state, depth, action, reward, next_state, next_depth, dones = zip(*samples)
 
-        depth = torch.as_tensor(np.array(depth), dtype=torch.float32, device=self.device)
-        next_depth = torch.as_tensor(np.array(next_depth), dtype=torch.float32, device=self.device)
-        state = torch.as_tensor(np.array(state), dtype=torch.float32, device=self.device)
-        next_state = torch.as_tensor(np.array(next_state), dtype=torch.float32, device=self.device)
-        action = torch.as_tensor(np.array(action), dtype=torch.float32, device=self.device)
+        depth = torch.as_tensor(np.asarray(depth), dtype=torch.float32, device=self.device)
+        next_depth = torch.as_tensor(np.asarray(next_depth), dtype=torch.float32, device=self.device)
+        state = torch.as_tensor(np.asarray(state), dtype=torch.float32, device=self.device)
+        next_state = torch.as_tensor(np.asarray(next_state), dtype=torch.float32, device=self.device)
+        action = torch.as_tensor(np.asarray(action), dtype=torch.float32, device=self.device)
         action = ((action - self.action_bias) / self.action_scale).clamp(-1.0, 1.0)
-        reward = torch.as_tensor(np.array(reward), dtype=torch.float32, device=self.device).view(-1, 1)
-        dones = torch.as_tensor(np.array(dones), dtype=torch.float32, device=self.device).view(-1, 1)
+        reward = torch.as_tensor(np.asarray(reward), dtype=torch.float32, device=self.device).view(-1, 1)
+        dones = torch.as_tensor(np.asarray(dones), dtype=torch.float32, device=self.device).view(-1, 1)
         weights = torch.as_tensor(importance_weights, dtype=torch.float32, device=self.device).view(-1, 1)
 
         with torch.no_grad():

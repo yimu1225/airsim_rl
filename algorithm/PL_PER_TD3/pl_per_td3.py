@@ -233,34 +233,49 @@ class PLPERTD3Agent:
             return {}
 
         samples, refs, importance_weights, mix_info = sampled
-        (
-            base_states,
-            actor_depths,
-            critic_depths,
-            critic_privs,
-            actions,
-            rewards,
-            next_base_states,
-            next_actor_depths,
-            next_critic_depths,
-            next_critic_privs,
-            dones,
-        ) = zip(*samples)
+        if isinstance(samples, tuple):
+            (
+                base_states,
+                actor_depths,
+                critic_depths,
+                critic_privs,
+                actions,
+                rewards,
+                next_base_states,
+                next_actor_depths,
+                next_critic_depths,
+                next_critic_privs,
+                dones,
+            ) = samples
+        else:
+            (
+                base_states,
+                actor_depths,
+                critic_depths,
+                critic_privs,
+                actions,
+                rewards,
+                next_base_states,
+                next_actor_depths,
+                next_critic_depths,
+                next_critic_privs,
+                dones,
+            ) = zip(*samples)
 
-        base_states = torch.as_tensor(np.array(base_states), dtype=torch.float32, device=self.device)
-        actor_depths = torch.as_tensor(np.array(actor_depths), dtype=torch.float32, device=self.device)
-        critic_depths = torch.as_tensor(np.array(critic_depths), dtype=torch.float32, device=self.device)
-        critic_privs = torch.as_tensor(np.array(critic_privs), dtype=torch.float32, device=self.device)
-        real_actions = torch.as_tensor(np.array(actions), dtype=torch.float32, device=self.device)
+        base_states = torch.as_tensor(np.asarray(base_states), dtype=torch.float32, device=self.device)
+        actor_depths = torch.as_tensor(np.asarray(actor_depths), dtype=torch.float32, device=self.device)
+        critic_depths = torch.as_tensor(np.asarray(critic_depths), dtype=torch.float32, device=self.device)
+        critic_privs = torch.as_tensor(np.asarray(critic_privs), dtype=torch.float32, device=self.device)
+        real_actions = torch.as_tensor(np.asarray(actions), dtype=torch.float32, device=self.device)
         actions = (real_actions - self.action_bias) / self.action_scale
         actions = actions.clamp(-1.0, 1.0)
 
-        rewards = torch.as_tensor(np.array(rewards), dtype=torch.float32, device=self.device).unsqueeze(1)
-        next_base_states = torch.as_tensor(np.array(next_base_states), dtype=torch.float32, device=self.device)
-        next_actor_depths = torch.as_tensor(np.array(next_actor_depths), dtype=torch.float32, device=self.device)
-        next_critic_depths = torch.as_tensor(np.array(next_critic_depths), dtype=torch.float32, device=self.device)
-        next_critic_privs = torch.as_tensor(np.array(next_critic_privs), dtype=torch.float32, device=self.device)
-        dones = torch.as_tensor(np.array(dones), dtype=torch.float32, device=self.device).unsqueeze(1)
+        rewards = torch.as_tensor(np.asarray(rewards), dtype=torch.float32, device=self.device).view(-1, 1)
+        next_base_states = torch.as_tensor(np.asarray(next_base_states), dtype=torch.float32, device=self.device)
+        next_actor_depths = torch.as_tensor(np.asarray(next_actor_depths), dtype=torch.float32, device=self.device)
+        next_critic_depths = torch.as_tensor(np.asarray(next_critic_depths), dtype=torch.float32, device=self.device)
+        next_critic_privs = torch.as_tensor(np.asarray(next_critic_privs), dtype=torch.float32, device=self.device)
+        dones = torch.as_tensor(np.asarray(dones), dtype=torch.float32, device=self.device).view(-1, 1)
         weights = torch.as_tensor(importance_weights, dtype=torch.float32, device=self.device).unsqueeze(1)
 
         states_critic = self._concat_critic_state(

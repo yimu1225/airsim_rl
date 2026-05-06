@@ -29,8 +29,8 @@ def get_config(argv=None):
     parser.add_argument("--env_name", type=str, default='AirSimEnv-v42', help="要训练的环境名称")
 
     # 算法选择 (Algorithm Selection)
-    parser.add_argument("--algorithm_name", type=str, default='CL-PER-ST-Vim-SAC,CL-ST-Vim-SAC,CL-SAC',
-                        help="要训练的算法。支持: TD3, DDPG, PER_TD3, ST_Vim_TD3, STV_Patch_TD3, Vim_TD3, ST_Seq_Vim_TD3, STV_Seq_Vim_TD3, PER_ST_Vim_TD3, ST_SVim_TD3, Mamba_TD3, ST_DualVim_TD3, SAC, LSTM_SAC, ST_Vim_SAC, PER_ST_Vim_SAC, PPO, ST_Vim_PPO, PL_TD3, PL_PER_TD3, PL_ST_Vim_TD3, PL_SAC, PL_PER_ST_Vim_SAC")
+    parser.add_argument("--algorithm_name", type=str, default='CL-PER_ST_Vim_SAC,SAC,',
+                        help="要训练的算法。支持: TD3, DDPG, PER_TD3, ST_Vim_TD3, STV_Patch_TD3, Vim_TD3, ST_Seq_Vim_TD3, STV_Seq_Vim_TD3, PER_ST_Vim_TD3, ST_SVim_TD3, Mamba_TD3, ST_DualVim_TD3, SAC, LSTM_SAC, ST_Vim_SAC, PER_ST_Vim_SAC, PPO, ST_Vim_PPO, PL_ST_Vim_PPO, PL_TD3, PL_PER_TD3, PL_ST_Vim_TD3, PL_SAC, PL_PER_ST_Vim_SAC")
     parser.add_argument("--smooth_window", type=int, default=300, help="平滑窗口大小，用于平滑学习曲线 (仅对移动平均有效)")
     parser.add_argument("--smooth_method", type=str, default="moving", choices=["moving","zero_phase_des"], help="曲线平滑方法: moving=滑动平均, zero_phase_des=零相位双重指数平滑")
     parser.add_argument("--smooth_alpha", type=float, default=0.05, help="零相位双重指数平滑的水平平滑因子 (0-1)，越大越关注近期数据")
@@ -43,7 +43,7 @@ def get_config(argv=None):
     parser.add_argument("--curve_smooth_step", type=float, default=1.0, help="baselines 风格 EMA 重采样 smooth_step")
 
     # 训练设置 (Training Setup)
-    parser.add_argument("--seed", type=str, default="5", help="随机种子 (支持逗号分隔多个种子)")
+    parser.add_argument("--seed", type=str, default="43", help="随机种子 (支持逗号分隔多个种子)")
     parser.add_argument("--curriculum_start_level", type=int, default=0, choices=[0, 1, 2, 3], help="课程学习起始等级 (0-3, 默认: 0)。注意：算法名以 'CL-' 前缀开头时自动启用课程学习")
     parser.add_argument("--non_curriculum_level", type=int, default=2, choices=[0, 1, 2, 3], help="非课程学习时的固定难度等级 (0-3, 默认: 3)")
     parser.add_argument("--steps_per_update", type=int, default=100, help='每次更新前收集的步数')
@@ -52,8 +52,8 @@ def get_config(argv=None):
     parser.add_argument("--n_training_threads", type=int, default=1, help="训练线程数")
     parser.add_argument("--n_rollout_threads", type=int, default=1, help="Rollout线程数（在AirSim环境中必须为1）")
     parser.add_argument("--max_timesteps", type=int, default=100000, help='要训练的环境步数 (默认: 10e6)')
-    parser.add_argument("--buffer_size", type=int, default=30000, help='经验池大小 (注意内存占用: 30000步约占用4GB)')
-    parser.add_argument("--learning_starts", type=int, default=2000, help="训练开始前的时间步数 (兼容 start_timesteps)")
+    parser.add_argument("--buffer_size", type=int, default=20000, help='经验池大小 (注意内存占用: 30000步约占用4GB)')
+    parser.add_argument("--learning_starts", type=int, default=3000, help="训练开始前的时间步数 (兼容 start_timesteps)")
     parser.add_argument("--gradient_steps", type=float, default=0.5, help="每次收集数据后的梯度更新倍数")
     parser.add_argument("--episode_length", type=int, default=300, help='每个环境中的最大回合长度')
     parser.add_argument("--eval_freq", type=int, default=5000, help="评估频率")
@@ -87,9 +87,9 @@ def get_config(argv=None):
     parser.add_argument("--min_forward_speed", type=float, default=0.0, help="最小前进速度 (m/s)")
     parser.add_argument("--max_forward_speed", type=float, default=2.0, help="最大前进速度 (m/s)")
     parser.add_argument("--max_vertical_speed", type=float, default=0.3, help="最大垂直速度 (m/s)")
-    parser.add_argument("--max_yaw_rate", type=float, default=np.pi/4, help="最大偏航角速度 (rad/s)")
+    parser.add_argument("--max_yaw_rate", type=float, default=np.pi/3, help="最大偏航角速度 (rad/s)")
     parser.add_argument("--takeoff_height", type=float, default=-1.0, help="起飞目标高度 (NED坐标系中负值为向上)")
-    parser.add_argument("--action_duration", type=float, default=0.1, help="每个速度指令的仿真持续时间 (秒)")
+    parser.add_argument("--action_duration", type=float, default=0.3, help="每个速度指令的仿真持续时间 (秒)")
 
     # 飞行高度限制 (Flight Altitude Limits)
     parser.add_argument("--max_flight_altitude", type=float, default=2.5, help="最大飞行高度 (米, 正值为向上)")
@@ -113,7 +113,7 @@ def get_config(argv=None):
     parser.add_argument("--use_stagnation_penalty", action='store_true', default=True, help="是否启用停滞惩罚")
     parser.add_argument("--stagnation_window", type=int, default=10, help="停滞惩罚滑动窗口步数")
     parser.add_argument("--stagnation_window_threshold", type=float, default=0.5, help="滑动窗口内最低累计位移（米），低于此值触发惩罚")
-    parser.add_argument("--stagnation_weight", type=float, default=4.0, help="停滞惩罚权重")
+    parser.add_argument("--stagnation_weight", type=float, default=5.0, help="停滞惩罚权重")
 
     # 保存 (Saving)
     parser.add_argument("--save_interval", type=int, default=20, help="检查点保存频率 (单位: epoch)")

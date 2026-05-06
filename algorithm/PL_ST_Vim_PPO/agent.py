@@ -4,52 +4,33 @@ import torch.nn.functional as F
 from torch import nn
 from torch.optim import Adam
 
+from algorithm.ST_Vim_PPO.agent import STVimPPOAgent
+from algorithm.ST_Vim_PPO.networks import Critic
+
 from ..config_loader import get_algo_param
-from ..state_adapter import StateAdapter
-from .buffer import RolloutBuffer
-from .networks import Actor, Critic, STVimEncoder
+from .buffer import PLRolloutBuffer
 
 
-class STVimPPOAgent:
-    """SB3-style PPO adapted to base-state + ST-Vim/Mamba depth sequences."""
+class PLSTVimPPOAgent(STVimPPOAgent):
+    """ST-Vim PPO with privileged information appended only to the value branch."""
 
     def __init__(self, base_dim: int, depth_shape, action_space, args, device=None, seed=None):
-        self.device = torch.device(device if device is not None else ("cuda" if torch.cuda.is_available() else "cpu"))
-        self.rng = np.random.default_rng(seed)
-        if seed is not None:
-            torch.manual_seed(seed)
+        super().__init__(base_dim, depth_shape, action_space, args, device=device, seed=seed)
 
-        self.args = args
-        self.args.depth_shape = depth_shape
-        self.base_dim = base_dim
-        self.base_feature_dim = getattr(args, "base_feature_dim", 32)
-        self.depth_shape = depth_shape
-        self.action_dim = action_space.shape[0]
+        self.actor_state_dim = self.state_dim
+        self.critic_priv_dim = int(
+            get_algo_param(args, "critic_priv_dim", getattr(args, "distance_sensor_count", 0))
+        )
+        self.critic_state_dim = self.actor_state_dim + self.critic_priv_dim
 
-        self.max_action = np.asarray(action_space.high, dtype=np.float32)
-        self.min_action = np.asarray(action_space.low, dtype=np.float32)
-        self.action_scale = torch.as_tensor((self.max_action - self.min_action) / 2.0, dtype=torch.float32, device=self.device)
-        self.action_bias = torch.as_tensor((self.max_action + self.min_action) / 2.0, dtype=torch.float32, device=self.device)
-
-        self.encoder = STVimEncoder(args).to(self.device)
-        self.base_encoder = StateAdapter(base_dim, self.base_feature_dim).to(self.device)
-        self.state_dim = self.base_feature_dim + self.encoder.repr_dim
-
-        hidden_dim = getattr(args, "hidden_dim", 256)
-        self.actor = Actor(self.state_dim, self.action_dim, hidden_dim).to(self.device)
-        self.critic = Critic(self.state_dim, hidden_dim).to(self.device)
-
+        hidden_dim = int(getattr(args, "hidden_dim", 256))
         lr = get_algo_param(args, "lr", getattr(args, "actor_lr", 3e-4))
-        self.encoder_optimizer = Adam(self.encoder.parameters(), lr=lr)
-        self.base_encoder_optimizer = Adam(self.base_encoder.parameters(), lr=lr)
-        self.actor_optimizer = Adam(self.actor.parameters(), lr=lr)
+        self.critic = Critic(self.critic_state_dim, hidden_dim).to(self.device)
         self.critic_optimizer = Adam(self.critic.parameters(), lr=lr)
 
-        self.gamma = getattr(args, "gamma", 0.99)
-        self.gae_lambda = get_algo_param(args, "gae_lambda", 0.95)
         buffer_size = get_algo_param(args, "rollout_buffer_size", 2048)
         buffer_depth_shape = (args.n_frames, depth_shape[-2], depth_shape[-1])
-        self.rollout_buffer = RolloutBuffer(
+        self.rollout_buffer = PLRolloutBuffer(
             buffer_size=buffer_size,
             base_dim=base_dim,
             depth_shape=buffer_depth_shape,
@@ -57,58 +38,56 @@ class STVimPPOAgent:
             device=self.device,
             gamma=self.gamma,
             gae_lambda=self.gae_lambda,
+            critic_priv_dim=self.critic_priv_dim,
         )
 
-        self.ppo_epochs = get_algo_param(args, "ppo_epochs", 10)
-        self.batch_size = get_algo_param(args, "ppo_batch_size", 64)
-        self.clip_range = get_algo_param(args, "clip_range", 0.2)
-        self.clip_range_vf = get_algo_param(args, "clip_range_vf", None)
-        self.normalize_advantage = bool(get_algo_param(args, "normalize_advantage", True))
-        self.vf_coef = get_algo_param(args, "vf_coef", 0.5)
-        self.ent_coef = get_algo_param(args, "ent_coef", 0.0)
-        self.max_grad_norm = get_algo_param(args, "max_grad_norm", 0.5)
-        self.target_kl = get_algo_param(args, "target_kl", None)
+    def _prepare_priv(self, critic_priv, batch_size: int, dtype: torch.dtype, device: torch.device) -> torch.Tensor:
+        if self.critic_priv_dim <= 0:
+            return torch.empty((batch_size, 0), dtype=dtype, device=device)
+        if critic_priv is None:
+            return torch.zeros((batch_size, self.critic_priv_dim), dtype=dtype, device=device)
 
-        self.total_it = 0
-        self.num_updates = 0
-        self._last_policy_action = None
+        if torch.is_tensor(critic_priv):
+            priv = critic_priv.to(device=device, dtype=dtype)
+        else:
+            priv = torch.as_tensor(critic_priv, dtype=dtype, device=device)
 
-    def _format_depth_sequence(self, depth_batch: torch.Tensor) -> torch.Tensor:
-        if depth_batch.dim() == 2:
-            depth_batch = depth_batch.unsqueeze(0).unsqueeze(0).unsqueeze(0)
-        elif depth_batch.dim() == 3:
-            depth_batch = depth_batch.unsqueeze(0).unsqueeze(2)
-        elif depth_batch.dim() == 4:
-            if depth_batch.size(0) == self.args.n_frames and depth_batch.size(1) == 1:
-                depth_batch = depth_batch.unsqueeze(0)
-            else:
-                depth_batch = depth_batch.unsqueeze(2)
-        elif depth_batch.dim() != 5:
-            raise ValueError(f"Unsupported depth sequence shape: {tuple(depth_batch.shape)}")
+        if priv.dim() == 0:
+            priv = priv.view(1, 1)
+        elif priv.dim() == 1:
+            priv = priv.view(1, -1)
+        elif priv.dim() > 2:
+            priv = priv.view(priv.shape[0], -1)
 
-        if depth_batch.size(2) != 1:
-            raise ValueError(f"Expected single-channel sequence frames, got {tuple(depth_batch.shape)}")
-        return depth_batch
+        if priv.shape[0] == 1 and batch_size > 1:
+            priv = priv.expand(batch_size, -1)
+        if priv.shape[0] != batch_size:
+            raise ValueError(f"critic_priv batch mismatch: expected {batch_size}, got {priv.shape[0]}")
 
-    def _encode_depth(self, depth):
-        return self.encoder(self._format_depth_sequence(depth))
+        if priv.shape[1] > self.critic_priv_dim:
+            priv = priv[:, : self.critic_priv_dim]
+        elif priv.shape[1] < self.critic_priv_dim:
+            pad = torch.zeros(
+                (batch_size, self.critic_priv_dim - priv.shape[1]),
+                dtype=dtype,
+                device=device,
+            )
+            priv = torch.cat([priv, pad], dim=1)
+        return priv
 
-    def _concat_state(self, base, depth):
-        base_features = self.base_encoder(base)
-        depth_features = self._encode_depth(depth)
-        return torch.cat([base_features, depth_features], dim=1)
+    def _concat_critic_state(self, actor_state: torch.Tensor, critic_priv=None) -> torch.Tensor:
+        priv = self._prepare_priv(critic_priv, actor_state.shape[0], actor_state.dtype, actor_state.device)
+        return torch.cat([actor_state, priv], dim=1)
 
-    def get_state_representation(self, base, depth):
-        return self._concat_state(base, depth)
-
-    def select_action(self, base_state, depth, deterministic=False, progress_ratio=0.0, critic_priv=None):
+    def select_action(self, base_state, depth, critic_priv=None, deterministic=False, progress_ratio=0.0):
         base = torch.as_tensor(base_state, dtype=torch.float32, device=self.device).view(1, -1)
         depth_tensor = torch.as_tensor(depth, dtype=torch.float32, device=self.device)
 
         with torch.no_grad():
-            state = self._concat_state(base, depth_tensor)
-            action, log_prob = self.actor(state, deterministic=deterministic)
-            value = self.critic(state)
+            actor_state = self._concat_state(base, depth_tensor)
+            critic_state = self._concat_critic_state(actor_state, critic_priv)
+            action, log_prob = self.actor(actor_state, deterministic=deterministic)
+            value = self.critic(critic_state)
 
         raw_action = action.cpu().numpy().flatten().astype(np.float32)
         self._last_policy_action = raw_action.copy()
@@ -124,28 +103,21 @@ class STVimPPOAgent:
         else:
             buffer_action = (np.asarray(action, dtype=np.float32) - self.action_bias.cpu().numpy()) / self.action_scale.cpu().numpy()
             buffer_action = np.clip(buffer_action, -1.0, 1.0)
-        self.rollout_buffer.add(base_state, depth, buffer_action, reward, value, log_prob, done)
+        self.rollout_buffer.add(base_state, depth, buffer_action, reward, value, log_prob, done, critic_priv=critic_priv)
 
     def finish_trajectory(self, last_base_state, last_depth, last_done, critic_priv=None):
         with torch.no_grad():
             base = torch.as_tensor(last_base_state, dtype=torch.float32, device=self.device).view(1, -1)
             depth = torch.as_tensor(last_depth, dtype=torch.float32, device=self.device)
-            state = self._concat_state(base, depth)
-            last_value = float(self.critic(state).cpu().numpy().flatten()[0])
+            actor_state = self._concat_state(base, depth)
+            critic_state = self._concat_critic_state(actor_state, critic_priv)
+            last_value = float(self.critic(critic_state).cpu().numpy().flatten()[0])
         return self.rollout_buffer.compute_returns_and_advantages(last_value, last_done)
-
-    def train(self, progress_ratio=0.0):
-        if self.rollout_buffer.size() == 0:
-            return None
-        self.total_it += 1
-        return self._update_policy(self.rollout_buffer.get_trajectory())
-
-    def update_policy(self, returns=None, advantages=None, epoch_pbar=None):
-        return self._update_policy(self.rollout_buffer.get_trajectory(), epoch_pbar=epoch_pbar)
 
     def _update_policy(self, data, epoch_pbar=None):
         base_states = data["base_states"]
         depth_states = data["depth_states"]
+        critic_privs = data["critic_privs"]
         actions = data["actions"]
         old_log_probs = data["log_probs"]
         returns = data["returns"]
@@ -169,15 +141,16 @@ class STVimPPOAgent:
                 end = min(start + self.batch_size, n_samples)
                 mb_indices = indices[start:end]
 
-                states = self._concat_state(base_states[mb_indices], depth_states[mb_indices])
+                actor_states = self._concat_state(base_states[mb_indices], depth_states[mb_indices])
+                critic_states = self._concat_critic_state(actor_states, critic_privs[mb_indices])
                 mb_actions = actions[mb_indices]
                 mb_old_log_probs = old_log_probs[mb_indices]
                 mb_advantages = advantages[mb_indices]
                 mb_returns = returns[mb_indices]
                 mb_old_values = old_values[mb_indices]
 
-                new_log_probs, entropy = self.actor.get_log_prob(states, mb_actions)
-                values = self.critic(states).squeeze(-1)
+                new_log_probs, entropy = self.actor.get_log_prob(actor_states, mb_actions)
+                values = self.critic(critic_states).squeeze(-1)
                 log_ratio = new_log_probs.squeeze(-1) - mb_old_log_probs
                 ratio = torch.exp(log_ratio)
 
@@ -244,43 +217,12 @@ class STVimPPOAgent:
             "approx_kl": float(np.mean(approx_kl_divs)) if approx_kl_divs else 0.0,
         }
 
-    def save(self, filename: str):
-        torch.save({
-            "encoder": self.encoder.state_dict(),
-            "base_encoder": self.base_encoder.state_dict(),
-            "actor": self.actor.state_dict(),
-            "critic": self.critic.state_dict(),
-            "encoder_optimizer": self.encoder_optimizer.state_dict(),
-            "base_encoder_optimizer": self.base_encoder_optimizer.state_dict(),
-            "actor_optimizer": self.actor_optimizer.state_dict(),
-            "critic_optimizer": self.critic_optimizer.state_dict(),
-            "total_it": self.total_it,
-            "num_updates": self.num_updates,
-        }, filename)
 
-    def load(self, filename: str):
-        checkpoint = torch.load(filename, map_location=self.device)
-        self.encoder.load_state_dict(checkpoint["encoder"])
-        self.base_encoder.load_state_dict(checkpoint["base_encoder"])
-        self.actor.load_state_dict(checkpoint["actor"])
-        self.critic.load_state_dict(checkpoint["critic"])
-        if "encoder_optimizer" in checkpoint:
-            self.encoder_optimizer.load_state_dict(checkpoint["encoder_optimizer"])
-        if "base_encoder_optimizer" in checkpoint:
-            self.base_encoder_optimizer.load_state_dict(checkpoint["base_encoder_optimizer"])
-        if "actor_optimizer" in checkpoint:
-            self.actor_optimizer.load_state_dict(checkpoint["actor_optimizer"])
-        if "critic_optimizer" in checkpoint:
-            self.critic_optimizer.load_state_dict(checkpoint["critic_optimizer"])
-        self.total_it = checkpoint.get("total_it", 0)
-        self.num_updates = checkpoint.get("num_updates", 0)
-
-
-def make_agent(env, initial_obs, args, device=None) -> STVimPPOAgent:
+def make_agent(env, initial_obs, args, device=None) -> PLSTVimPPOAgent:
     base_state = initial_obs["base"]
     depth = initial_obs["depth"]
     args.depth_shape = (1, depth.shape[-2], depth.shape[-1])
-    return STVimPPOAgent(
+    return PLSTVimPPOAgent(
         base_dim=base_state.shape[0],
         depth_shape=args.depth_shape,
         action_space=env.action_space,
@@ -289,4 +231,4 @@ def make_agent(env, initial_obs, args, device=None) -> STVimPPOAgent:
     )
 
 
-PPOAgent = STVimPPOAgent
+PPOAgent = PLSTVimPPOAgent
