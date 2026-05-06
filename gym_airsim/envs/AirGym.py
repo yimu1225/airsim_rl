@@ -595,7 +595,11 @@ class AirSimEnv(gym.Env):
         # NavRL-style velocity reward (r_vel): projection of velocity on goal direction.
         goal_vec = np.array([self.goal[0] - now[0], self.goal[1] - now[1]], dtype=np.float32)
         goal_dist = float(np.linalg.norm(goal_vec))
-        distance_penalty = -goal_dist * 0.02
+        # 3D distance penalty
+        goal_dist_3d = float(np.linalg.norm(
+            np.array([self.goal[0] - now[0], self.goal[1] - now[1], self.goal[2] - now[2]], dtype=np.float32)
+        ))
+        distance_penalty = -goal_dist_3d * 0.03
 
         if goal_dist > 1e-6:
             goal_dir = goal_vec / goal_dist
@@ -611,14 +615,14 @@ class AirSimEnv(gym.Env):
             reward_vel = float(self.speed * math.cos(r_yaw))
 
         # Match NavRL base term: reward_vel 
-        r = 2 * reward_vel 
+        r = 3 * reward_vel + distance_penalty
 
         # NavRL-style smoothness penalty: ||v_t - v_{t-1}||
         smooth_penalty_weight = 0.1
         if velocity_after is not None:
             curr_v = np.asarray(velocity_after, dtype=np.float32)
             prev_v = np.asarray(self.prev_velocity, dtype=np.float32)
-            smooth_penalty =  2 * float(np.linalg.norm(curr_v - prev_v))
+            smooth_penalty =  float(np.linalg.norm(curr_v - prev_v))
         else:
             smooth_penalty = 0.0
         

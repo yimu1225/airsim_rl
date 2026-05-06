@@ -28,6 +28,7 @@ from sb3_algorithms import (
     PLPERTD3,
     PLPERSTVimSAC,
     PLSAC,
+    PLSTVimPPO,
     PLSTVimTD3,
     PLTD3,
     PERSAC,
@@ -84,6 +85,7 @@ SUPPORTED_ALGORITHMS = {
     "ST_Vim_SAC": STVimSAC,
     "PER_ST_Vim_SAC": PERSTVimSAC,
     "ST_Vim_PPO": STVimPPO,
+    "PL_ST_Vim_PPO": PLSTVimPPO,
     "PL_ST_Vim_TD3": PLSTVimTD3,
     "PL_SAC": PLSAC,
     "PL_PER_ST_Vim_SAC": PLPERSTVimSAC,
@@ -109,6 +111,7 @@ FEATURE_EXTRACTORS = {
     "PER_ST_Vim_SAC": STVimFeatureExtractor,
     "PL_PER_ST_Vim_SAC": STVimFeatureExtractor,
     "ST_Vim_PPO": STVimFeatureExtractor,
+    "PL_ST_Vim_PPO": STVimFeatureExtractor,
     "ST_Seq_Vim_TD3": STSeqVimFeatureExtractor,
     "STV_Seq_Vim_TD3": STVSeqVimFeatureExtractor,
     "STV_Patch_TD3": VimPatchFeatureExtractor,
@@ -120,7 +123,7 @@ FEATURE_EXTRACTORS = {
 
 PER_ALGORITHMS = {"PER_TD3", "PL_PER_TD3", "PER_ST_Vim_TD3", "PER_ST_Vim_SAC", "PL_PER_ST_Vim_SAC"}
 SAC_ALGORITHMS = {"SAC", "LSTM_SAC", "ST_Vim_SAC", "PER_ST_Vim_SAC", "PL_SAC", "PL_PER_ST_Vim_SAC"}
-PPO_ALGORITHMS = {"PPO", "ST_Vim_PPO"}
+PPO_ALGORITHMS = {"PPO", "ST_Vim_PPO", "PL_ST_Vim_PPO"}
 
 
 class _EpisodePrintCallback(BaseCallback):
@@ -259,13 +262,16 @@ def _policy_kwargs(algo_name: str, args) -> dict:
     if extractor_cls is AirSimCNNExtractor:
         extractor_kwargs["cnn_type"] = "nature"
 
-    return dict(
+    policy_kwargs = dict(
         features_extractor_class=extractor_cls,
         features_extractor_kwargs=extractor_kwargs,
         net_arch=[int(args.hidden_dim), int(args.hidden_dim)],
         activation_fn=nn.ReLU,
         normalize_images=False,
     )
+    if algo_name == "PL_ST_Vim_PPO":
+        policy_kwargs["privileged_key"] = str(getattr(args, "privileged_key", "distance_sensor"))
+    return policy_kwargs
 
 
 def _action_noise(env, args):

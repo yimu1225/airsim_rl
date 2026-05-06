@@ -36,6 +36,7 @@ from gym_airsim.envs import AirSimEnv
 # On-Policy Algorithm Imports
 from algorithm.PPO.ppo import PPOAgent
 from algorithm.ST_Vim_PPO.agent import STVimPPOAgent
+from algorithm.PL_ST_Vim_PPO.agent import PLSTVimPPOAgent
 
 
 def _raise_if_non_finite(name, value, step_info=""):
@@ -116,6 +117,7 @@ def get_agent_class(algo_name):
     agents = {
         'PPO': PPOAgent,
         'ST_Vim_PPO': STVimPPOAgent,
+        'PL_ST_Vim_PPO': PLSTVimPPOAgent,
     }
     if core_algo_name in agents:
         return agents[core_algo_name]
@@ -210,6 +212,7 @@ def train_ppo_algorithm(env, agent, args, algo_name, device, base_state, depth_i
 
     state = depth_image
     base = base_state
+    priv = None
 
     print("Start PPO Training Loop...")
     print(f"Rollout buffer size: {args.rollout_buffer_size}")
@@ -230,7 +233,7 @@ def train_ppo_algorithm(env, agent, args, algo_name, device, base_state, depth_i
 
             # Select Action (PPO returns action, value, log_prob)
             progress_ratio = total_timesteps / max_timesteps
-            action, value, log_prob = agent.select_action(base, state, deterministic=False)
+            action, value, log_prob = agent.select_action(base, state, deterministic=False, critic_priv=priv)
 
             _raise_if_non_finite(
                 "actor.action",
@@ -248,11 +251,13 @@ def train_ppo_algorithm(env, agent, args, algo_name, device, base_state, depth_i
                 if env.check_ue4_status(force_restart=True, reason="env_step_exception"):
                     obs, _ = env.reset(seed=args.seed)
                     next_obs = obs
+                    next_priv = None
                     reward = 0.0
                     terminated = True
                     truncated = False
                     step_info = {}
                 else:
+                    next_priv = None
                     reward = 0.0
                     terminated = True
                     truncated = False
@@ -264,6 +269,7 @@ def train_ppo_algorithm(env, agent, args, algo_name, device, base_state, depth_i
             
             next_state = next_obs['depth']
             next_base = next_obs['base']
+            next_priv = next_obs.get('distance_sensor')
 
             _raise_if_non_finite("env.next_depth", next_state, f"algo={display_algo_name}, total_timesteps={total_timesteps}")
             _raise_if_non_finite("env.next_base", next_base, f"algo={display_algo_name}, total_timesteps={total_timesteps}")
@@ -295,11 +301,12 @@ def train_ppo_algorithm(env, agent, args, algo_name, device, base_state, depth_i
 
             # Store transition in rollout buffer
             done_bool = float(done)
-            agent.store_transition(base, state, action, reward, value, log_prob, done_bool)
+            agent.store_transition(base, state, action, reward, value, log_prob, done_bool, critic_priv=priv)
 
             # State update
             state = next_state
             base = next_base
+            priv = next_priv
 
             # Episode end handling
             if done:
@@ -350,6 +357,7 @@ def train_ppo_algorithm(env, agent, args, algo_name, device, base_state, depth_i
                 obs, _ = env.reset(seed=args.seed + episode_num)
                 state = obs['depth']
                 base = obs['base']
+                priv = obs.get('distance_sensor')
 
                 # Memory cleanup
                 if torch.cuda.is_available():
@@ -363,8 +371,13 @@ def train_ppo_algorithm(env, agent, args, algo_name, device, base_state, depth_i
                 base_tensor = torch.as_tensor(base, dtype=torch.float32, device=device).view(1, -1)
                 depth_tensor = torch.as_tensor(state, dtype=torch.float32, device=device)
                 # Use agent's method to get last value
-                last_state = agent.get_state_representation(base_tensor, depth_tensor)
-                last_value = agent.critic(last_state).cpu().numpy().flatten()[0]
+                if hasattr(agent, '_concat_critic_state'):
+                    actor_state = agent.get_state_representation(base_tensor, depth_tensor)
+                    critic_state = agent._concat_critic_state(actor_state, priv)
+                    last_value = agent.critic(critic_state).cpu().numpy().flatten()[0]
+                else:
+                    last_state = agent.get_state_representation(base_tensor, depth_tensor)
+                    last_value = agent.critic(last_state).cpu().numpy().flatten()[0]
             
             # Compute returns and advantages (stored in buffer)
             agent.rollout_buffer.compute_returns_and_advantages(last_value, 0.0)
@@ -431,7 +444,7 @@ def main():
         for algo_name in algorithms:
             algo_name = to_internal_algorithm_name(algo_name)
             core_algo_name = to_internal_core_algorithm_name(algo_name)
-            if core_algo_name not in {"PPO", "ST_Vim_PPO"}:
+            if core_algo_name not in {"PPO", "ST_Vim_PPO", "PL_ST_Vim_PPO"}:
                 print(f"Skipping unsupported on-policy algorithm in main_ppo.py: {algo_name}")
                 continue
 
@@ -455,7 +468,7 @@ def main():
                 print(f"  [Curriculum Learning Disabled] {algo_name}")
 
             # ST-Vim-PPO consumes the stacked depth frames as a temporal sequence.
-            is_recurrent = core_algo_name == "ST_Vim_PPO"
+            is_recurrent = core_algo_name in {"ST_Vim_PPO", "PL_ST_Vim_PPO"}
             n_frames = args.n_frames
 
             # Initialize Environment

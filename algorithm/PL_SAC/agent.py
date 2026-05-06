@@ -80,7 +80,7 @@ class PLSACAgent:
                     init_value = 1.0
             # learn log_alpha (log(ent_coef))
             self.log_alpha = torch.log(torch.ones(1, device=self.device) * init_value).requires_grad_(True)
-            self.alpha_optimizer = Adam([self.log_alpha], lr=args.actor_lr)
+            self.alpha_optimizer = Adam([self.log_alpha], lr=float(get_algo_param(args, "alpha_lr")))
             # alpha property returns current scalar value via exp()
             self.alpha = self.log_alpha.exp()
             self.auto_entropy_tuning = True
@@ -312,7 +312,6 @@ class PLSACAgent:
         if replay_weights is not None:
             weights = torch.as_tensor(replay_weights, dtype=torch.float32, device=self.device).view(-1, 1)
 
-        # ============ Critic Update ============
         with torch.no_grad():
             # SB3-style: next action comes from the current actor,
             # target Q comes from the target critic.
@@ -380,7 +379,6 @@ class PLSACAgent:
         if replay_refs is not None:
             self._update_replay_priorities(replay_refs, td_errors.detach().cpu().numpy().reshape(-1))
 
-        # ============ Actor and Alpha Update ============
         actor_loss_value = None
         alpha_loss_value = None
         mean_log_prob_value = None
@@ -425,7 +423,6 @@ class PLSACAgent:
             self.actor_optimizer.step()
             actor_loss_value = float(actor_loss.item())
 
-            # ============ Alpha Update ============
             if self.auto_entropy_tuning:
                 # We want to minimize: -alpha * (log_prob + target_entropy)
                 alpha_loss = -(self.log_alpha * (log_probs + self.target_entropy).detach()).mean()
@@ -438,7 +435,6 @@ class PLSACAgent:
                 self.alpha = self.log_alpha.exp().item()
                 alpha_loss_value = float(alpha_loss.item())
 
-        # ============ Soft Update Target Networks ============
         if self.total_it % self.target_update_interval == 0:
             self._soft_update()
 

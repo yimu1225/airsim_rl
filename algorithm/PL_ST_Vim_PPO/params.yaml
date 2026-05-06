@@ -1,4 +1,4 @@
-# ST-Vim-PPO algorithm-specific parameters
+# PL-ST-Vim-PPO algorithm-specific parameters
 rollout_buffer_size: 2048
 ppo_epochs: 10
 ppo_batch_size: 64
@@ -12,7 +12,10 @@ gae_lambda: 0.95
 lr: 0.0007
 max_grad_norm: 0.5
 
-# Vim + temporal Mamba visual encoder parameters, matching ST_Vim_TD3.
+# Privileged critic dimension (distance sensor readings)
+critic_priv_dim: 8
+
+# Vim + temporal Mamba visual encoder parameters, matching ST_Vim_PPO.
 st_mamba_embed_dim: 32
 st_mamba_depth: 1
 st_mamba_patch_size: 32

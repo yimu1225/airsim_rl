@@ -72,7 +72,7 @@ class PERSTVimSACAgent:
                 if init_value <= 0:
                     raise ValueError("Initial ent_coef value must be greater than 0.")
             self.log_alpha = torch.log(torch.ones(1, device=self.device) * init_value).requires_grad_(True)
-            self.alpha_optimizer = Adam([self.log_alpha], lr=args.actor_lr)
+            self.alpha_optimizer = Adam([self.log_alpha], lr=float(get_algo_param(args, "alpha_lr")))
             self.alpha = self.log_alpha.exp().item()
             self.auto_entropy_tuning = True
         else:
@@ -130,7 +130,10 @@ class PERSTVimSACAgent:
         if out is None:
             return None, None, None, {}
         samples, refs, weights, mix_info = out
-        stacked = tuple(np.stack(items, axis=0) for items in zip(*samples))
+        if isinstance(samples, tuple):
+            stacked = samples
+        else:
+            stacked = tuple(np.stack(items, axis=0) for items in zip(*samples))
         return stacked, refs, weights, {"per_beta": self._per_beta(), **mix_info}
 
     def _update_replay_priorities(self, refs, td_errors):

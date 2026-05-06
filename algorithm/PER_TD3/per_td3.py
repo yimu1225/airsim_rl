@@ -182,18 +182,21 @@ class PERTD3Agent:
             return {}
 
         samples, refs, importance_weights, mix_info = sampled
-        base_states, depths, actions, rewards, next_base_states, next_depths, dones = zip(*samples)
+        if isinstance(samples, tuple):
+            base_states, depths, actions, rewards, next_base_states, next_depths, dones = samples
+        else:
+            base_states, depths, actions, rewards, next_base_states, next_depths, dones = zip(*samples)
 
-        base_states = torch.as_tensor(np.array(base_states), dtype=torch.float32, device=self.device)
-        depths = torch.as_tensor(np.array(depths), dtype=torch.float32, device=self.device)
-        real_actions = torch.as_tensor(np.array(actions), dtype=torch.float32, device=self.device)
+        base_states = torch.as_tensor(np.asarray(base_states), dtype=torch.float32, device=self.device)
+        depths = torch.as_tensor(np.asarray(depths), dtype=torch.float32, device=self.device)
+        real_actions = torch.as_tensor(np.asarray(actions), dtype=torch.float32, device=self.device)
         actions = (real_actions - self.action_bias) / self.action_scale
         actions = actions.clamp(-1.0, 1.0)
 
-        rewards = torch.as_tensor(np.array(rewards), dtype=torch.float32, device=self.device).unsqueeze(1)
-        next_base_states = torch.as_tensor(np.array(next_base_states), dtype=torch.float32, device=self.device)
-        next_depths = torch.as_tensor(np.array(next_depths), dtype=torch.float32, device=self.device)
-        dones = torch.as_tensor(np.array(dones), dtype=torch.float32, device=self.device).unsqueeze(1)
+        rewards = torch.as_tensor(np.asarray(rewards), dtype=torch.float32, device=self.device).view(-1, 1)
+        next_base_states = torch.as_tensor(np.asarray(next_base_states), dtype=torch.float32, device=self.device)
+        next_depths = torch.as_tensor(np.asarray(next_depths), dtype=torch.float32, device=self.device)
+        dones = torch.as_tensor(np.asarray(dones), dtype=torch.float32, device=self.device).view(-1, 1)
         weights = torch.as_tensor(importance_weights, dtype=torch.float32, device=self.device).unsqueeze(1)
 
         encoded_depths_critic = self._encode(depths, self.critic_encoder)
