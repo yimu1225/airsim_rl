@@ -1,0 +1,5 @@
+# AETD3 algorithm-specific parameters
+# Shared/common parameters stay in config.py
+adaptive_k: 5          # MetaNet 集成采样的噪声动作数量
+adaptive_reg: 0.001    # 权重熵正则化系数
+adaptive_meta_lr: 0.001  # MetaNet 学习率
