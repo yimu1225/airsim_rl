@@ -184,29 +184,16 @@ class TD3Agent:
 
         actor_loss_value = None
         if self.total_it % self.policy_freq == 0:
+            # Freeze Critic parameters so they don't get gradients during actor update
+            for p in self.critic_params:
+                p.requires_grad = False
+
             # Encode current observations (Actor Encoder)
             encoded_depths_actor = self._encode(depths, self.actor_encoder)
             base_features_actor = self.actor_base_adapter(base_states)
             states_actor = torch.cat([base_features_actor, encoded_depths_actor], dim=1)
             
-            # We need Q value for actor loss. 
-            # Standard TD3: Actor optimizes Q(s, pi(s)).
-            # But which Critic Encoder to use? The Critic's.
-            # However, gradients must flow through Actor -> Actor Encoder.
-            # And Actor -> Q -> Critic -> Critic Encoder?
-            # Typically, we freeze Critic for Actor update.
-            # So: state_actor -> Actor -> action
-            #     state_critic -> Critic(action) -> Q
-            # But state_critic depends on Critic Encoder. state_actor depends on Actor Encoder.
-            # Ideally: q = critic(concat(base, critic_encoder(depth)), actor(concat(base, actor_encoder(depth))))
-            # We want to optimize Actor parameters (including actor_encoder).
-            # Critic parameters (including critic_encoder) are fixed.
-            
-            # Re-compute critic state features detached (or use critic encoder in eval mode / no grad)
-            # Actually, `self.critic` is used. We just need to pass the same depth to critic encoder.
-            # BUT, we want gradients to flow from Q to Action to Actor to ActorEncoder.
-            # We DO NOT want gradients to flow into Critic Encoder here (it's fixed for actor update).
-            
+            # Re-compute critic state features detached (Critic Encoder is fixed for actor update)
             with torch.no_grad():
                  encoded_depths_critic_fixed = self.critic_encoder(depths)
                  base_features_critic_fixed = self.critic_base_adapter(base_states)
@@ -220,6 +207,10 @@ class TD3Agent:
             actor_loss.backward()
             torch.nn.utils.clip_grad_norm_(self.actor_params, max_norm=self.grad_clip)
             self.actor_optimizer.step()
+
+            # Unfreeze Critic parameters
+            for p in self.critic_params:
+                p.requires_grad = True
 
             # Soft update targets
             for param, target_param in zip(self.actor.parameters(), self.actor_target.parameters()):

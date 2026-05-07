@@ -3,6 +3,7 @@
 from sb3_algorithms.pl_td3 import PLTD3
 from sb3_algorithms.pl_per_td3 import PLPERTD3
 from sb3_algorithms.pl_per_st_vim_sac import PLPERSTVimSAC
+from sb3_algorithms.pl_per_st_vim_td3 import PLPERSTVimTD3
 from sb3_algorithms.per_sac import PERSAC
 from sb3_algorithms.per_st_vim_sac import PERSTVimSAC
 from sb3_algorithms.per_st_vim_td3 import PERSTVimTD3
@@ -27,6 +28,7 @@ __all__ = [
     "MambaTD3",
     "PLPERTD3",
     "PLPERSTVimSAC",
+    "PLPERSTVimTD3",
     "PLSAC",
     "PLSTVimPPO",
     "PLSTVimTD3",

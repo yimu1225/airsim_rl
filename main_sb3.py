@@ -27,6 +27,7 @@ from sb3_algorithms import (
     MambaTD3,
     PLPERTD3,
     PLPERSTVimSAC,
+    PLPERSTVimTD3,
     PLSAC,
     PLSTVimPPO,
     PLSTVimTD3,
@@ -89,6 +90,7 @@ SUPPORTED_ALGORITHMS = {
     "PL_ST_Vim_TD3": PLSTVimTD3,
     "PL_SAC": PLSAC,
     "PL_PER_ST_Vim_SAC": PLPERSTVimSAC,
+    "PL_PER_ST_Vim_TD3": PLPERSTVimTD3,
 }
 
 NORMALIZED_TO_CANONICAL_ALGORITHM = {name.lower(): name for name in SUPPORTED_ALGORITHMS}
@@ -110,6 +112,7 @@ FEATURE_EXTRACTORS = {
     "ST_Vim_SAC": STVimFeatureExtractor,
     "PER_ST_Vim_SAC": STVimFeatureExtractor,
     "PL_PER_ST_Vim_SAC": STVimFeatureExtractor,
+    "PL_PER_ST_Vim_TD3": STVimFeatureExtractor,
     "ST_Vim_PPO": STVimFeatureExtractor,
     "PL_ST_Vim_PPO": STVimFeatureExtractor,
     "ST_Seq_Vim_TD3": STSeqVimFeatureExtractor,
@@ -121,7 +124,7 @@ FEATURE_EXTRACTORS = {
     "LSTM_SAC": LSTMExtractor,
 }
 
-PER_ALGORITHMS = {"PER_TD3", "PL_PER_TD3", "PER_ST_Vim_TD3", "PER_ST_Vim_SAC", "PL_PER_ST_Vim_SAC"}
+PER_ALGORITHMS = {"PER_TD3", "PL_PER_TD3", "PER_ST_Vim_TD3", "PER_ST_Vim_SAC", "PL_PER_ST_Vim_SAC", "PL_PER_ST_Vim_TD3"}
 SAC_ALGORITHMS = {"SAC", "LSTM_SAC", "ST_Vim_SAC", "PER_ST_Vim_SAC", "PL_SAC", "PL_PER_ST_Vim_SAC"}
 PPO_ALGORITHMS = {"PPO", "ST_Vim_PPO", "PL_ST_Vim_PPO"}
 

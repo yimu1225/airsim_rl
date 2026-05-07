@@ -16,6 +16,7 @@ from .PL_PER_TD3.pl_per_td3 import PLPERTD3Agent
 from .PL_ST_Vim_TD3.agent import PLSTVimTD3Agent
 from .PL_SAC.agent import PLSACAgent
 from .PL_PER_ST_Vim_SAC.agent import PLPERSTVimSACAgent
+from .PL_PER_ST_Vim_TD3.agent import PLPERSTVimTD3Agent
 from .ST_Vim_PPO.agent import STVimPPOAgent
 
-__all__ = ["TD3Agent", "AETD3Agent", "STVimTD3Agent", "VimStateSeqTD3Agent", "VimTD3Agent", "PERVimTD3Agent", "STSVimTD3Agent", "MambaTD3Agent", "DualBranchVideoMambaTD3Agent", "PPOAgent", "STVimSACAgent", "LSTMSACAgent", "PERSTVimSACAgent", "PLTD3Agent", "PLPERTD3Agent", "PLSTVimTD3Agent", "PLSACAgent", "PLPERSTVimSACAgent", "STVimPPOAgent"]
+__all__ = ["TD3Agent", "AETD3Agent", "STVimTD3Agent", "VimStateSeqTD3Agent", "VimTD3Agent", "PERVimTD3Agent", "STSVimTD3Agent", "MambaTD3Agent", "DualBranchVideoMambaTD3Agent", "PPOAgent", "STVimSACAgent", "LSTMSACAgent", "PERSTVimSACAgent", "PLTD3Agent", "PLPERTD3Agent", "PLSTVimTD3Agent", "PLSACAgent", "PLPERSTVimSACAgent", "PLPERSTVimTD3Agent", "STVimPPOAgent"]
