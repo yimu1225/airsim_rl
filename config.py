@@ -29,7 +29,7 @@ def get_config(argv=None):
     parser.add_argument("--env_name", type=str, default='AirSimEnv-v42', help="要训练的环境名称")
 
     # 算法选择 (Algorithm Selection)
-    parser.add_argument("--algorithm_name", type=str, default='CL-TD3,CL-PL_PER_ST_Vim_TD3',
+    parser.add_argument("--algorithm_name", type=str, default='CL-PL_PER_ST_Vim_TD3,CL-PER_ST_Vim_TD3,CL-ST_Vim_TD3,CL-TD3',
                         help="要训练的算法。支持: TD3, DDPG, PER_TD3, ST_Vim_TD3, STV_Patch_TD3, Vim_TD3, ST_Seq_Vim_TD3, STV_Seq_Vim_TD3, PER_ST_Vim_TD3, ST_SVim_TD3, Mamba_TD3, ST_DualVim_TD3, AETD3, SAC, LSTM_SAC, ST_Vim_SAC, PER_ST_Vim_SAC, PPO, ST_Vim_PPO, PL_ST_Vim_PPO, PL_TD3, PL_PER_TD3, PL_ST_Vim_TD3, PL_SAC, PL_PER_ST_Vim_SAC, PL_PER_ST_Vim_TD3")
     parser.add_argument("--smooth_window", type=int, default=300, help="平滑窗口大小，用于平滑学习曲线 (仅对移动平均有效)")
     parser.add_argument("--smooth_method", type=str, default="moving", choices=["moving","zero_phase_des"], help="曲线平滑方法: moving=滑动平均, zero_phase_des=零相位双重指数平滑")

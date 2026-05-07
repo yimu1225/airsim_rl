@@ -1,30 +1,18 @@
-import os
+# json_file_addr = "/home/winter/airlearning-ue4/Content/JsonFiles/EnvGenConfig.json"
+# game_file = "/home/winter/airlearning-ue4/AirLearning.uproject"
+# unreal_host_shared_dir = ""
+# unreal_exe_path = "/home/winter/UnrealEngine/Engine/Binaries/Linux/UE4Editor"
 
-# Ubuntu native defaults (no WSL2 path assumptions).
-# You can override each path via environment variables:
-#   AIRLEARNING_UE4_ROOT
-#   AIRLEARNING_JSON_FILE
-#   AIRLEARNING_UPROJECT
-#   UNREAL_EDITOR_PATH
-_default_root = os.environ.get("AIRLEARNING_UE4_ROOT", "/home/yimu/YIMU/airlearning-ue4-1")
+
 
 # Valid path to a json file for game configuration
-json_file_addr = os.environ.get(
-    "AIRLEARNING_JSON_FILE",
-    os.path.join(_default_root, "Content", "JsonFiles", "EnvGenConfig.json"),
-)
+json_file_addr = "/mnt/d/Projects/airlearning-ue4-1/Content/JsonFiles/EnvGenConfig.json"
 
 # Path to the game executable or configuration file
-game_file = os.environ.get(
-    "AIRLEARNING_UPROJECT",
-    os.path.join(_default_root, "AirLearning.uproject"),
-)
+game_file = "/mnt/d/Projects/airlearning-ue4-1/AirLearning.uproject"
 
 # Directory shared with the unreal host
 unreal_host_shared_dir = ""
 
-# Path to the Unreal Engine executable (Linux UE editor path).
-unreal_exe_path = os.environ.get(
-    "UNREAL_EDITOR_PATH",
-    "/home/yimu/YIMU/UnrealEngine-4.18/Engine/Binaries/Linux/UE4Editor",
-)
+# Path to the Unreal Engine executable
+unreal_exe_path = "/mnt/d/SoftWare/Epic Games/Game/UE_4.18/Engine/Binaries/Win64/UE4Editor.exe"
