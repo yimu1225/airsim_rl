@@ -58,6 +58,7 @@ from algorithm.ST_DualVim_TD3.agent import DualBranchVideoMambaTD3Agent
 from algorithm.SAC.agent import SACAgent
 from algorithm.PL_SAC.agent import PLSACAgent
 from algorithm.PL_PER_ST_Vim_SAC.agent import PLPERSTVimSACAgent
+from algorithm.PL_PER_ST_Vim_TD3.agent import PLPERSTVimTD3Agent
 from algorithm.LSTM_SAC.agent import LSTMSACAgent
 from algorithm.ST_Vim_SAC.agent import STVimSACAgent
 from algorithm.PER_ST_Vim_SAC.agent import PERSTVimSACAgent
@@ -162,6 +163,7 @@ def get_agent_class(algo_name):
         'DDPG': DDPGAgent,
         'PER_TD3': PERTD3Agent,
         'PL_PER_TD3': PLPERTD3Agent,
+        'PL_PER_ST_Vim_TD3': PLPERSTVimTD3Agent,
         'ST_Vim_TD3': STVimTD3Agent,
         'STV_Patch_TD3': VimPatchTD3Agent,
         'Vim_TD3': VimTD3Agent,
@@ -241,7 +243,7 @@ def _is_pl_algorithm(algo_name: str) -> bool:
     core_name = to_internal_core_algorithm_name(algo_name)
     return core_name in {
         "PL_TD3", "PL_PER_TD3", "PL_ST_Vim_TD3", "PL_SAC",
-        "PL_PER_ST_Vim_SAC", "PL_ST_Vim_PPO",
+        "PL_PER_ST_Vim_SAC", "PL_PER_ST_Vim_TD3", "PL_ST_Vim_PPO",
     }
 
 
@@ -400,6 +402,7 @@ def main():
                 'PER_ST_Vim_TD3',
                 'PL_ST_Vim_TD3',
                 'PL_PER_ST_Vim_SAC',
+                'PL_PER_ST_Vim_TD3',
                 'ST_SVim_TD3',
                 'ST_DualVim_TD3',
                 'LSTM_SAC',
@@ -736,7 +739,7 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, ba
                         critic_depth=critic_depth_current,
                         next_critic_depth=critic_depth_next,
                     )
-                    if core_algo_name == "PL_PER_ST_Vim_SAC":
+                    if core_algo_name in {"PL_PER_ST_Vim_SAC", "PL_PER_ST_Vim_TD3"}:
                         add_kwargs["is_success"] = (
                             float(step_info.get("is_success", False)) if isinstance(step_info, dict) else 0.0
                         )
