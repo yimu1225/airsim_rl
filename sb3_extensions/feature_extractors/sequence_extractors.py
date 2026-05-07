@@ -121,7 +121,7 @@ class VimFrameEncoder(nn.Module):
     def __init__(self, shape: SequenceShape, params: dict[str, Any]) -> None:
         super().__init__()
         vim_cls = _require_vim()
-        self.embed_dim = int(_param(params, "st_mamba_embed_dim", 32))
+        self.embed_dim = int(_param(params, "st_mamba_embed_dim", 64))
         self.depth = int(_param(params, "st_mamba_depth", 1))
         self.patch_size = int(_param(params, "st_mamba_patch_size", 16))
         self.d_state = int(_param(params, "st_mamba_d_state", 32))
@@ -500,7 +500,7 @@ class DualBranchVideoMambaEncoder(nn.Module):
                 return out, cls_out
 
         self.num_frames = int(shape.seq_len)
-        self.embed_dim = int(_param(params, "st_mamba_embed_dim", 32))
+        self.embed_dim = int(_param(params, "st_mamba_embed_dim", 64))
         self.depth = max(1, int(_param(params, "st_mamba_depth", 1)))
         self.patch_size = int(_param(params, "st_mamba_patch_size", 16))
         self.d_state = int(_param(params, "st_mamba_d_state", 32))

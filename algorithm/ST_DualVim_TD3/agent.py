@@ -43,7 +43,7 @@ class DualBranchVideoMambaTD3Agent:
         temporal_frames = max(1, int(getattr(args, "n_frames", C)))
         encoder_kwargs = dict(
             num_frames=temporal_frames,
-            embed_dim=get_algo_param(args, "st_mamba_embed_dim", 48),
+            embed_dim=get_algo_param(args, "st_mamba_embed_dim", 64),
             depth=get_algo_param(args, "st_mamba_depth", 2),
             patch_size=get_algo_param(args, "st_mamba_patch_size", 8),
             d_state=get_algo_param(args, "st_mamba_d_state", 16),

@@ -44,7 +44,7 @@ class CNN(nn.Module):
         input_height,
         input_width,
         input_channels=1,
-        output_dim=32,
+        output_dim=64,
         frame_wise=None,
         flatten_all_tokens=True,
     ):

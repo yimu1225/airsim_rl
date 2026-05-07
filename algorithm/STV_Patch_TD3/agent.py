@@ -41,7 +41,7 @@ class VimPatchTD3Agent:
         channels, depth_h, depth_w = depth_shape
         encoder_kwargs = dict(
             num_frames=self.seq_len,
-            embed_dim=get_algo_param(args, "st_mamba_embed_dim", 48),
+            embed_dim=get_algo_param(args, "st_mamba_embed_dim", 64),
             depth=get_algo_param(args, "st_mamba_depth", 2),
             patch_size=get_algo_param(args, "st_mamba_patch_size", 8),
             d_state=get_algo_param(args, "st_mamba_d_state", 16),

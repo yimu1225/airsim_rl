@@ -1,6 +1,6 @@
 # STV_Patch_TD3 algorithm-specific parameters
 # Shared/common parameters stay in config.py
-st_mamba_embed_dim: 32  # ST-Mamba/Vim token 嵌入维度
+st_mamba_embed_dim: 64  # ST-Mamba/Vim token 嵌入维度
 st_mamba_depth: 1  # Vim 主干 block 层数
 st_mamba_patch_size: 32  # 2D patch 尺寸（像素）
 st_mamba_d_state: 32  # ST-Mamba 的状态维度 d_state

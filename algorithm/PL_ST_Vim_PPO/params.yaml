@@ -13,7 +13,7 @@ lr: 0.0007
 max_grad_norm: 0.5
 
 # Vim + temporal Mamba visual encoder parameters, matching ST_Vim_PPO.
-st_mamba_embed_dim: 32
+st_mamba_embed_dim: 64
 st_mamba_depth: 1
 st_mamba_patch_size: 32
 st_mamba_d_state: 32
