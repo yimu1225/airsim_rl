@@ -17,9 +17,12 @@ _CANONICAL_ALGORITHMS: Tuple[str, ...] = (
     "ST_DualVim_TD3",
     "AETD3",
     "SAC",
+    "SAC_Beta",
     "LSTM_SAC",
     "ST_Vim_SAC",
+    "ST_Vim_SAC_Beta",
     "PER_ST_Vim_SAC",
+    "PER_ST_Vim_SAC_Beta",
     "PPO",
     "ST_Vim_PPO",
     "PL_ST_Vim_PPO",
@@ -27,7 +30,9 @@ _CANONICAL_ALGORITHMS: Tuple[str, ...] = (
     "PL_PER_TD3",
     "PL_ST_Vim_TD3",
     "PL_SAC",
+    "PL_SAC_Beta",
     "PL_PER_ST_Vim_SAC",
+    "PL_PER_ST_Vim_SAC_Beta",
     "PL_PER_ST_Vim_TD3",
 )
 
