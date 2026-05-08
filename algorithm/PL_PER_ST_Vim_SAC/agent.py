@@ -149,15 +149,15 @@ class PLPERSTVimSACAgent:
         state_features = self._encode_state(base, depth, encoder, base_adapter)
         return torch.cat([state_features, self._prepare_priv(priv)], dim=1)
 
-    def _per_beta(self) -> float:
+    def _per_beta(self, progress_ratio=0.0) -> float:
         beta0 = float(get_algo_param(self.args, "per_beta0", 0.4))
         beta1 = float(get_algo_param(self.args, "per_beta1", 1.0))
-        anneal_steps = max(1, int(get_algo_param(self.args, "per_beta_anneal_steps", 100000)))
-        frac = min(1.0, float(self.total_it) / float(anneal_steps))
-        return beta0 + frac * (beta1 - beta0)
+        progress = float(np.clip(progress_ratio, 0.0, 1.0))
+        return beta0 * (1.0 - progress) + beta1 * progress
 
-    def _sample_replay(self):
-        out = self.replay_buffer.sample(self.batch_size, beta=self._per_beta())
+    def _sample_replay(self, progress_ratio=0.0):
+        per_beta = self._per_beta(progress_ratio)
+        out = self.replay_buffer.sample(self.batch_size, beta=per_beta)
         if out is None:
             return None, None, None, {}
         samples, refs, weights, mix_info = out
@@ -165,7 +165,7 @@ class PLPERSTVimSACAgent:
             stacked = samples
         else:
             stacked = tuple(np.stack(items, axis=0) for items in zip(*samples))
-        return stacked, refs, weights, {"per_beta": self._per_beta(), **mix_info}
+        return stacked, refs, weights, {"per_beta": per_beta, **mix_info}
 
     def _update_replay_priorities(self, refs, td_errors):
         self.replay_buffer.update_priorities(refs, np.asarray(td_errors, dtype=np.float32))
@@ -189,7 +189,7 @@ class PLPERSTVimSACAgent:
         if self.replay_buffer.size() < self.batch_size:
             return {}
 
-        sample, replay_refs, replay_weights, replay_info = self._sample_replay()
+        sample, replay_refs, replay_weights, replay_info = self._sample_replay(progress_ratio)
         if sample is None:
             return {}
         (
