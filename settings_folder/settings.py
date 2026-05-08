@@ -77,7 +77,7 @@ easy_range_dic = { "End": ["Mutable"],
                                       "Seed": list(range(0, 10000)),
                                       "VelocityRange": [[0, 2]],
                                       "Name": ["Name"],
-                                      "NumberOfObjects": list(range(60, 80))}
+                                      "NumberOfObjects": list(range(90, 100))}
 medium_range_dic = { "End": ["Mutable"],
                                       "MinimumDistance": [2,3],
                                       "EnvType": ["Indoor"],
@@ -88,7 +88,7 @@ medium_range_dic = { "End": ["Mutable"],
                                       "Seed": list(range(0, 10000)),
                                       "VelocityRange": [[0, 4]],
                                       "Name": ["Name"],
-                                      "NumberOfObjects": list(range(120, 140))}
+                                      "NumberOfObjects": list(range(130, 160))}
 hard_range_dic = { "End": ["Mutable"],
                                       "MinimumDistance": [2,3],
                                       "EnvType": ["Indoor"],
@@ -99,7 +99,7 @@ hard_range_dic = { "End": ["Mutable"],
                                       "Seed": list(range(0, 10000)),
                                       "VelocityRange": [[0, 5]],
                                       "Name": ["Name"],
-                                      "NumberOfObjects": list(range(160, 180))}
+                                      "NumberOfObjects": list(range(180, 200))}
 dynamic_obstacles_dic = { "End": ["Mutable"],
                                       "MinimumDistance": [2,3],
                                       "EnvType": ["Indoor"],
