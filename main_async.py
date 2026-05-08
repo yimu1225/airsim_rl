@@ -62,6 +62,13 @@ from algorithm.PL_PER_ST_Vim_TD3.agent import PLPERSTVimTD3Agent
 from algorithm.LSTM_SAC.agent import LSTMSACAgent
 from algorithm.ST_Vim_SAC.agent import STVimSACAgent
 from algorithm.PER_ST_Vim_SAC.agent import PERSTVimSACAgent
+from algorithm.beta_sac import (
+    PERSTVimSACBetaAgent,
+    PLPERSTVimSACBetaAgent,
+    PLSACBetaAgent,
+    SACBetaAgent,
+    STVimSACBetaAgent,
+)
 from algorithm.PL_TD3.pl_td3 import PLTD3Agent
 from algorithm.PL_PER_TD3.pl_per_td3 import PLPERTD3Agent
 from algorithm.PL_ST_Vim_TD3.agent import PLSTVimTD3Agent
@@ -176,11 +183,16 @@ def get_agent_class(algo_name):
         'ST_DualVim_TD3': DualBranchVideoMambaTD3Agent,
         'AETD3': AETD3Agent,
         'SAC': SACAgent,
+        'SAC_Beta': SACBetaAgent,
         'PL_SAC': PLSACAgent,
+        'PL_SAC_Beta': PLSACBetaAgent,
         'PL_PER_ST_Vim_SAC': PLPERSTVimSACAgent,
+        'PL_PER_ST_Vim_SAC_Beta': PLPERSTVimSACBetaAgent,
         'LSTM_SAC': LSTMSACAgent,
         'ST_Vim_SAC': STVimSACAgent,
+        'ST_Vim_SAC_Beta': STVimSACBetaAgent,
         'PER_ST_Vim_SAC': PERSTVimSACAgent,
+        'PER_ST_Vim_SAC_Beta': PERSTVimSACBetaAgent,
     }
     if core_algo_name in agents:
         return agents[core_algo_name]
@@ -242,8 +254,8 @@ def _pause_env_simulation(env):
 def _is_pl_algorithm(algo_name: str) -> bool:
     core_name = to_internal_core_algorithm_name(algo_name)
     return core_name in {
-        "PL_TD3", "PL_PER_TD3", "PL_ST_Vim_TD3", "PL_SAC",
-        "PL_PER_ST_Vim_SAC", "PL_PER_ST_Vim_TD3", "PL_ST_Vim_PPO",
+        "PL_TD3", "PL_PER_TD3", "PL_ST_Vim_TD3", "PL_SAC", "PL_SAC_Beta",
+        "PL_PER_ST_Vim_SAC", "PL_PER_ST_Vim_SAC_Beta", "PL_PER_ST_Vim_TD3", "PL_ST_Vim_PPO",
     }
 
 
@@ -402,12 +414,15 @@ def main():
                 'PER_ST_Vim_TD3',
                 'PL_ST_Vim_TD3',
                 'PL_PER_ST_Vim_SAC',
+                'PL_PER_ST_Vim_SAC_Beta',
                 'PL_PER_ST_Vim_TD3',
                 'ST_SVim_TD3',
                 'ST_DualVim_TD3',
                 'LSTM_SAC',
                 'ST_Vim_SAC',
+                'ST_Vim_SAC_Beta',
                 'PER_ST_Vim_SAC',
+                'PER_ST_Vim_SAC_Beta',
             }
             
             is_recurrent = actual_algo_name in recurrent_algos
@@ -739,7 +754,7 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, ba
                         critic_depth=critic_depth_current,
                         next_critic_depth=critic_depth_next,
                     )
-                    if core_algo_name in {"PL_PER_ST_Vim_SAC", "PL_PER_ST_Vim_TD3"}:
+                    if core_algo_name in {"PL_PER_ST_Vim_SAC", "PL_PER_ST_Vim_SAC_Beta", "PL_PER_ST_Vim_TD3"}:
                         add_kwargs["is_success"] = (
                             float(step_info.get("is_success", False)) if isinstance(step_info, dict) else 0.0
                         )
