@@ -5,6 +5,5 @@ beta_concentration_eps: 1.0e-6
 # Use SB3-style ent_coef: can be a float (fixed) or a string 'auto' / 'auto_<init_value>'
 ent_coef: 'auto'
 target_entropy: auto
-alpha_lr: 7.0e-5
 target_update_interval: 1
 policy_freq: 2

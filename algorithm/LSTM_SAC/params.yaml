@@ -2,7 +2,6 @@
 # self-supervised attention depth feature extractor + FC512/LSTM512/FC512 SAC.
 ent_coef: 'auto'
 target_entropy: auto
-alpha_lr: 4.0e-5  # 熵系数 alpha 的独立学习率 (默认 actor_lr * 0.1)
 target_update_interval: 1
 policy_freq: 2
 

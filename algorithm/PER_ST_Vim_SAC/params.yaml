@@ -1,9 +1,8 @@
 # PER-ST-Vim-SAC algorithm-specific parameters
 ent_coef: 'auto'
 target_entropy: auto
-alpha_lr: 4.0e-4  # 熵系数 alpha 的独立学习率 (默认 actor_lr * 0.1)
 target_update_interval: 1
-policy_freq: 1
+policy_freq: 2
 
 # Prioritized replay parameters.
 per_alpha: 0.6
