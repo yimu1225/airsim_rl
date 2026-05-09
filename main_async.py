@@ -538,6 +538,8 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, ba
     max_timesteps = args.max_timesteps
     steps_per_update = args.steps_per_update
     start_timesteps = args.learning_starts
+    update_after = args.update_after
+
 
     total_timesteps = 0
     episode_num = 0
@@ -937,7 +939,7 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, ba
 
         # Training Update
         
-        if agent.replay_buffer.size() >= args.batch_size and total_timesteps >= start_timesteps:
+        if agent.replay_buffer.size() >= args.batch_size and total_timesteps >= update_after:
             _pause_env_simulation(env)
 
             # 计算实际的梯度更新次数：收集步数 * gradient_steps 倍数

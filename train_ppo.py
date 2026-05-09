@@ -104,7 +104,7 @@ def main():
 
     # replay buffer
     rollout = RolloutStorage(args.episode_length,
-                             args.n_rollout_threads,
+                             1,
                              env.observation_space.shape,
                              env.action_space,
                              actor_critic.recurrent_hidden_state_size)
@@ -126,7 +126,7 @@ def main():
     rollout.to(device)
 
     # run
-    episodes = int(args.num_env_steps / args.episode_length / args.n_rollout_threads)
+    episodes = int(args.num_env_steps / args.episode_length / 1)
     start=time.time()
 
     num_epi=0
@@ -164,7 +164,7 @@ def main():
 
             # rearrange action
             actions_env = []
-            for i in range(args.n_rollout_threads):
+            for i in range(1):
                 if env.action_space.__class__.__name__ == 'Discrete':
                     one_hot_action = action.clone().detach().cpu().numpy()[i][0]#dis action
                 else:

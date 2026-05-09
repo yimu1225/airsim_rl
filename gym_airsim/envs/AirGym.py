@@ -892,7 +892,7 @@ class AirSimEnv(gym.Env):
         # 课程学习等级升级（仅在启用课程学习时）
         if self.use_curriculum and len(self.success_deque)>0:
             succes_rate=sum(self.success_deque) / len(self.success_deque)
-            if succes_rate>0.5 and self.level==0 and self.success_count>300:
+            if succes_rate>0.5 and self.level==0 and self.success_count>200:
                 self.level=1
                 self.game_config_handler=GameConfigHandler(range_dic_name="settings.medium_range_dic")
             elif succes_rate > 0.6 and self.level == 1 and self.success_count>600:
