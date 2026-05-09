@@ -4,9 +4,8 @@ beta_concentration_eps: 1.0e-6
 
 ent_coef: 'auto'
 target_entropy: auto
-alpha_lr: 4.0e-4
 target_update_interval: 1
-policy_freq: 1
+policy_freq: 2
 
 # Prioritized replay parameters.
 per_alpha: 0.6

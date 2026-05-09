@@ -5,7 +5,6 @@ beta_concentration_eps: 1.0e-6
 # SAC parameters aligned with SB3-style defaults where practical.
 ent_coef: 'auto'
 target_entropy: auto
-alpha_lr: 7.0e-5
 target_update_interval: 1
 policy_freq: 2
 

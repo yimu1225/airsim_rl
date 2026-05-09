@@ -69,7 +69,7 @@ class LSTMSACAgent:
                 if init_value <= 0:
                     raise ValueError("Initial ent_coef value must be greater than 0.")
             self.log_alpha = torch.log(torch.ones(1, device=self.device) * init_value).requires_grad_(True)
-            self.alpha_optimizer = Adam([self.log_alpha], lr=float(get_algo_param(self.args, "alpha_lr")))
+            self.alpha_optimizer = Adam([self.log_alpha], lr=float(get_algo_param(self.args, "alpha_lr", self.args.actor_lr)))
             self.alpha = self.log_alpha.exp().item()
             self.auto_entropy_tuning = True
         else:
