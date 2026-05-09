@@ -642,11 +642,29 @@ class AirLearningClient(object):
 
         yaw_mode = airsim.YawMode(is_rate=True, yaw_or_rate=math.degrees(yaw_rate))
 
-        # 使用 moveByVelocityAsync 控制 3D 速度 (vx, vy, vz)
-        try:
-             self.client.moveByVelocityAsync(vx, vy, v_z, duration, airsim.DrivetrainType.MaxDegreeOfFreedom, yaw_mode).join()
-        except msgpackrpc.error.TimeoutError:
-             print("RPC TimeoutError during moveByVelocityAsync, ignoring and proceeding to collision check")
+        # 分片执行并在动作中途检查碰撞，避免碰撞后被物理弹开导致最后一次查询漏检。
+        remaining = max(0.0, float(duration))
+        while remaining > 1e-6:
+            step_duration = min(0.05, remaining)
+            try:
+                self.client.moveByVelocityAsync(
+                    vx, vy, v_z, step_duration,
+                    airsim.DrivetrainType.MaxDegreeOfFreedom,
+                    yaw_mode,
+                ).join()
+            except msgpackrpc.error.TimeoutError:
+                print("RPC TimeoutError during moveByVelocityAsync, ignoring and proceeding to collision check")
+
+            try:
+                if self.client.simGetCollisionInfo().has_collided:
+                    try:
+                        self.client.moveByVelocityAsync(0, 0, 0, 0.05).join()
+                    except Exception:
+                        pass
+                    return True
+            except msgpackrpc.error.TimeoutError:
+                print("RPC TimeoutError during mid-action simGetCollisionInfo")
+            remaining -= step_duration
 
         for attempt in range(3):
             try:
