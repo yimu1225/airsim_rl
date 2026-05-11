@@ -124,8 +124,26 @@ class PERSTVimSACAgent:
         progress = float(np.clip(progress_ratio, 0.0, 1.0))
         return beta0 * (1.0 - progress) + beta1 * progress
 
+    def _get_current_success_sample_ratio(self, progress_ratio: float) -> float:
+        mu_low = float(get_algo_param(self.args, "per_mu_low", 0.30))
+        mu_mid = float(get_algo_param(self.args, "per_mu_mid", 0.45))
+        mu_high = float(get_algo_param(self.args, "per_mu_high", 0.60))
+        mu_step1 = float(get_algo_param(self.args, "per_mu_step1", 0.25))
+        mu_step2 = float(get_algo_param(self.args, "per_mu_step2", 0.65))
+
+        p = float(np.clip(progress_ratio, 0.0, 1.0))
+        if p < mu_step1:
+            mu = mu_low
+        elif p < mu_step2:
+            mu = mu_mid
+        else:
+            mu = mu_high
+        return float(np.clip(mu, 0.0, 0.8))
+
     def _sample_replay(self, progress_ratio=0.0):
         per_beta = self._per_beta(progress_ratio)
+        current_mu = self._get_current_success_sample_ratio(progress_ratio)
+        self.replay_buffer.success_sample_ratio = current_mu
         out = self.replay_buffer.sample(self.batch_size, beta=per_beta)
         if out is None:
             return None, None, None, {}
@@ -134,7 +152,7 @@ class PERSTVimSACAgent:
             stacked = samples
         else:
             stacked = tuple(np.stack(items, axis=0) for items in zip(*samples))
-        return stacked, refs, weights, {"per_beta": per_beta, **mix_info}
+        return stacked, refs, weights, {"per_beta": per_beta, "replay/success_sample_ratio_target": current_mu, **mix_info}
 
     def _update_replay_priorities(self, refs, td_errors):
         self.replay_buffer.update_priorities(refs, np.asarray(td_errors, dtype=np.float32))

@@ -5,9 +5,9 @@ per_td3_alpha: 0.6
 per_td3_priority_eps: 0.000001
 per_td3_beta_start: 0.4
 per_td3_beta_final: 1.0
-per_td3_mu_low: 0.15
-per_td3_mu_mid: 0.30
-per_td3_mu_high: 0.45
+per_td3_mu_low: 0.30
+per_td3_mu_mid: 0.45
+per_td3_mu_high: 0.60
 per_td3_mu_step1: 0.25
 per_td3_mu_step2: 0.65
 

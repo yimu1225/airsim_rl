@@ -11,6 +11,11 @@ per_beta1: 1.0
 per_eps: 0.000001
 per_success_capacity_ratio: 0.3
 per_success_sample_ratio: 0.5
+per_mu_low: 0.30
+per_mu_mid: 0.45
+per_mu_high: 0.60
+per_mu_step1: 0.25
+per_mu_step2: 0.65
 
 # Vim + temporal Mamba visual encoder parameters, matching ST_Vim_TD3.
 st_mamba_embed_dim: 64
