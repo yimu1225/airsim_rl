@@ -142,6 +142,9 @@ class VehicleClient:
     def simSetWeatherParameter(self, param, val):
         return self.client.call('simSetWeatherParameter', param, val)
 
+    def simSetWind(self, wind):
+        return self.client.call('simSetWind', wind)
+
     # camera control
     # simGetImage returns compressed png in array of bytes
     # image_type uses one of the ImageType members
