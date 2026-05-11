@@ -1,8 +1,8 @@
-# AirSim 距离传感器补丁迁移说明
+# AirSim 距离传感器和风场补丁迁移说明
 
 本项目现在已经从激光雷达改为使用 36 个水平面均匀分布的 AirSim 距离传感器，用于障碍物奖励惩罚和起飞障碍检查。
 
-只要某台电脑需要运行 UE4 仿真环境，就必须让那台电脑的 AirSim UE4 插件包含距离传感器补丁。训练端 Python 只负责通过 RPC 读取数据，不负责加载 UE4 插件。
+只要某台电脑需要运行 UE4 仿真环境，就必须让那台电脑的 AirSim UE4 插件包含距离传感器和物理风场补丁。训练端 Python 只负责通过 RPC 读取/设置数据，不负责加载 UE4 插件。
 
 ## 需要补丁的内容
 
@@ -11,6 +11,8 @@ UE4 项目的 `Plugins/AirSim` 需要加入这些源码改动：
 - 增加 RPC 接口：`getDistanceSensorData(sensor_name, vehicle_name)`；
 - 让距离传感器读取 `settings.json` 中的 `X/Y/Z`、`Yaw/Pitch/Roll`、`MinDistance`、`MaxDistance`、`DrawDebugPoints`；
 - 当 `DrawDebugPoints` 为 `true` 时，在 UE4 中显示距离传感器射线。
+- 增加物理风场支持：读取 `settings.json` 顶层 `"Wind"`，并暴露 `simSetWind(Vector3r)` RPC；
+- 在 `FastPhysicsEngine` 中用机体相对风速计算空气阻力，所以风会影响无人机动力学，不只是天气视觉效果。
 
 这些改动已经写成自动脚本，不需要手动改 C++ 源码。
 
@@ -28,7 +30,7 @@ python scripts/patch_airsim_distance_sensor_plugin.py --airsim-plugin /path/to/Y
 python scripts/patch_airsim_distance_sensor_plugin.py --airsim-plugin /path/to/YourUEProject
 ```
 
-脚本会自动寻找 `Plugins/AirSim`，并修改需要的源码文件。
+脚本会自动寻找 `Plugins/AirSim`，并修改需要的源码文件。现在同一个脚本会同时打距离传感器补丁和 Wind 补丁。
 
 脚本会给被修改的文件创建备份，备份后缀是：
 
@@ -119,6 +121,26 @@ python scripts/generate_distance_sensor_settings.py --count 36 --draw_debug_poin
 - 黄点：命中点。
 
 正式训练时，如果不需要观察射线，建议关闭 `DrawDebugPoints`，这样更省性能。
+
+## 配置和运行时设置 Wind
+
+Wind 是 `settings.json` 顶层字段，单位是 m/s，坐标系是 AirSim 的世界 NED 坐标：
+
+```json
+{
+  "SettingsVersion": 1.2,
+  "SimMode": "Multirotor",
+  "Wind": { "X": 5, "Y": 0, "Z": 0 }
+}
+```
+
+运行时也可以通过 RPC 修改：
+
+```python
+client.simSetWind(airsim.Vector3r(5, 0, 0))
+```
+
+如果使用本项目 `misc/move_to_airsim` 下的轻量 client，也已经提供同名 `simSetWind(wind)` 方法。
 
 ## 惩罚距离由 MaxDistance 决定
 

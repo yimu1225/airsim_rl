@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
-Patch an AirSim UE4 plugin so distance sensors can be queried over RPC and
-optionally drawn in UE4 with DrawDebugPoints.
+Patch an AirSim UE4 plugin so distance sensors can be queried over RPC,
+optionally drawn in UE4 with DrawDebugPoints, and physical wind can be set
+from settings.json or the simSetWind RPC API.
 
 Run this on every machine that has an AirSim UE4 project:
 
@@ -63,6 +64,14 @@ def insert_after(text: str, marker: str, block: str) -> str:
     if marker not in text:
         raise RuntimeError(f"Could not find insertion marker: {marker[:80]}")
     return text.replace(marker, marker + "\n\n" + block.rstrip(), 1)
+
+
+def replace_required(text: str, old: str, new: str) -> str:
+    if new in text:
+        return text
+    if old not in text:
+        raise RuntimeError(f"Could not find replacement marker: {old[:80]}")
+    return text.replace(old, new, 1)
 
 
 def replace_function_body(text: str, signature: str, new_body: str) -> str:
@@ -350,6 +359,307 @@ msr::airlib::real_T UnrealDistanceSensor::getRayLength(const msr::airlib::Pose& 
     return write_text_if_changed(path, original, updated)
 
 
+def patch_wind_settings(root: Path) -> bool:
+    path = require_file(root, "Source/AirLib/include/common/AirSimSettings.hpp")
+    original = read_text(path)
+    text = original
+
+    if "Vector3r wind = Vector3r::Zero();" not in text:
+        text, count = re.subn(
+            r"(    std::map<std::string, std::(?:unique_ptr|shared_ptr)<SensorSetting>> sensor_defaults;\n)",
+            r"\1    Vector3r wind = Vector3r::Zero();\n",
+            text,
+            count=1,
+        )
+        if count == 0:
+            raise RuntimeError("Could not find AirSimSettings sensor_defaults field for Wind insertion")
+
+    if 'settings_json.getChild("Wind", child_json)' not in text:
+        wind_block = r'''
+
+        {
+            // Wind Settings, NED world frame, m/s
+            Settings child_json;
+            if (settings_json.getChild("Wind", child_json)) {
+                wind = createVectorSetting(child_json, wind);
+            }
+        }'''
+        text = replace_required(
+            text,
+            "        }\n    }\n\n    static void loadDefaultCameraSetting",
+            "        }" + wind_block + "\n    }\n\n    static void loadDefaultCameraSetting",
+        )
+
+    return write_text_if_changed(path, original, text)
+
+
+def patch_wind_physics_engine_base(root: Path) -> bool:
+    path = require_file(root, "Source/AirLib/include/physics/PhysicsEngineBase.hpp")
+    original = read_text(path)
+    if "setWind(const Vector3r& wind)" in original:
+        return False
+    method = "    virtual void setWind(const Vector3r& wind) { unused(wind); }\n"
+    text = insert_before(original, "    //TODO: reduce copy-past from UpdatableContainer which has same code", method)
+    return write_text_if_changed(path, original, text)
+
+
+def patch_wind_fast_physics_engine(root: Path) -> bool:
+    path = require_file(root, "Source/AirLib/include/physics/FastPhysicsEngine.hpp")
+    original = read_text(path)
+    text = original
+
+    text = replace_required(
+        text,
+        "    FastPhysicsEngine(bool enable_ground_lock = true)\n"
+        "        : enable_ground_lock_(enable_ground_lock)",
+        "    FastPhysicsEngine(bool enable_ground_lock = true, Vector3r wind = Vector3r::Zero())\n"
+        "        : enable_ground_lock_(enable_ground_lock), wind_(wind)",
+    )
+
+    set_wind_method = r'''
+    // Set wind from settings.json or the simSetWind RPC API.
+    virtual void setWind(const Vector3r& wind) override
+    {
+        wind_ = wind;
+    }
+'''
+    text = insert_before(text, "private:\n    void initPhysicsBody", set_wind_method)
+
+    text = replace_required(
+        text,
+        "        getNextKinematicsNoCollision(dt, body, current, next, next_wrench);",
+        "        getNextKinematicsNoCollision(dt, body, current, next, next_wrench, wind_);",
+    )
+
+    text = replace_required(
+        text,
+        "    static Wrench getDragWrench(const PhysicsBody& body, const Quaternionr& orientation, \n"
+        "        const Vector3r& linear_vel, const Vector3r& angular_vel_body)",
+        "    static Wrench getDragWrench(const PhysicsBody& body, const Quaternionr& orientation, \n"
+        "        const Vector3r& linear_vel, const Vector3r& angular_vel_body, const Vector3r& wind_world)",
+    )
+
+    if "const Vector3r relative_vel = linear_vel - wind_world;" not in text:
+        text = replace_required(
+            text,
+            "        const real_T air_density = body.getEnvironment().getState().air_density;\n\n"
+            "        for (uint vi = 0; vi < body.dragVertexCount(); ++vi) {",
+            "        const real_T air_density = body.getEnvironment().getState().air_density;\n\n"
+            "        // Use relative velocity of the body wrt wind.\n"
+            "        const Vector3r relative_vel = linear_vel - wind_world;\n"
+            "        const Vector3r linear_vel_body = VectorMath::transformToBodyFrame(relative_vel, orientation);\n\n"
+            "        for (uint vi = 0; vi < body.dragVertexCount(); ++vi) {",
+        )
+
+    text = replace_required(
+        text,
+        "            const Vector3r vel_vertex = VectorMath::transformToBodyFrame(linear_vel, orientation) + angular_vel_body.cross(vertex.getPosition());",
+        "            const Vector3r vel_vertex = linear_vel_body + angular_vel_body.cross(vertex.getPosition());",
+    )
+
+    text = replace_required(
+        text,
+        "    static void getNextKinematicsNoCollision(TTimeDelta dt, PhysicsBody& body, const Kinematics::State& current, \n"
+        "        Kinematics::State& next, Wrench& next_wrench)",
+        "    static void getNextKinematicsNoCollision(TTimeDelta dt, PhysicsBody& body, const Kinematics::State& current, \n"
+        "        Kinematics::State& next, Wrench& next_wrench, const Vector3r& wind)",
+    )
+
+    text = replace_required(
+        text,
+        "            const Wrench drag_wrench = getDragWrench(body, current.pose.orientation, avg_linear, avg_angular);",
+        "            const Wrench drag_wrench = getDragWrench(body, current.pose.orientation, avg_linear, avg_angular, wind);",
+    )
+
+    if "    Vector3r wind_;\n" not in text:
+        text = replace_required(
+            text,
+            "    bool enable_ground_lock_;\n",
+            "    bool enable_ground_lock_;\n"
+            "    Vector3r wind_;\n",
+        )
+
+    return write_text_if_changed(path, original, text)
+
+
+def patch_wind_sim_mode(root: Path) -> bool:
+    changed = False
+
+    path = require_file(root, "Source/SimMode/SimModeBase.h")
+    original = read_text(path)
+    text = insert_after(
+        original,
+        "    virtual void continueForTime(double seconds);",
+        "    virtual void setWind(const msr::airlib::Vector3r& wind) const;",
+    )
+    changed = write_text_if_changed(path, original, text) or changed
+
+    path = require_file(root, "Source/SimMode/SimModeBase.cpp")
+    original = read_text(path)
+    impl = r'''
+void ASimModeBase::setWind(const msr::airlib::Vector3r& wind) const
+{
+    //should be overridden by derived class
+    unused(wind);
+    throw std::domain_error("setWind not implemented by SimMode");
+}
+'''
+    text = insert_after(
+        original,
+        r'''void ASimModeBase::continueForTime(double seconds)
+{
+    //should be overridden by derived class
+    unused(seconds);
+    throw std::domain_error("continueForTime is not implemented by SimMode");
+}''',
+        impl,
+    )
+    changed = write_text_if_changed(path, original, text) or changed
+
+    path = require_file(root, "Source/SimMode/SimModeWorldBase.h")
+    original = read_text(path)
+    text = insert_after(
+        original,
+        "    virtual void continueForTime(double seconds) override;",
+        "    virtual void setWind(const msr::airlib::Vector3r& wind) const override;",
+    )
+    changed = write_text_if_changed(path, original, text) or changed
+
+    path = require_file(root, "Source/SimMode/SimModeWorldBase.cpp")
+    original = read_text(path)
+    text = original
+    if "physics_engine->setWind(getSettings().wind);" not in text:
+        text = replace_required(
+            text,
+            "    return physics_engine;",
+            "    if (physics_engine)\n"
+            "        physics_engine->setWind(getSettings().wind);\n\n"
+            "    return physics_engine;",
+        )
+    impl = r'''
+void ASimModeWorldBase::setWind(const msr::airlib::Vector3r& wind) const
+{
+    if (physics_engine_)
+        physics_engine_->setWind(wind);
+}
+'''
+    text = insert_after(
+        text,
+        r'''void ASimModeWorldBase::continueForTime(double seconds)
+{
+    physics_world_->continueForTime(seconds);
+
+}''',
+        impl,
+    )
+    changed = write_text_if_changed(path, original, text) or changed
+
+    return changed
+
+
+def patch_wind_world_api(root: Path) -> bool:
+    changed = False
+
+    path = require_file(root, "Source/AirLib/include/api/WorldSimApiBase.hpp")
+    original = read_text(path)
+    text = insert_after(
+        original,
+        "    virtual void setWeatherParameter(WeatherParameter param, float val) = 0;",
+        "    virtual void setWind(const Vector3r& wind) const = 0;",
+    )
+    changed = write_text_if_changed(path, original, text) or changed
+
+    path = require_file(root, "Source/WorldSimApi.h")
+    original = read_text(path)
+    text = original
+    if "typedef msr::airlib::Vector3r Vector3r;" not in text:
+        text = replace_required(
+            text,
+            "    typedef msr::airlib::Pose Pose;\n",
+            "    typedef msr::airlib::Pose Pose;\n"
+            "    typedef msr::airlib::Vector3r Vector3r;\n",
+        )
+    text = insert_after(
+        text,
+        "    virtual void setWeatherParameter(WeatherParameter param, float val);",
+        "    virtual void setWind(const Vector3r& wind) const override;",
+    )
+    changed = write_text_if_changed(path, original, text) or changed
+
+    path = require_file(root, "Source/WorldSimApi.cpp")
+    original = read_text(path)
+    impl = r'''
+void WorldSimApi::setWind(const Vector3r& wind) const
+{
+    simmode_->setWind(wind);
+}
+'''
+    text = insert_after(
+        original,
+        r'''void WorldSimApi::setWeatherParameter(WeatherParameter param, float val)
+{
+    unsigned char param_n = static_cast<unsigned char>(msr::airlib::Utils::toNumeric<WeatherParameter>(param));
+    EWeatherParamScalar param_e = msr::airlib::Utils::toEnum<EWeatherParamScalar>(param_n);
+
+    UWeatherLib::setWeatherParamScalar(simmode_->GetWorld(), param_e, val);
+}''',
+        impl,
+    )
+    changed = write_text_if_changed(path, original, text) or changed
+
+    return changed
+
+
+def patch_wind_rpc(root: Path) -> bool:
+    changed = False
+
+    path = require_file(root, "Source/AirLib/include/api/RpcLibClientBase.hpp")
+    original = read_text(path)
+    text = insert_after(
+        original,
+        "    void simSetWeatherParameter(WorldSimApiBase::WeatherParameter param, float val);",
+        "    void simSetWind(const Vector3r& wind) const;",
+    )
+    changed = write_text_if_changed(path, original, text) or changed
+
+    path = require_file(root, "Source/AirLib/src/api/RpcLibClientBase.cpp")
+    original = read_text(path)
+    impl = r'''
+void RpcLibClientBase::simSetWind(const Vector3r& wind) const
+{
+    RpcLibAdapatorsBase::Vector3r conv_wind(wind);
+    pimpl_->client.call("simSetWind", conv_wind);
+}
+'''
+    text = insert_after(
+        original,
+        r'''void RpcLibClientBase::simSetWeatherParameter(WorldSimApiBase::WeatherParameter param, float val)
+{
+    pimpl_->client.call("simSetWeatherParameter", param, val);
+}''',
+        impl,
+    )
+    changed = write_text_if_changed(path, original, text) or changed
+
+    path = require_file(root, "Source/AirLib/src/api/RpcLibServerBase.cpp")
+    original = read_text(path)
+    bind = r'''
+    pimpl_->server.bind("simSetWind", [&](const RpcLibAdapatorsBase::Vector3r& wind) -> void {
+        getWorldSimApi()->setWind(wind.to());
+    });
+'''
+    text = insert_after(
+        original,
+        r'''    pimpl_->server.bind("simSetWeatherParameter", [&](WorldSimApiBase::WeatherParameter param, float val) -> void {
+        getWorldSimApi()->setWeatherParameter(param, val);
+    });''',
+        bind,
+    )
+    changed = write_text_if_changed(path, original, text) or changed
+
+    return changed
+
+
 def normalize_plugin_path(path: Path) -> Path:
     path = path.expanduser().resolve()
     if path.name == "AirSim" and (path / "Source").exists():
@@ -367,7 +677,7 @@ def normalize_plugin_path(path: Path) -> Path:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Patch AirSim UE4 plugin for distance sensor RPC and UE4 debug rays.")
+    parser = argparse.ArgumentParser(description="Patch AirSim UE4 plugin for distance sensor RPC, UE4 debug rays, and simSetWind.")
     parser.add_argument("--airsim-plugin", required=True, help="Path to Plugins/AirSim, or to a UE project containing Plugins/AirSim.")
     args = parser.parse_args()
 
@@ -381,6 +691,12 @@ def main() -> None:
         patch_airsim_settings,
         patch_distance_params,
         patch_unreal_distance_sensor,
+        patch_wind_settings,
+        patch_wind_physics_engine_base,
+        patch_wind_fast_physics_engine,
+        patch_wind_sim_mode,
+        patch_wind_world_api,
+        patch_wind_rpc,
     ]
 
     changed = []
