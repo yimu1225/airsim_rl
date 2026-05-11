@@ -87,7 +87,7 @@ class PLPERTD3Agent:
         self.replay_buffer = DualPrioritizedReplayBuffer(
             capacity=args.buffer_size,
             success_capacity_ratio=get_algo_param(args, "per_td3_success_capacity_ratio", 0.3),
-            success_sample_ratio=float(get_algo_param(args, "per_td3_mu_low", 0.15)),
+            success_sample_ratio=float(get_algo_param(args, "per_td3_mu_low", 0.30)),
             alpha=get_algo_param(args, "per_td3_alpha", 0.6),
             eps=get_algo_param(args, "per_td3_priority_eps", 1e-6),
             seed=seed,
@@ -104,9 +104,9 @@ class PLPERTD3Agent:
         self.per_beta_final = get_algo_param(args, "per_td3_beta_final", 1.0)
 
         # Staircase schedule for success-prioritized sampling ratio mu.
-        self.mu_low = float(get_algo_param(args, "per_td3_mu_low", 0.15))
-        self.mu_mid = float(get_algo_param(args, "per_td3_mu_mid", 0.30))
-        self.mu_high = float(get_algo_param(args, "per_td3_mu_high", 0.45))
+        self.mu_low = float(get_algo_param(args, "per_td3_mu_low", 0.30))
+        self.mu_mid = float(get_algo_param(args, "per_td3_mu_mid", 0.45))
+        self.mu_high = float(get_algo_param(args, "per_td3_mu_high", 0.60))
         self.mu_step1 = float(get_algo_param(args, "per_td3_mu_step1", 0.25))
         self.mu_step2 = float(get_algo_param(args, "per_td3_mu_step2", 0.65))
 
