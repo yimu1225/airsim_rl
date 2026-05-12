@@ -31,6 +31,7 @@ _CANONICAL_ALGORITHMS: Tuple[str, ...] = (
     "PL_ST_Vim_TD3",
     "PL_SAC",
     "PL_SAC_Beta",
+    "PL_ST_Vim_SAC",
     "PL_PER_ST_Vim_SAC",
     "PL_PER_ST_Vim_SAC_Beta",
     "PL_PER_ST_Vim_TD3",
@@ -62,6 +63,7 @@ ALGORITHM_GROUPS: Dict[str, List[str]] = {
         "PL_PER_TD3",
         "PL_ST_Vim_TD3",
         "PL_SAC",
+        "PL_ST_Vim_SAC",
         "PL_PER_ST_Vim_SAC",
         "PL_PER_ST_Vim_TD3",
     ],
@@ -91,6 +93,7 @@ ALGORITHM_GROUPS: Dict[str, List[str]] = {
         "LSTM_SAC",
         "ST_Vim_SAC",
         "PER_ST_Vim_SAC",
+        "PL_ST_Vim_SAC",
         "PL_PER_ST_Vim_SAC",
     ],
 }

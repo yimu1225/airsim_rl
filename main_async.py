@@ -57,6 +57,7 @@ from algorithm.Mamba_TD3.agent import MambaTD3Agent
 from algorithm.ST_DualVim_TD3.agent import DualBranchVideoMambaTD3Agent
 from algorithm.SAC.agent import SACAgent
 from algorithm.PL_SAC.agent import PLSACAgent
+from algorithm.PL_ST_Vim_SAC.agent import PLSTVimSACAgent
 from algorithm.PL_PER_ST_Vim_SAC.agent import PLPERSTVimSACAgent
 from algorithm.PL_PER_ST_Vim_TD3.agent import PLPERSTVimTD3Agent
 from algorithm.LSTM_SAC.agent import LSTMSACAgent
@@ -186,6 +187,7 @@ def get_agent_class(algo_name):
         'SAC_Beta': SACBetaAgent,
         'PL_SAC': PLSACAgent,
         'PL_SAC_Beta': PLSACBetaAgent,
+        'PL_ST_Vim_SAC': PLSTVimSACAgent,
         'PL_PER_ST_Vim_SAC': PLPERSTVimSACAgent,
         'PL_PER_ST_Vim_SAC_Beta': PLPERSTVimSACBetaAgent,
         'LSTM_SAC': LSTMSACAgent,
@@ -255,7 +257,7 @@ def _is_pl_algorithm(algo_name: str) -> bool:
     core_name = to_internal_core_algorithm_name(algo_name)
     return core_name in {
         "PL_TD3", "PL_PER_TD3", "PL_ST_Vim_TD3", "PL_SAC", "PL_SAC_Beta",
-        "PL_PER_ST_Vim_SAC", "PL_PER_ST_Vim_SAC_Beta", "PL_PER_ST_Vim_TD3", "PL_ST_Vim_PPO",
+        "PL_ST_Vim_SAC", "PL_PER_ST_Vim_SAC", "PL_PER_ST_Vim_SAC_Beta", "PL_PER_ST_Vim_TD3", "PL_ST_Vim_PPO",
     }
 
 
@@ -413,6 +415,7 @@ def main():
                 'STV_Seq_Vim_TD3',
                 'PER_ST_Vim_TD3',
                 'PL_ST_Vim_TD3',
+                'PL_ST_Vim_SAC',
                 'PL_PER_ST_Vim_SAC',
                 'PL_PER_ST_Vim_SAC_Beta',
                 'PL_PER_ST_Vim_TD3',
