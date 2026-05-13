@@ -29,7 +29,7 @@ def get_config(argv=None):
     parser.add_argument("--env_name", type=str, default='AirSimEnv-v42', help="要训练的环境名称")
 
     # 算法选择 (Algorithm Selection)
-    parser.add_argument("--algorithm_name", type=str, default='CL-ST_Vim_SAC,CL-SAC,CL-PER_ST_Vim_SAC',
+    parser.add_argument("--algorithm_name", type=str, default='CL-ST_Vim_SAC,CL-SAC',
                         help="要训练的算法。支持: TD3, DDPG, PER_TD3, ST_Vim_TD3, STV_Patch_TD3, Vim_TD3, ST_Seq_Vim_TD3, STV_Seq_Vim_TD3, PER_ST_Vim_TD3, ST_SVim_TD3, Mamba_TD3, ST_DualVim_TD3, AETD3, SAC, SAC_Beta, LSTM_SAC, ST_Vim_SAC, ST_Vim_SAC_Beta, PER_ST_Vim_SAC, PER_ST_Vim_SAC_Beta, PPO, ST_Vim_PPO, PL_ST_Vim_PPO, PL_TD3, PL_PER_TD3, PL_ST_Vim_TD3, PL_SAC, PL_SAC_Beta, PL_ST_Vim_SAC, PL_PER_ST_Vim_SAC, PL_PER_ST_Vim_SAC_Beta, PL_PER_ST_Vim_TD3")
     parser.add_argument("--smooth_window", type=int, default=300, help="平滑窗口大小，用于平滑学习曲线 (仅对移动平均有效)")
     parser.add_argument("--smooth_method", type=str, default="moving", choices=["moving","zero_phase_des"], help="曲线平滑方法: moving=滑动平均, zero_phase_des=零相位双重指数平滑")
@@ -63,8 +63,8 @@ def get_config(argv=None):
     parser.add_argument("--batch_size", type=int, default=256, help="批次大小")
     parser.add_argument("--gamma", type=float, default=0.95, help="折扣因子") 
     parser.add_argument("--tau", type=float, default=0.003, help="软更新参数")
-    parser.add_argument("--actor_lr", type=float, default=2e-5, help="Actor学习率")
-    parser.add_argument("--critic_lr", type=float, default=2e-4, help="Critic学习率")
+    parser.add_argument("--actor_lr", type=float, default=2e-4, help="Actor学习率")
+    parser.add_argument("--critic_lr", type=float, default=2e-3, help="Critic学习率")
     parser.add_argument("--policy_noise", type=float, default=0.2, help="策略噪声")
     parser.add_argument("--noise_clip", type=float, default=0.5, help="噪声裁剪")
     parser.add_argument("--policy_freq", type=int, default=2, help="策略更新频率")
@@ -77,7 +77,7 @@ def get_config(argv=None):
     
         
     # 图像帧数参数 (所有算法统一的帧堆叠/序列长度)
-    parser.add_argument("--n_frames", type=int, default= 6, help="图像帧数（非时序算法为堆叠帧数，时序算法为序列长度）")
+    parser.add_argument("--n_frames", type=int, default= 4, help="图像帧数（非时序算法为堆叠帧数，时序算法为序列长度）")
 
     # 算法专属参数已迁移到各算法目录下的 params.yaml，
     # 例如 algorithm/TD3/params.yaml、algorithm/SAC/params.yaml。
@@ -88,7 +88,7 @@ def get_config(argv=None):
     parser.add_argument("--max_vertical_speed", type=float, default=0.3, help="最大垂直速度 (m/s)")
     parser.add_argument("--max_yaw_rate", type=float, default=np.pi/3, help="最大偏航角速度 (rad/s)")
     parser.add_argument("--takeoff_height", type=float, default=-1.0, help="起飞目标高度 (NED坐标系中负值为向上)")
-    parser.add_argument("--action_duration", type=float, default=0.3, help="每个速度指令的仿真持续时间 (秒)")
+    parser.add_argument("--action_duration", type=float, default=0.1, help="每个速度指令的仿真持续时间 (秒)")
 
     # 飞行高度限制 (Flight Altitude Limits)
     parser.add_argument("--max_flight_altitude", type=float, default=2.5, help="最大飞行高度 (米, 正值为向上)")

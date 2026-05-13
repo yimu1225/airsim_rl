@@ -606,13 +606,8 @@ class AirSimEnv(gym.Env):
         else:
             goal_dir = np.zeros(2, dtype=np.float32)
 
-        if velocity_after is not None:
-            vel_xy = np.asarray(velocity_after[:2], dtype=np.float32)
-            reward_vel = float(np.dot(vel_xy, goal_dir))
-        else:
-            now_pos = self.airgym.drone_pos()[:2]
-            r_yaw = self.airgym.goal_direction(self.goal, now_pos)
-            reward_vel = float(self.speed * math.cos(r_yaw))
+        vel_xy = np.asarray(velocity_after[:2], dtype=np.float32)
+        reward_vel = float(np.dot(vel_xy, goal_dir))
 
         # Match NavRL base term: reward_vel 
         r = 3 * reward_vel + distance_penalty
