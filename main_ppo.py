@@ -320,6 +320,7 @@ def train_ppo_algorithm(env, agent, args, algo_name, device, base_state, depth_i
                 writer.add_scalar('train/episode_reward', episode_reward, total_timesteps)
                 writer.add_scalar('train/episode_length', episode_timesteps, total_timesteps)
                 writer.add_scalar('train/success_rate', success_rate, total_timesteps)
+                writer.add_scalar('train/success_count', env_core.success_count, total_timesteps)
 
                 # Log to CSV
                 with open(csv_filename, mode='a', newline='') as f:
