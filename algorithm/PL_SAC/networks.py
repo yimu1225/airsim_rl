@@ -56,10 +56,8 @@ class Actor(nn.Module):
         # Shared trunk
         self.trunk = nn.Sequential(
             nn.Linear(repr_dim, hidden_dim),
-            nn.LayerNorm(hidden_dim),
             nn.ReLU(inplace=True),
             nn.Linear(hidden_dim, hidden_dim),
-            nn.LayerNorm(hidden_dim),
             nn.ReLU(inplace=True)
         )
 
@@ -142,10 +140,8 @@ class Critic(nn.Module):
         # Q1 network
         self.Q1 = nn.Sequential(
             nn.Linear(input_dim, hidden_dim),
-            nn.LayerNorm(hidden_dim),
             nn.ReLU(inplace=True),
             nn.Linear(hidden_dim, hidden_dim),
-            nn.LayerNorm(hidden_dim),
             nn.ReLU(inplace=True),
             nn.Linear(hidden_dim, 1)
         )
@@ -153,10 +149,8 @@ class Critic(nn.Module):
         # Q2 network
         self.Q2 = nn.Sequential(
             nn.Linear(input_dim, hidden_dim),
-            nn.LayerNorm(hidden_dim),
             nn.ReLU(inplace=True),
             nn.Linear(hidden_dim, hidden_dim),
-            nn.LayerNorm(hidden_dim),
             nn.ReLU(inplace=True),
             nn.Linear(hidden_dim, 1)
         )

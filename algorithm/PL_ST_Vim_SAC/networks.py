@@ -132,10 +132,8 @@ class Actor(nn.Module):
         self.input_norm = nn.LayerNorm(repr_dim)
         self.trunk = nn.Sequential(
             nn.Linear(repr_dim, hidden_dim),
-            nn.LayerNorm(hidden_dim),
             nn.ReLU(inplace=True),
             nn.Linear(hidden_dim, hidden_dim),
-            nn.LayerNorm(hidden_dim),
             nn.ReLU(inplace=True),
         )
         self.mean_linear = nn.Linear(hidden_dim, self.action_dim)
@@ -186,19 +184,15 @@ class Critic(nn.Module):
         self.input_norm = nn.LayerNorm(input_dim)
         self.q1 = nn.Sequential(
             nn.Linear(input_dim, hidden_dim),
-            nn.LayerNorm(hidden_dim),
             nn.ReLU(inplace=True),
             nn.Linear(hidden_dim, hidden_dim),
-            nn.LayerNorm(hidden_dim),
             nn.ReLU(inplace=True),
             nn.Linear(hidden_dim, 1),
         )
         self.q2 = nn.Sequential(
             nn.Linear(input_dim, hidden_dim),
-            nn.LayerNorm(hidden_dim),
             nn.ReLU(inplace=True),
             nn.Linear(hidden_dim, hidden_dim),
-            nn.LayerNorm(hidden_dim),
             nn.ReLU(inplace=True),
             nn.Linear(hidden_dim, 1),
         )

@@ -182,6 +182,16 @@ class STVimSACAgent:
 
         self.critic_optimizer.zero_grad()
         critic_loss.backward()
+        
+        # # --- Gradient Logging for Critic ---
+        # critic_grad_norm = 0.0
+        # for p in self.critic_params:
+        #     if p.grad is not None:
+        #         critic_grad_norm += p.grad.data.norm(2).item() ** 2
+        # critic_grad_norm = critic_grad_norm ** 0.5
+        # print(f"[ST_Vim_SAC] Critic Grad Norm (before clip): {critic_grad_norm:.6f}")
+        # # -----------------------------------
+        
         nn.utils.clip_grad_norm_(self.critic_params, self.grad_clip)
         self.critic_optimizer.step()
         if replay_refs is not None:
@@ -209,6 +219,16 @@ class STVimSACAgent:
 
             self.actor_optimizer.zero_grad()
             actor_loss.backward()
+            
+            # # --- Gradient Logging for Actor ---
+            # actor_grad_norm = 0.0
+            # for p in self.actor_params:
+            #     if p.grad is not None:
+            #         actor_grad_norm += p.grad.data.norm(2).item() ** 2
+            # actor_grad_norm = actor_grad_norm ** 0.5
+            # print(f"[ST_Vim_SAC] Actor Grad Norm (before clip): {actor_grad_norm:.6f}")
+            # # ----------------------------------
+            
             nn.utils.clip_grad_norm_(self.actor_params, self.grad_clip)
             self.actor_optimizer.step()
             actor_loss_value = float(actor_loss.item())
