@@ -29,7 +29,7 @@ def get_config(argv=None):
     parser.add_argument("--env_name", type=str, default='AirSimEnv-v42', help="要训练的环境名称")
 
     # 算法选择 (Algorithm Selection)
-    parser.add_argument("--algorithm_name", type=str, default='CL-PL_PER_ST_Vim_SAC,CL-SAC,CL-PER_ST_Vim_SAC',
+    parser.add_argument("--algorithm_name", type=str, default='CL-ST_Vim_SAC,CL-SAC,CL-PER_ST_Vim_SAC',
                         help="要训练的算法。支持: TD3, DDPG, PER_TD3, ST_Vim_TD3, STV_Patch_TD3, Vim_TD3, ST_Seq_Vim_TD3, STV_Seq_Vim_TD3, PER_ST_Vim_TD3, ST_SVim_TD3, Mamba_TD3, ST_DualVim_TD3, AETD3, SAC, SAC_Beta, LSTM_SAC, ST_Vim_SAC, ST_Vim_SAC_Beta, PER_ST_Vim_SAC, PER_ST_Vim_SAC_Beta, PPO, ST_Vim_PPO, PL_ST_Vim_PPO, PL_TD3, PL_PER_TD3, PL_ST_Vim_TD3, PL_SAC, PL_SAC_Beta, PL_ST_Vim_SAC, PL_PER_ST_Vim_SAC, PL_PER_ST_Vim_SAC_Beta, PL_PER_ST_Vim_TD3")
     parser.add_argument("--smooth_window", type=int, default=300, help="平滑窗口大小，用于平滑学习曲线 (仅对移动平均有效)")
     parser.add_argument("--smooth_method", type=str, default="moving", choices=["moving","zero_phase_des"], help="曲线平滑方法: moving=滑动平均, zero_phase_des=零相位双重指数平滑")
@@ -50,17 +50,17 @@ def get_config(argv=None):
     parser.add_argument("--cuda", action='store_false', default=True, help="是否使用CUDA")
     parser.add_argument("--cuda_deterministic", action='store_false', default=True, help="CUDA是否确定性")
     parser.add_argument("--max_timesteps", type=int, default=80000, help='要训练的环境步数 (默认: 10e6)')
-    parser.add_argument("--buffer_size", type=int, default=20000, help='经验池大小 (注意内存占用: 30000步约占用4GB)')
+    parser.add_argument("--buffer_size", type=int, default=40000, help='经验池大小 (注意内存占用: 30000步约占用4GB)')
     parser.add_argument("--learning_starts", type=int, default=3000, help="训练开始前的时间步数 (兼容 start_timesteps)。在此步数之前使用随机动作探索，之后改用策略网络采样。")
-    parser.add_argument("--update_after", type=int, default=5000, help="开始网络更新的时间步数。默认与 learning_starts 相同。在 learning_starts 之后、update_after 之前，将使用策略网络采集经验，但仍不进行训练更新。")
-    parser.add_argument("--gradient_steps", type=float, default=0.1, help="每次收集数据后的梯度更新倍数")
+    parser.add_argument("--update_after", type=int, default=3000, help="开始网络更新的时间步数。默认与 learning_starts 相同。在 learning_starts 之后、update_after 之前，将使用策略网络采集经验，但仍不进行训练更新。")
+    parser.add_argument("--gradient_steps", type=float, default=0.5, help="每次收集数据后的梯度更新倍数")
     parser.add_argument("--episode_length", type=int, default=300, help='每个环境中的最大回合长度 ')
     parser.add_argument("--eval_freq", type=int, default=5000, help="评估频率")
     parser.add_argument("--hidden_dim", type=int, default=128, help="隐藏层维度")
     parser.add_argument("--base_feature_dim", type=int, default=32, help="基础状态先映射到该维度，再与视觉特征拼接")
     parser.add_argument("--exploration_noise", type=float, default=0.15, help="探索噪声")
     # parser.add_argument("--exploration_noise_final", type=float, default=0.10, help="探索噪声最终值（用于线性递减）")
-    parser.add_argument("--batch_size", type=int, default=1024, help="批次大小")
+    parser.add_argument("--batch_size", type=int, default=256, help="批次大小")
     parser.add_argument("--gamma", type=float, default=0.95, help="折扣因子") 
     parser.add_argument("--tau", type=float, default=0.003, help="软更新参数")
     parser.add_argument("--actor_lr", type=float, default=2e-5, help="Actor学习率")
@@ -77,7 +77,7 @@ def get_config(argv=None):
     
         
     # 图像帧数参数 (所有算法统一的帧堆叠/序列长度)
-    parser.add_argument("--n_frames", type=int, default= 4, help="图像帧数（非时序算法为堆叠帧数，时序算法为序列长度）")
+    parser.add_argument("--n_frames", type=int, default= 6, help="图像帧数（非时序算法为堆叠帧数，时序算法为序列长度）")
 
     # 算法专属参数已迁移到各算法目录下的 params.yaml，
     # 例如 algorithm/TD3/params.yaml、algorithm/SAC/params.yaml。
