@@ -12,8 +12,8 @@ from .config_loader import get_algo_param
 from .SAC.agent import SACAgent
 from .PL_SAC.agent import PLSACAgent
 from .ST_Vim_SAC.agent import STVimSACAgent
-from .PER_ST_Vim_SAC.agent import PERSTVimSACAgent
-from .PL_PER_ST_Vim_SAC.agent import PLPERSTVimSACAgent
+from .DPER_ST_Vim_SAC.agent import DPERSTVimSACAgent
+from .PL_DPER_ST_Vim_SAC.agent import PLDPERSTVimSACAgent
 
 
 class BetaFeedForwardActor(nn.Module):
@@ -138,13 +138,13 @@ class STVimSACBetaAgent(STVimSACAgent):
         _replace_base_actor(self, action_space.shape)
 
 
-class PERSTVimSACBetaAgent(PERSTVimSACAgent):
+class DPERSTVimSACBetaAgent(DPERSTVimSACAgent):
     def __init__(self, base_dim, depth_shape, action_space, args, device=None, seed=None):
         super().__init__(base_dim, depth_shape, action_space, args, device=device, seed=seed)
         _replace_base_actor(self, action_space.shape)
 
 
-class PLPERSTVimSACBetaAgent(PLPERSTVimSACAgent):
+class PLDPERSTVimSACBetaAgent(PLDPERSTVimSACAgent):
     def __init__(self, base_dim, depth_shape, action_space, args, device=None, seed=None):
         super().__init__(base_dim, depth_shape, action_space, args, device=device, seed=seed)
         _replace_base_actor(self, action_space.shape, state_dim_attr="actor_state_dim")
@@ -154,6 +154,6 @@ __all__ = [
     "SACBetaAgent",
     "PLSACBetaAgent",
     "STVimSACBetaAgent",
-    "PERSTVimSACBetaAgent",
-    "PLPERSTVimSACBetaAgent",
+    "DPERSTVimSACBetaAgent",
+    "PLDPERSTVimSACBetaAgent",
 ]
