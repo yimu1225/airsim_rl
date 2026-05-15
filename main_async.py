@@ -62,6 +62,7 @@ from algorithm.PL_DPER_ST_Vim_SAC.agent import PLDPERSTVimSACAgent
 from algorithm.PL_DPER_ST_Vim_TD3.agent import PLDPERSTVimTD3Agent
 from algorithm.LSTM_SAC.agent import LSTMSACAgent
 from algorithm.ST_Vim_SAC.agent import STVimSACAgent
+from algorithm.ST_SVim_SAC.agent import STSVimSACAgent
 from algorithm.DPER_ST_Vim_SAC.agent import DPERSTVimSACAgent
 from algorithm.beta_sac import (
     DPERSTVimSACBetaAgent,
@@ -192,6 +193,7 @@ def get_agent_class(algo_name):
         'PL_DPER_ST_Vim_SAC_Beta': PLDPERSTVimSACBetaAgent,
         'LSTM_SAC': LSTMSACAgent,
         'ST_Vim_SAC': STVimSACAgent,
+        'ST_SVim_SAC': STSVimSACAgent,
         'ST_Vim_SAC_Beta': STVimSACBetaAgent,
         'DPER_ST_Vim_SAC': DPERSTVimSACAgent,
         'DPER_ST_Vim_SAC_Beta': DPERSTVimSACBetaAgent,
@@ -423,6 +425,7 @@ def main():
                 'ST_DualVim_TD3',
                 'LSTM_SAC',
                 'ST_Vim_SAC',
+                'ST_SVim_SAC',
                 'ST_Vim_SAC_Beta',
                 'DPER_ST_Vim_SAC',
                 'DPER_ST_Vim_SAC_Beta',
@@ -740,7 +743,7 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, ba
                 critic_priv_next = _extract_critic_privileged_distance_sensor(env_core)
             
             if is_recurrent:
-                if core_algo_name == 'ST_SVim_TD3':
+                if core_algo_name in {'ST_SVim_TD3', 'ST_SVim_SAC'}:
                     has_collided = float(step_info.get("has_collided", False)) if isinstance(step_info, dict) else 0.0
                     agent.replay_buffer.add(
                         base_for_buffer,
