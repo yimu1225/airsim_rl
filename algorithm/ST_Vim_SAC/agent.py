@@ -111,7 +111,7 @@ class STVimSACAgent:
         depth_features = encoder(depth)
         return torch.cat([base_features, depth_features], dim=1)
 
-    def _sample_replay(self):
+    def _sample_replay(self, progress_ratio=0.0):
         sample = self.replay_buffer.sample(self.batch_size)
         return sample, None, None, {}
 
@@ -137,7 +137,7 @@ class STVimSACAgent:
         if self.replay_buffer.size() < self.batch_size:
             return {}
 
-        sample, replay_refs, replay_weights, replay_info = self._sample_replay()
+        sample, replay_refs, replay_weights, replay_info = self._sample_replay(progress_ratio)
         if sample is None:
             return {}
         base_states, depths, actions, rewards, next_base_states, next_depths, dones = sample
