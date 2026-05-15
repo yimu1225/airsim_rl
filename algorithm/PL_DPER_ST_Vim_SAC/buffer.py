@@ -12,7 +12,7 @@ class PrioritizedReplayBuffer(SumTreePrioritizedReplayBuffer):
             eps=eps,
             seed=seed,
             depth_field_indices=depth_field_indices,
-            depth_dtype=np.uint8,
+            depth_dtype=np.float16,
             return_stacked=True,
         )
 
@@ -36,7 +36,7 @@ class DualPrioritizedReplayBuffer:
         success_capacity = max(1, int(round(total_capacity * success_capacity_ratio)))
         regular_capacity = max(1, total_capacity - success_capacity)
 
-        depth_field_indices = (1, 2, 7, 8)
+        depth_field_indices = (1, 5)
         self.success_buffer = PrioritizedReplayBuffer(
             success_capacity, alpha=alpha, eps=eps, seed=seed, depth_field_indices=depth_field_indices
         )
@@ -76,14 +76,7 @@ class DualPrioritizedReplayBuffer:
         is_success=0.0,
         critic_priv=None,
         next_critic_priv=None,
-        critic_depth=None,
-        next_critic_depth=None,
     ):
-        if critic_depth is None:
-            critic_depth = depth
-        if next_critic_depth is None:
-            next_critic_depth = next_depth
-
         if self.critic_priv_dim is None:
             critic_priv_flat = self._flatten_priv(critic_priv)
             self.critic_priv_dim = int(critic_priv_flat.size)
@@ -94,15 +87,13 @@ class DualPrioritizedReplayBuffer:
         transition = (
             base_state,
             depth,
-            critic_depth,
-            critic_priv_flat,
             action,
             reward,
             next_base_state,
             next_depth,
-            next_critic_depth,
-            next_critic_priv_flat,
             done,
+            critic_priv_flat,
+            next_critic_priv_flat,
         )
         self._episode_cache.append(transition)
         if bool(is_success):

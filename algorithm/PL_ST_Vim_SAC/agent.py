@@ -210,28 +210,24 @@ class PLSTVimSACAgent:
             return {}
         (
             base_states,
-            actor_depths,
-            critic_depths,
-            critic_privs,
+            depths,
             actions,
             rewards,
             next_base_states,
-            next_actor_depths,
-            next_critic_depths,
-            next_critic_privs,
+            next_depths,
             dones,
+            critic_privs,
+            next_critic_privs,
         ) = sample
 
         base_states = torch.as_tensor(base_states, dtype=torch.float32, device=self.device)
-        actor_depths = torch.as_tensor(actor_depths, dtype=torch.float32, device=self.device)
-        critic_depths = torch.as_tensor(critic_depths, dtype=torch.float32, device=self.device)
+        depths = torch.as_tensor(depths, dtype=torch.float32, device=self.device)
         critic_privs = torch.as_tensor(critic_privs, dtype=torch.float32, device=self.device)
         real_actions = torch.as_tensor(actions, dtype=torch.float32, device=self.device)
         actions = ((real_actions - self.action_bias) / self.action_scale).clamp(-1.0, 1.0)
         rewards = torch.as_tensor(rewards, dtype=torch.float32, device=self.device).view(-1, 1)
         next_base_states = torch.as_tensor(next_base_states, dtype=torch.float32, device=self.device)
-        next_actor_depths = torch.as_tensor(next_actor_depths, dtype=torch.float32, device=self.device)
-        next_critic_depths = torch.as_tensor(next_critic_depths, dtype=torch.float32, device=self.device)
+        next_depths = torch.as_tensor(next_depths, dtype=torch.float32, device=self.device)
         next_critic_privs = torch.as_tensor(next_critic_privs, dtype=torch.float32, device=self.device)
         dones = torch.as_tensor(dones, dtype=torch.float32, device=self.device).view(-1, 1)
         weights = None
@@ -240,12 +236,12 @@ class PLSTVimSACAgent:
 
         with torch.no_grad():
             # Next actions from current actor (actor sees no priv)
-            next_actor_state = self._encode_actor_state(next_base_states, next_actor_depths)
+            next_actor_state = self._encode_actor_state(next_base_states, next_depths)
             next_actions, next_log_prob = self.actor.action_log_prob(next_actor_state)
 
             # Target Q from target critic (critic sees priv)
             next_target_state = self._encode_critic_state_target(
-                next_base_states, next_critic_depths, next_critic_privs
+                next_base_states, next_depths, next_critic_privs
             )
             next_q1, next_q2 = self.critic_target(next_target_state, next_actions)
             next_q = torch.min(next_q1, next_q2)
@@ -255,7 +251,7 @@ class PLSTVimSACAgent:
             target_q = rewards + (1.0 - dones) * self.gamma * (next_q - alpha * next_log_prob)
 
         # Current Q from critic (with priv)
-        critic_state = self._encode_critic_state(base_states, critic_depths, critic_privs)
+        critic_state = self._encode_critic_state(base_states, depths, critic_privs)
         current_q1, current_q2 = self.critic(critic_state, actions)
         critic_loss_elements = 0.5 * (
             F.mse_loss(current_q1, target_q, reduction="none")
@@ -279,13 +275,13 @@ class PLSTVimSACAgent:
         q_pi_mean_value = None
         if self.total_it % self.policy_freq == 0:
             # Actor state (no priv)
-            actor_state = self._encode_actor_state(base_states, actor_depths)
+            actor_state = self._encode_actor_state(base_states, depths)
             actions_pi, log_prob = self.actor.action_log_prob(actor_state)
 
             with torch.no_grad():
                 # Critic evaluates with priv
                 critic_state_for_pi = self._encode_critic_state(
-                    base_states, critic_depths, critic_privs
+                    base_states, depths, critic_privs
                 )
             q1_pi, q2_pi = self.critic(critic_state_for_pi, actions_pi)
             min_q_pi = torch.min(q1_pi, q2_pi)

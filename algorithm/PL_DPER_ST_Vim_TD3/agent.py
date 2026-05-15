@@ -207,39 +207,33 @@ class PLDPERSTVimTD3Agent:
         if isinstance(samples, tuple):
             (
                 state,
-                actor_depth,
-                critic_depth,
-                critic_priv,
+                depth,
                 action,
                 reward,
                 next_state,
-                next_actor_depth,
-                next_critic_depth,
-                next_critic_priv,
+                next_depth,
                 dones,
+                critic_priv,
+                next_critic_priv,
             ) = samples
         else:
             unpacked = zip(*samples)
             (
                 state,
-                actor_depth,
-                critic_depth,
-                critic_priv,
+                depth,
                 action,
                 reward,
                 next_state,
-                next_actor_depth,
-                next_critic_depth,
-                next_critic_priv,
+                next_depth,
                 dones,
+                critic_priv,
+                next_critic_priv,
             ) = unpacked
 
-        actor_depth = torch.as_tensor(np.asarray(actor_depth), dtype=torch.float32, device=self.device)
-        critic_depth = torch.as_tensor(np.asarray(critic_depth), dtype=torch.float32, device=self.device)
+        depth = torch.as_tensor(np.asarray(depth), dtype=torch.float32, device=self.device)
         critic_priv = torch.as_tensor(np.asarray(critic_priv), dtype=torch.float32, device=self.device)
 
-        next_actor_depth = torch.as_tensor(np.asarray(next_actor_depth), dtype=torch.float32, device=self.device)
-        next_critic_depth = torch.as_tensor(np.asarray(next_critic_depth), dtype=torch.float32, device=self.device)
+        next_depth = torch.as_tensor(np.asarray(next_depth), dtype=torch.float32, device=self.device)
         next_critic_priv = torch.as_tensor(np.asarray(next_critic_priv), dtype=torch.float32, device=self.device)
 
         state = torch.as_tensor(np.asarray(state), dtype=torch.float32, device=self.device)
@@ -252,14 +246,14 @@ class PLDPERSTVimTD3Agent:
         weights = torch.as_tensor(importance_weights, dtype=torch.float32, device=self.device).view(-1, 1)
 
         with torch.no_grad():
-            next_visual = self.actor_encoder_target(next_actor_depth)
+            next_visual = self.actor_encoder_target(next_depth)
             next_base_actor = self.actor_base_net_target(next_state)
             next_actor_input = torch.cat([next_visual, next_base_actor], dim=-1)
             next_action = self.actor_target(next_actor_input)
             noise = (torch.randn_like(next_action) * self.policy_noise).clamp(-self.noise_clip, self.noise_clip)
             next_action = (next_action + noise).clamp(-1.0, 1.0)
 
-            target_visual = self.critic_encoder_target(next_critic_depth)
+            target_visual = self.critic_encoder_target(next_depth)
             target_base = self.critic_base_net_target(next_state)
             target_priv = self._prepare_priv(next_critic_priv)
             target_input = torch.cat([target_visual, target_base, target_priv], dim=-1)
@@ -267,7 +261,7 @@ class PLDPERSTVimTD3Agent:
             target_q2 = self.critic_2_target(target_input, next_action)
             target_q = reward + (1.0 - dones) * self.gamma * torch.min(target_q1, target_q2)
 
-        current_visual = self.critic_encoder(critic_depth)
+        current_visual = self.critic_encoder(depth)
         current_base = self.critic_base_net(state)
         current_priv = self._prepare_priv(critic_priv)
         critic_input = torch.cat([current_visual, current_base, current_priv], dim=-1)
@@ -296,13 +290,13 @@ class PLDPERSTVimTD3Agent:
             for param in self.critic_params:
                 param.requires_grad_(False)
 
-            actor_visual = self.actor_encoder(actor_depth)
+            actor_visual = self.actor_encoder(depth)
             actor_base = self.actor_base_net(state)
             actor_input = torch.cat([actor_visual, actor_base], dim=-1)
             actor_action = self.actor(actor_input)
 
             with torch.no_grad():
-                q_visual = self.critic_encoder(critic_depth)
+                q_visual = self.critic_encoder(depth)
             q_base = self.critic_base_net(state)
             q_priv = self._prepare_priv(critic_priv)
             q_input = torch.cat([q_visual, q_base, q_priv], dim=-1)

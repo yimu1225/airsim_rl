@@ -263,99 +263,6 @@ def _is_pl_algorithm(algo_name: str) -> bool:
     }
 
 
-def _extract_last_depth_frame(depth_tensor):
-    arr = np.asarray(depth_tensor, dtype=np.float32)
-    if arr.ndim == 4 and arr.shape[1] == 1:
-        return arr[-1, 0]
-    if arr.ndim == 3:
-        return arr[-1]
-    if arr.ndim == 2:
-        return arr
-    # 极端fallback：使用极小尺寸，实际分辨率由正常数据决定
-    return np.zeros((1, 1), dtype=np.float32)
-
-
-def _resize_depth_frame(frame, target_hw):
-    """不再强制resize，直接使用原始分辨率（仅做维度检查和clip）"""
-    arr = np.asarray(frame, dtype=np.float32)
-    if arr.ndim != 2:
-        target_h, target_w = int(target_hw[0]), int(target_hw[1])
-        return np.zeros((target_h, target_w), dtype=np.float32)
-    return np.clip(arr, 0.0, 255.0).astype(np.float32)
-
-
-def _extract_clean_depth_sequence(env_core, fallback_depth):
-    fallback_frame = _extract_last_depth_frame(fallback_depth)
-
-    for attr in ("clean_depth_stack", "depth_stack_clean"):
-        stack = getattr(env_core, attr, None)
-        if stack is None or len(stack) <= 0:
-            continue
-        arr = np.asarray(stack, dtype=np.float32)
-        if arr.ndim == 3 and arr.shape[0] > 0:
-            return arr
-
-    airgym = getattr(env_core, "airgym", None)
-
-    raw_clean = getattr(airgym, "last_depth_clean", None)
-    if raw_clean is not None:
-        arr = np.asarray(raw_clean, dtype=np.float32)
-        if arr.ndim == 2:
-            return arr[None, ...]
-        if arr.ndim == 3 and arr.shape[0] > 0:
-            return arr
-
-    raw = getattr(airgym, "last_img", None)
-    if raw is not None:
-        arr = np.asarray(raw, dtype=np.float32)
-        if arr.ndim == 2:
-            return arr[None, ...]
-        if arr.ndim == 3 and arr.shape[0] > 0:
-            return arr
-
-    return fallback_frame[None, ...]
-
-
-def _align_clean_depth_sequence(clean_seq, target_len, target_hw):
-    clean = np.asarray(clean_seq, dtype=np.float32)
-    if clean.ndim == 2:
-        clean = clean[None, ...]
-    if clean.ndim != 3 or clean.shape[0] <= 0:
-        frame = np.zeros((int(target_hw[0]), int(target_hw[1])), dtype=np.float32)
-        clean = frame[None, ...]
-
-    # 不再强制resize每一帧，直接使用原始分辨率做序列长度对齐
-    if clean.shape[0] >= target_len:
-        return clean[-target_len:]
-
-    pad_count = target_len - clean.shape[0]
-    pad = np.repeat(clean[:1], pad_count, axis=0)
-    return np.concatenate([pad, clean], axis=0).astype(np.float32)
-
-
-def _build_critic_depth_like(env_core, actor_depth):
-    actor_arr = np.asarray(actor_depth, dtype=np.float32)
-    target_hw = actor_arr.shape[-2:] if actor_arr.ndim >= 2 else getattr(env_core, "depth_shape", (1, 128, 128))[-2:]
-    clean_seq = _extract_clean_depth_sequence(env_core, actor_arr)
-
-    if actor_arr.ndim == 2:
-        return _align_clean_depth_sequence(clean_seq, target_len=1, target_hw=target_hw)[-1]
-    if actor_arr.ndim == 3:
-        return _align_clean_depth_sequence(
-            clean_seq,
-            target_len=max(1, int(actor_arr.shape[0])),
-            target_hw=target_hw,
-        ).astype(np.float32)
-    if actor_arr.ndim == 4 and actor_arr.shape[1] == 1:
-        aligned = _align_clean_depth_sequence(
-            clean_seq,
-            target_len=max(1, int(actor_arr.shape[0])),
-            target_hw=target_hw,
-        )
-        return aligned[:, None, ...].astype(np.float32)
-    return actor_arr
-
-
 def _extract_critic_privileged_distance_sensor(env_core):
     scan = getattr(env_core, "last_distance_sensor_scan_distance", None)
     if scan is None:
@@ -592,11 +499,9 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, ba
                 actor_depth_current = state
                 actor_base_current = base
 
-            critic_depth_current = None
             critic_priv_current = None
             if is_pl_algo:
                 env_core = _get_env_core(env)
-                critic_depth_current = _build_critic_depth_like(env_core, actor_depth_current)
                 critic_priv_current = _extract_critic_privileged_distance_sensor(env_core)
 
             env_core_for_signal = _get_env_core(env)
@@ -735,11 +640,9 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, ba
             base_for_buffer = base_seq if use_base_sequence else base
             next_base_for_buffer = next_base_seq if use_base_sequence else next_base
 
-            critic_depth_next = None
             critic_priv_next = None
             if is_pl_algo:
                 env_core = _get_env_core(env)
-                critic_depth_next = _build_critic_depth_like(env_core, actor_depth_next)
                 critic_priv_next = _extract_critic_privileged_distance_sensor(env_core)
             
             if is_recurrent:
@@ -759,8 +662,6 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, ba
                     add_kwargs = dict(
                         critic_priv=critic_priv_current,
                         next_critic_priv=critic_priv_next,
-                        critic_depth=critic_depth_current,
-                        next_critic_depth=critic_depth_next,
                     )
                     if core_algo_name in {"PL_PER_ST_Vim_SAC", "PL_PER_ST_Vim_SAC_Beta", "PL_PER_ST_Vim_TD3"}:
                         add_kwargs["is_success"] = (
@@ -822,8 +723,6 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, ba
                             is_success,
                             critic_priv=critic_priv_current,
                             next_critic_priv=critic_priv_next,
-                            critic_depth=critic_depth_current,
-                            next_critic_depth=critic_depth_next,
                         )
                     else:
                         agent.replay_buffer.add(
@@ -836,8 +735,6 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, ba
                             done_bool,
                             critic_priv=critic_priv_current,
                             next_critic_priv=critic_priv_next,
-                            critic_depth=critic_depth_current,
-                            next_critic_depth=critic_depth_next,
                         )
                 else:
                     # Non-recurrent buffer

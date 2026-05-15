@@ -4,8 +4,7 @@ import numpy as np
 class ReplayBuffer:
     """Replay buffer for PL_ST_Vim_SAC with privileged critic inputs and sequence observations.
 
-    Stores separate actor/critic depth sequences and privileged distance sensor data
-    for the critic.
+    Stores actor depth sequences plus privileged distance sensor data for the critic.
     """
 
     def __init__(self, max_size: int, seed=None):
@@ -17,13 +16,11 @@ class ReplayBuffer:
 
         self.base_buf = None
         self.depth_buf = None
-        self.critic_depth_buf = None
         self.critic_priv_buf = None
         self.action_buf = None
         self.reward_buf = None
         self.next_base_buf = None
         self.next_depth_buf = None
-        self.next_critic_depth_buf = None
         self.next_critic_priv_buf = None
         self.done_buf = None
 
@@ -51,33 +48,23 @@ class ReplayBuffer:
         done,
         critic_priv=None,
         next_critic_priv=None,
-        critic_depth=None,
-        next_critic_depth=None,
     ):
-        if critic_depth is None:
-            critic_depth = depth
-        if next_critic_depth is None:
-            next_critic_depth = next_depth
-
         critic_priv_flat = self._flatten_priv(critic_priv)
         next_critic_priv_flat = self._flatten_priv(next_critic_priv, target_dim=critic_priv_flat.size)
 
         if self.base_buf is None:
             self.base_shape = np.asarray(base_state).shape
             self.depth_shape = np.asarray(depth).shape
-            self.critic_depth_shape = np.asarray(critic_depth).shape
             self.action_shape = np.asarray(action).shape
             self.critic_priv_dim = int(critic_priv_flat.size)
 
             self.base_buf = np.zeros((self.max_size, *self.base_shape), dtype=np.float32)
             self.depth_buf = np.zeros((self.max_size, *self.depth_shape), dtype=np.float16)
-            self.critic_depth_buf = np.zeros((self.max_size, *self.critic_depth_shape), dtype=np.float16)
             self.critic_priv_buf = np.zeros((self.max_size, self.critic_priv_dim), dtype=np.float32)
             self.action_buf = np.zeros((self.max_size, *self.action_shape), dtype=np.float32)
             self.reward_buf = np.zeros((self.max_size, 1), dtype=np.float32)
             self.next_base_buf = np.zeros((self.max_size, *self.base_shape), dtype=np.float32)
             self.next_depth_buf = np.zeros((self.max_size, *self.depth_shape), dtype=np.float16)
-            self.next_critic_depth_buf = np.zeros((self.max_size, *self.critic_depth_shape), dtype=np.float16)
             self.next_critic_priv_buf = np.zeros((self.max_size, self.critic_priv_dim), dtype=np.float32)
             self.done_buf = np.zeros((self.max_size, 1), dtype=np.float32)
         else:
@@ -86,13 +73,11 @@ class ReplayBuffer:
 
         self.base_buf[self.ptr] = base_state
         self.depth_buf[self.ptr] = np.asarray(depth, dtype=np.float16)
-        self.critic_depth_buf[self.ptr] = np.asarray(critic_depth, dtype=np.float16)
         self.critic_priv_buf[self.ptr] = critic_priv_flat
         self.action_buf[self.ptr] = action
         self.reward_buf[self.ptr] = reward
         self.next_base_buf[self.ptr] = next_base_state
         self.next_depth_buf[self.ptr] = np.asarray(next_depth, dtype=np.float16)
-        self.next_critic_depth_buf[self.ptr] = np.asarray(next_critic_depth, dtype=np.float16)
         self.next_critic_priv_buf[self.ptr] = next_critic_priv_flat
         self.done_buf[self.ptr] = done
 
@@ -107,15 +92,13 @@ class ReplayBuffer:
         return (
             self.base_buf[ind],
             self.depth_buf[ind].astype(np.float32),
-            self.critic_depth_buf[ind].astype(np.float32),
-            self.critic_priv_buf[ind],
             self.action_buf[ind],
             self.reward_buf[ind],
             self.next_base_buf[ind],
             self.next_depth_buf[ind].astype(np.float32),
-            self.next_critic_depth_buf[ind].astype(np.float32),
-            self.next_critic_priv_buf[ind],
             self.done_buf[ind],
+            self.critic_priv_buf[ind],
+            self.next_critic_priv_buf[ind],
         )
 
     def size(self) -> int:
