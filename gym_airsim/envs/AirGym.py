@@ -194,6 +194,7 @@ class AirSimEnv(gym.Env):
         self.success_count = 0
         self.episodeN = 0
         self.stepN = 0
+        self.total_step_count = 0
         self.goal = airsimize_coordinates(self.game_config_handler.get_cur_item("End"))
 
 
@@ -609,6 +610,13 @@ class AirSimEnv(gym.Env):
         vel_xy = np.asarray(velocity_after[:2], dtype=np.float32)
         reward_vel = float(np.dot(vel_xy, goal_dir))
 
+        # 逻辑门控：使用符号函数直接相乘，结合 min 取小防止背向且远离目标时（负负得正）产生异常的正奖励
+        _, _, yaw = self.airgym.get_ryp()
+        head_dir = np.array([np.cos(yaw), np.sin(yaw)], dtype=np.float32)
+        alignment = float(np.dot(head_dir, goal_dir))
+        
+        reward_vel = float(np.minimum(reward_vel, reward_vel * np.sign(alignment)))
+
         # Match NavRL base term: reward_vel 
         r = 3 * reward_vel + distance_penalty
 
@@ -683,6 +691,7 @@ class AirSimEnv(gym.Env):
         """
 
         self.stepN += 1
+        self.total_step_count += 1
         if self.check_ue4_status():
             state = self.get_obs()
             self.success = False
@@ -885,17 +894,20 @@ class AirSimEnv(gym.Env):
         self.airgym.client.simPause(False)
 
         # 课程学习等级升级（仅在启用课程学习时）
-        if self.use_curriculum and len(self.success_deque)>0:
-            succes_rate=sum(self.success_deque) / len(self.success_deque)
-            if succes_rate>0.5 and self.level==0 and self.success_count>300:
-                self.level=1
-                self.game_config_handler=GameConfigHandler(range_dic_name="settings.medium_range_dic")
-            elif succes_rate > 0.6 and self.level == 1 and self.success_count>600:
-                self.level = 2
-                self.game_config_handler = GameConfigHandler(range_dic_name="settings.hard_range_dic")
-            # elif succes_rate > 0.7 and self.level == 2 and self.success_count > 900:
-            #     self.level = 3
-            #     self.game_config_handler = GameConfigHandler(range_dic_name="settings.dynamic_obstacles_dic")
+        if self.use_curriculum:
+            # 原课程切换逻辑：基于历史成功率和成功次数
+            if len(self.success_deque)>0:
+                succes_rate=sum(self.success_deque) / len(self.success_deque)
+                if succes_rate>0.5 and self.level==0 and self.success_count>300:
+                    self.level=1
+                    self.game_config_handler=GameConfigHandler(range_dic_name="settings.medium_range_dic")
+                elif succes_rate > 0.6 and self.level == 1 and self.success_count>600:
+                    self.level = 2
+                    self.game_config_handler = GameConfigHandler(range_dic_name="settings.hard_range_dic")
+            #     # elif succes_rate > 0.7 and self.level == 2 and self.success_count > 900:
+            #     #     self.level = 3
+            #     #     self.game_config_handler = GameConfigHandler(range_dic_name="settings.dynamic_obstacles_dic")
+
             
 
         print("--- Resetting Episode ---")
