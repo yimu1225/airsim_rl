@@ -62,6 +62,7 @@ from algorithm.PL_DPER_ST_Vim_SAC.agent import PLDPERSTVimSACAgent
 from algorithm.PL_DPER_ST_Vim_TD3.agent import PLDPERSTVimTD3Agent
 from algorithm.LSTM_SAC.agent import LSTMSACAgent
 from algorithm.ST_Vim_SAC.agent import STVimSACAgent
+from algorithm.PER_ST_Vim_SAC.agent import PERSTVimSACAgent
 from algorithm.ST_SVim_SAC.agent import STSVimSACAgent
 from algorithm.DPER_ST_Vim_SAC.agent import DPERSTVimSACAgent
 from algorithm.beta_sac import (
@@ -193,6 +194,7 @@ def get_agent_class(algo_name):
         'PL_DPER_ST_Vim_SAC_Beta': PLDPERSTVimSACBetaAgent,
         'LSTM_SAC': LSTMSACAgent,
         'ST_Vim_SAC': STVimSACAgent,
+        'PER_ST_Vim_SAC': PERSTVimSACAgent,
         'ST_SVim_SAC': STSVimSACAgent,
         'ST_Vim_SAC_Beta': STVimSACBetaAgent,
         'DPER_ST_Vim_SAC': DPERSTVimSACAgent,
@@ -332,6 +334,7 @@ def main():
                 'ST_DualVim_TD3',
                 'LSTM_SAC',
                 'ST_Vim_SAC',
+                'PER_ST_Vim_SAC',
                 'ST_SVim_SAC',
                 'ST_Vim_SAC_Beta',
                 'DPER_ST_Vim_SAC',
