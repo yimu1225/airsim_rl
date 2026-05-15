@@ -191,24 +191,20 @@ class PLSTVimTD3Agent:
 
         (
             state,
-            actor_depth,
-            critic_depth,
-            critic_priv,
+            depth,
             action,
             reward,
             next_state,
-            next_actor_depth,
-            next_critic_depth,
-            next_critic_priv,
+            next_depth,
             dones,
+            critic_priv,
+            next_critic_priv,
         ) = self.replay_buffer.sample(self.batch_size)
 
-        actor_depth = torch.as_tensor(actor_depth, dtype=torch.float32, device=self.device)
-        critic_depth = torch.as_tensor(critic_depth, dtype=torch.float32, device=self.device)
+        depth = torch.as_tensor(depth, dtype=torch.float32, device=self.device)
         critic_priv = torch.as_tensor(critic_priv, dtype=torch.float32, device=self.device)
 
-        next_actor_depth = torch.as_tensor(next_actor_depth, dtype=torch.float32, device=self.device)
-        next_critic_depth = torch.as_tensor(next_critic_depth, dtype=torch.float32, device=self.device)
+        next_depth = torch.as_tensor(next_depth, dtype=torch.float32, device=self.device)
         next_critic_priv = torch.as_tensor(next_critic_priv, dtype=torch.float32, device=self.device)
 
         state = torch.as_tensor(state, dtype=torch.float32, device=self.device)
@@ -222,7 +218,7 @@ class PLSTVimTD3Agent:
         dones = torch.as_tensor(dones, dtype=torch.float32, device=self.device).view(-1, 1)
 
         with torch.no_grad():
-            next_visual = self.actor_encoder_target(next_actor_depth)
+            next_visual = self.actor_encoder_target(next_depth)
             self._assert_finite_tensor("train.next_visual", next_visual)
             next_base_actor = self.actor_base_net_target(next_state)
             next_actor_input = torch.cat([next_visual, next_base_actor], dim=-1)
@@ -232,7 +228,7 @@ class PLSTVimTD3Agent:
             next_action = (next_action + noise).clamp(-1.0, 1.0)
             self._assert_finite_tensor("train.next_action_noisy", next_action)
 
-            target_visual = self.critic_encoder_target(next_critic_depth)
+            target_visual = self.critic_encoder_target(next_depth)
             self._assert_finite_tensor("train.target_visual", target_visual)
             target_base = self.critic_base_net_target(next_state)
             target_priv = self._prepare_priv(next_critic_priv)
@@ -245,7 +241,7 @@ class PLSTVimTD3Agent:
             target_Q = reward + (1.0 - dones) * self.gamma * target_Q
             self._assert_finite_tensor("train.target_Q", target_Q)
 
-        current_visual = self.critic_encoder(critic_depth)
+        current_visual = self.critic_encoder(depth)
         self._assert_finite_tensor("train.current_visual", current_visual)
         current_base = self.critic_base_net(state)
         current_priv = self._prepare_priv(critic_priv)
@@ -272,7 +268,7 @@ class PLSTVimTD3Agent:
 
         actor_loss_value = None
         if self.total_it % self.policy_freq == 0:
-            actor_visual = self.actor_encoder(actor_depth)
+            actor_visual = self.actor_encoder(depth)
             self._assert_finite_tensor("train.actor_visual", actor_visual)
             actor_base = self.actor_base_net(state)
             actor_input = torch.cat([actor_visual, actor_base], dim=-1)
@@ -280,7 +276,7 @@ class PLSTVimTD3Agent:
             self._assert_finite_tensor("train.actor_action_raw", actor_action)
 
             with torch.no_grad():
-                q_visual = self.critic_encoder(critic_depth)
+                q_visual = self.critic_encoder(depth)
             self._assert_finite_tensor("train.q_visual", q_visual)
             q_base = self.critic_base_net(state)
             q_priv = self._prepare_priv(critic_priv)
@@ -300,7 +296,7 @@ class PLSTVimTD3Agent:
 
             try:
                 with torch.no_grad():
-                    q_visual = self.critic_encoder(critic_depth)
+                    q_visual = self.critic_encoder(depth)
                     q_base = self.critic_base_net(state)
                     q_priv = self._prepare_priv(critic_priv)
                 self._assert_finite_tensor("train.q_visual", q_visual)

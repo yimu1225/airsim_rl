@@ -236,35 +236,30 @@ class PLDPERTD3Agent:
         if isinstance(samples, tuple):
             (
                 base_states,
-                actor_depths,
-                critic_depths,
-                critic_privs,
+                depths,
                 actions,
                 rewards,
                 next_base_states,
-                next_actor_depths,
-                next_critic_depths,
-                next_critic_privs,
+                next_depths,
                 dones,
+                critic_privs,
+                next_critic_privs,
             ) = samples
         else:
             (
                 base_states,
-                actor_depths,
-                critic_depths,
-                critic_privs,
+                depths,
                 actions,
                 rewards,
                 next_base_states,
-                next_actor_depths,
-                next_critic_depths,
-                next_critic_privs,
+                next_depths,
                 dones,
+                critic_privs,
+                next_critic_privs,
             ) = zip(*samples)
 
         base_states = torch.as_tensor(np.asarray(base_states), dtype=torch.float32, device=self.device)
-        actor_depths = torch.as_tensor(np.asarray(actor_depths), dtype=torch.float32, device=self.device)
-        critic_depths = torch.as_tensor(np.asarray(critic_depths), dtype=torch.float32, device=self.device)
+        depths = torch.as_tensor(np.asarray(depths), dtype=torch.float32, device=self.device)
         critic_privs = torch.as_tensor(np.asarray(critic_privs), dtype=torch.float32, device=self.device)
         real_actions = torch.as_tensor(np.asarray(actions), dtype=torch.float32, device=self.device)
         actions = (real_actions - self.action_bias) / self.action_scale
@@ -272,15 +267,14 @@ class PLDPERTD3Agent:
 
         rewards = torch.as_tensor(np.asarray(rewards), dtype=torch.float32, device=self.device).view(-1, 1)
         next_base_states = torch.as_tensor(np.asarray(next_base_states), dtype=torch.float32, device=self.device)
-        next_actor_depths = torch.as_tensor(np.asarray(next_actor_depths), dtype=torch.float32, device=self.device)
-        next_critic_depths = torch.as_tensor(np.asarray(next_critic_depths), dtype=torch.float32, device=self.device)
+        next_depths = torch.as_tensor(np.asarray(next_depths), dtype=torch.float32, device=self.device)
         next_critic_privs = torch.as_tensor(np.asarray(next_critic_privs), dtype=torch.float32, device=self.device)
         dones = torch.as_tensor(np.asarray(dones), dtype=torch.float32, device=self.device).view(-1, 1)
         weights = torch.as_tensor(importance_weights, dtype=torch.float32, device=self.device).unsqueeze(1)
 
         states_critic = self._concat_critic_state(
             base_states,
-            critic_depths,
+            depths,
             critic_privs,
             self.critic_encoder,
             self.critic_base_adapter,
@@ -289,7 +283,7 @@ class PLDPERTD3Agent:
         with torch.no_grad():
             next_states_critic = self._concat_critic_state(
                 next_base_states,
-                next_critic_depths,
+                next_depths,
                 next_critic_privs,
                 self.critic_encoder_target,
                 self.critic_base_adapter_target,
@@ -297,7 +291,7 @@ class PLDPERTD3Agent:
 
             next_states_actor = self._concat_actor_state(
                 next_base_states,
-                next_actor_depths,
+                next_depths,
                 self.actor_encoder_target,
                 self.actor_base_adapter_target,
             )
@@ -339,7 +333,7 @@ class PLDPERTD3Agent:
         if self.total_it % self.policy_freq == 0:
             states_actor = self._concat_actor_state(
                 base_states,
-                actor_depths,
+                depths,
                 self.actor_encoder,
                 self.actor_base_adapter,
             )
@@ -347,7 +341,7 @@ class PLDPERTD3Agent:
             with torch.no_grad():
                 states_critic_fixed = self._concat_critic_state(
                     base_states,
-                    critic_depths,
+                    depths,
                     critic_privs,
                     self.critic_encoder,
                     self.critic_base_adapter,

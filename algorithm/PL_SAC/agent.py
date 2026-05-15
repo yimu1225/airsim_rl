@@ -281,22 +281,19 @@ class PLSACAgent:
             return {}
         (
             base_states,
-            actor_depths,
-            critic_depths,
-            critic_privs,
+            depths,
             actions,
             rewards,
             next_base_states,
-            next_actor_depths,
-            next_critic_depths,
-            next_critic_privs,
+            next_depths,
             dones,
+            critic_privs,
+            next_critic_privs,
         ) = sample
 
         # Convert to tensors
         base_states = torch.as_tensor(base_states, dtype=torch.float32, device=self.device)
-        actor_depths = torch.as_tensor(actor_depths, dtype=torch.float32, device=self.device)
-        critic_depths = torch.as_tensor(critic_depths, dtype=torch.float32, device=self.device)
+        depths = torch.as_tensor(depths, dtype=torch.float32, device=self.device)
         critic_privs = torch.as_tensor(critic_privs, dtype=torch.float32, device=self.device)
         # Actions from buffer are real actions, normalize them for training
         real_actions = torch.as_tensor(actions, dtype=torch.float32, device=self.device)
@@ -304,8 +301,7 @@ class PLSACAgent:
 
         rewards = torch.as_tensor(rewards, dtype=torch.float32, device=self.device).view(-1, 1)
         next_base_states = torch.as_tensor(next_base_states, dtype=torch.float32, device=self.device)
-        next_actor_depths = torch.as_tensor(next_actor_depths, dtype=torch.float32, device=self.device)
-        next_critic_depths = torch.as_tensor(next_critic_depths, dtype=torch.float32, device=self.device)
+        next_depths = torch.as_tensor(next_depths, dtype=torch.float32, device=self.device)
         next_critic_privs = torch.as_tensor(next_critic_privs, dtype=torch.float32, device=self.device)
         dones = torch.as_tensor(dones, dtype=torch.float32, device=self.device).view(-1, 1)
         weights = None
@@ -317,13 +313,13 @@ class PLSACAgent:
             # target Q comes from the target critic.
             next_actor_states = self._concat_state(
                 next_base_states,
-                next_actor_depths,
+                next_depths,
                 self.actor_encoder,
                 self.actor_base_adapter,
             )
             next_target_states = self._concat_critic_state(
                 next_base_states,
-                next_critic_depths,
+                next_depths,
                 next_critic_privs,
                 self.critic_encoder_target,
                 self.critic_base_adapter_target,
@@ -349,7 +345,7 @@ class PLSACAgent:
         # Encode current observations (Critic)
         states = self._concat_critic_state(
             base_states,
-            critic_depths,
+            depths,
             critic_privs,
             self.critic_encoder,
             self.critic_base_adapter,
@@ -386,7 +382,7 @@ class PLSACAgent:
 
         if self.total_it % self.policy_freq == 0:
             # Encode current observations (Actor)
-            encoded_depths_actor = self._encode(actor_depths, self.actor_encoder)
+            encoded_depths_actor = self._encode(depths, self.actor_encoder)
             base_features_actor = self.actor_base_adapter(base_states)
             states_actor = torch.cat([base_features_actor, encoded_depths_actor], dim=1)
 
@@ -396,7 +392,7 @@ class PLSACAgent:
             with torch.no_grad():
                 critic_states_for_pi = self._concat_critic_state(
                     base_states,
-                    critic_depths,
+                    depths,
                     critic_privs,
                     self.critic_encoder,
                     self.critic_base_adapter,
