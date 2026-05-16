@@ -600,7 +600,7 @@ class AirSimEnv(gym.Env):
         goal_dist_3d = float(np.linalg.norm(
             np.array([self.goal[0] - now[0], self.goal[1] - now[1], self.goal[2] - now[2]], dtype=np.float32)
         ))
-        distance_penalty = -goal_dist_3d * 0.03
+        distance_penalty = -goal_dist_3d * 0.02
 
         if goal_dist > 1e-6:
             goal_dir = goal_vec / goal_dist
@@ -661,9 +661,12 @@ class AirSimEnv(gym.Env):
             self.last_distance_sensor_scan_distance,
             self.last_distance_sensor_max_distance,
         )
-        self.last_distance_sensor_obstacle_penalty = 5 * float(distance_sensor_penalty)
+        self.last_distance_sensor_obstacle_penalty = 8 * float(distance_sensor_penalty)
         r += self.last_distance_sensor_obstacle_penalty
-        # print(f"Reward components: r_vel={reward_vel:.3f}, smooth_penalty={smooth_penalty:.3f}, step_penalty={step_penalty:.3f},distance_sensor_penalty={self.last_distance_sensor_obstacle_penalty:.3f}, total_reward={r:.3f}")
+        # print(f"Reward components: r_vel={reward_vel:.3f}, distance_penalty={distance_penalty:.3f}, "
+        #       f"smooth_penalty={smooth_penalty:.3f}, curvature_penalty={curvature_penalty:.3f}, "
+        #       f"step_penalty={step_penalty:.3f}, stagnation_penalty={stagnation_penalty:.3f}, "
+        #       f"distance_sensor_penalty={self.last_distance_sensor_obstacle_penalty:.3f}, total_reward={r:.3f}")
 
         return r
 
