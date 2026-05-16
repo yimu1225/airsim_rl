@@ -29,7 +29,7 @@ def get_config(argv=None):
     parser.add_argument("--env_name", type=str, default='AirSimEnv-v42', help="要训练的环境名称")
 
     # 算法选择 (Algorithm Selection)
-    parser.add_argument("--algorithm_name", type=str, default='CL-DPER_ST_Vim_SAC',
+    parser.add_argument("--algorithm_name", type=str, default='CL-PL_ST_Vim_SAC,CL-PER_ST_Vim_SAC,CL-ST_Vim_SAC,CL-SAC',
                         help="要训练的算法。支持: TD3, DDPG, DPER_TD3, ST_Vim_TD3, STV_Patch_TD3, Vim_TD3, ST_Seq_Vim_TD3, STV_Seq_Vim_TD3, DPER_ST_Vim_TD3, ST_SVim_TD3, Mamba_TD3, ST_DualVim_TD3, AETD3, SAC, SAC_Beta, LSTM_SAC, ST_Vim_SAC, ST_SVim_SAC, ST_Vim_SAC_Beta, DPER_ST_Vim_SAC, DPER_ST_Vim_SAC_Beta, PPO, ST_Vim_PPO, PL_ST_Vim_PPO, PL_TD3, PL_DPER_TD3, PL_ST_Vim_TD3, PL_SAC, PL_SAC_Beta, PL_ST_Vim_SAC, PL_DPER_ST_Vim_SAC, PL_DPER_ST_Vim_SAC_Beta, PL_DPER_ST_Vim_TD3")
     parser.add_argument("--smooth_window", type=int, default=300, help="平滑窗口大小，用于平滑学习曲线 (仅对移动平均有效)")
     parser.add_argument("--smooth_method", type=str, default="moving", choices=["moving","zero_phase_des"], help="曲线平滑方法: moving=滑动平均, zero_phase_des=零相位双重指数平滑")
@@ -43,13 +43,13 @@ def get_config(argv=None):
     parser.add_argument("--curve_smooth_step", type=float, default=1.0, help="baselines 风格 EMA 重采样 smooth_step")
 
     # 训练设置 (Training Setup)
-    parser.add_argument("--seed", type=str, default="1", help="随机种子 (支持逗号分隔多个种子)")
+    parser.add_argument("--seed", type=str, default="2", help="随机种子 (支持逗号分隔多个种子)")
     parser.add_argument("--curriculum_start_level", type=int, default=0, choices=[0, 1, 2, 3], help="课程学习起始等级 (0-3, 默认: 0)。注意：算法名以 'CL-' 前缀开头时自动启用课程学习")
     parser.add_argument("--non_curriculum_level", type=int, default=2, choices=[0, 1, 2, 3], help="非课程学习时的固定难度等级 (0-3, 默认: 3)")
     parser.add_argument("--steps_per_update", type=int, default=100, help='每次更新前收集的步数')
     parser.add_argument("--cuda", action='store_false', default=True, help="是否使用CUDA")
     parser.add_argument("--cuda_deterministic", action='store_false', default=True, help="CUDA是否确定性")
-    parser.add_argument("--max_timesteps", type=int, default=100000, help='要训练的环境步数 (默认: 10e6)')
+    parser.add_argument("--max_timesteps", type=int, default=120000, help='要训练的环境步数 (默认: 10e6)')
     parser.add_argument("--buffer_size", type=int, default=40000, help='经验池大小 (注意内存占用: 30000步约占用4GB)')
     parser.add_argument("--learning_starts", type=int, default=5000, help="训练开始前的时间步数 (兼容 start_timesteps)。在此步数之前使用随机动作探索，之后改用策略网络采样。")
     parser.add_argument("--update_after", type=int, default=5000, help="开始网络更新的时间步数。默认与 learning_starts 相同。在 learning_starts 之后、update_after 之前，将使用策略网络采集经验，但仍不进行训练更新。")
