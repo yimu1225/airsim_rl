@@ -163,6 +163,7 @@ class AirSimEnv(gym.Env):
         self.distance_sensor_count = len(self.distance_sensor_names)
         self.distance_sensor_log_penalty_weight = float(config.distance_sensor_log_penalty_weight)
         self.distance_sensor_log_penalty_min = float(config.distance_sensor_log_penalty_min)
+        self.distance_sensor_penalty_max_distance = max(1e-6, float(config.distance_sensor_penalty_max_distance))
         self.distance_sensor_penalty_eps = max(1e-6, float(config.distance_sensor_penalty_eps))
         self.distance_sensor_query_max_attempts = max(1, int(config.distance_sensor_query_max_attempts))
         self.distance_sensor_query_retry_sleep = max(0.0, float(config.distance_sensor_query_retry_sleep))
@@ -499,8 +500,8 @@ class AirSimEnv(gym.Env):
         """
         Safety shaping on distance sensor beams:
         use all sensors (not only nearest one), with mean(log(distance)) style.
-        The sensor MaxDistance from settings.json is the penalty range. A beam at
-        MaxDistance contributes 0 risk; beams shorter than MaxDistance are penalized.
+        The penalty range is decoupled from the sensor MaxDistance so that
+        sensor reach can change without widening the close-range penalty band.
         """
         if self.distance_sensor_log_penalty_weight <= 0.0:
             return 0.0
@@ -515,7 +516,7 @@ class AirSimEnv(gym.Env):
             return 0.0
 
         if max_distance is None:
-            max_distance = getattr(self, "last_distance_sensor_max_distance", None)
+            max_distance = getattr(self, "distance_sensor_penalty_max_distance", None)
         penalty_range = np.asarray(max_distance, dtype=np.float32) if max_distance is not None else np.ones_like(d)
         if penalty_range.size == 1:
             penalty_range = np.full_like(d, float(penalty_range.item()), dtype=np.float32)
@@ -523,7 +524,7 @@ class AirSimEnv(gym.Env):
             penalty_range = np.resize(penalty_range, d.shape)
         penalty_range = np.maximum(penalty_range, self.distance_sensor_penalty_eps)
 
-        # Clamp above sensor MaxDistance: readings at the sensor limit contribute 0 risk.
+        # Clamp above the penalty range: readings at or beyond the cap contribute 0 risk.
         d_clip = np.clip(d, self.distance_sensor_penalty_eps, penalty_range)
         mean_log_gap = float(np.mean(np.log(d_clip) - np.log(penalty_range)))
         penalty = self.distance_sensor_log_penalty_weight * mean_log_gap
@@ -548,7 +549,6 @@ class AirSimEnv(gym.Env):
                 )
             self.last_distance_sensor_obstacle_penalty = self._compute_distance_sensor_log_penalty(
                 self.last_distance_sensor_scan_distance,
-                self.last_distance_sensor_max_distance,
             )
             return False
 
@@ -556,7 +556,6 @@ class AirSimEnv(gym.Env):
         if scan_distance.ndim != 1 or scan_distance.size == 0:
             self.last_distance_sensor_obstacle_penalty = self._compute_distance_sensor_log_penalty(
                 self.last_distance_sensor_scan_distance,
-                self.last_distance_sensor_max_distance,
             )
             return False
 
@@ -568,7 +567,7 @@ class AirSimEnv(gym.Env):
         self.last_distance_sensor_max_distance = max_ranges.copy()
         self.distance_sensor_read_fail_count = 0
 
-        self.last_distance_sensor_obstacle_penalty = self._compute_distance_sensor_log_penalty(scan_distance, max_ranges)
+        self.last_distance_sensor_obstacle_penalty = self._compute_distance_sensor_log_penalty(scan_distance)
         return True
 
 
@@ -600,7 +599,7 @@ class AirSimEnv(gym.Env):
         goal_dist_3d = float(np.linalg.norm(
             np.array([self.goal[0] - now[0], self.goal[1] - now[1], self.goal[2] - now[2]], dtype=np.float32)
         ))
-        distance_penalty = -goal_dist_3d * 0.02
+        distance_penalty = -goal_dist_3d * 0.03
 
         if goal_dist > 1e-6:
             goal_dir = goal_vec / goal_dist
@@ -659,9 +658,8 @@ class AirSimEnv(gym.Env):
 
         distance_sensor_penalty = self._compute_distance_sensor_log_penalty(
             self.last_distance_sensor_scan_distance,
-            self.last_distance_sensor_max_distance,
         )
-        self.last_distance_sensor_obstacle_penalty = 8 * float(distance_sensor_penalty)
+        self.last_distance_sensor_obstacle_penalty = 5 * float(distance_sensor_penalty)
         r += self.last_distance_sensor_obstacle_penalty
         # print(f"Reward components: r_vel={reward_vel:.3f}, distance_penalty={distance_penalty:.3f}, "
         #       f"smooth_penalty={smooth_penalty:.3f}, curvature_penalty={curvature_penalty:.3f}, "
@@ -904,9 +902,18 @@ class AirSimEnv(gym.Env):
                 if succes_rate>0.5 and self.level==0 and self.success_count>300:
                     self.level=1
                     self.game_config_handler=GameConfigHandler(range_dic_name="settings.medium_range_dic")
-                elif succes_rate > 0.6 and self.level == 1 and self.success_count>600:
+                elif succes_rate > 0.6 and self.level == 1 and self.success_count>500:
                     self.level = 2
                     self.game_config_handler = GameConfigHandler(range_dic_name="settings.hard_range_dic")
+        
+            # if len(self.success_deque)>0:
+            #     succes_rate=sum(self.success_deque) / len(self.success_deque)
+            #     if succes_rate>0.5 and self.level==0 and self.success_count>300:
+            #         self.level=1
+            #         self.game_config_handler=GameConfigHandler(range_dic_name="settings.medium_range_dic")
+            #     elif succes_rate > 0.6 and self.level == 1 and self.success_count>600:
+            #         self.level = 2
+            #         self.game_config_handler = GameConfigHandler(range_dic_name="settings.hard_range_dic")
             #     # elif succes_rate > 0.7 and self.level == 2 and self.success_count > 900:
             #     #     self.level = 3
             #     #     self.game_config_handler = GameConfigHandler(range_dic_name="settings.dynamic_obstacles_dic")

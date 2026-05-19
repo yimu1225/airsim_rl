@@ -29,8 +29,8 @@ def get_config(argv=None):
     parser.add_argument("--env_name", type=str, default='AirSimEnv-v42', help="要训练的环境名称")
 
     # 算法选择 (Algorithm Selection)
-    parser.add_argument("--algorithm_name", type=str, default='CL-PL_ST_Vim_SAC,CL-PER_ST_Vim_SAC,CL-ST_Vim_SAC,CL-SAC',
-                        help="要训练的算法。支持: TD3, DDPG, DPER_TD3, ST_Vim_TD3, STV_Patch_TD3, Vim_TD3, ST_Seq_Vim_TD3, STV_Seq_Vim_TD3, DPER_ST_Vim_TD3, ST_SVim_TD3, Mamba_TD3, ST_DualVim_TD3, AETD3, SAC, SAC_Beta, LSTM_SAC, ST_Vim_SAC, ST_SVim_SAC, ST_Vim_SAC_Beta, DPER_ST_Vim_SAC, DPER_ST_Vim_SAC_Beta, PPO, ST_Vim_PPO, PL_ST_Vim_PPO, PL_TD3, PL_DPER_TD3, PL_ST_Vim_TD3, PL_SAC, PL_SAC_Beta, PL_ST_Vim_SAC, PL_DPER_ST_Vim_SAC, PL_DPER_ST_Vim_SAC_Beta, PL_DPER_ST_Vim_TD3")
+    parser.add_argument("--algorithm_name", type=str, default='CL-MM_ST_Vim_SAC,CL-ST_Vim_SAC,CL-SAC',
+                        help="要训练的算法。支持: TD3, DDPG, DPER_TD3, ST_Vim_TD3, STV_Patch_TD3, Vim_TD3, ST_Seq_Vim_TD3, STV_Seq_Vim_TD3, DPER_ST_Vim_TD3, ST_SVim_TD3, Mamba_TD3, ST_DualVim_TD3, AETD3, SAC, SAC_Beta, LSTM_SAC, ST_Vim_SAC, ST_SVim_SAC, ST_Vim_SAC_Beta, DPER_ST_Vim_SAC, DPER_ST_Vim_SAC_Beta, PPO, ST_Vim_PPO, PL_ST_Vim_PPO, PL_TD3, PL_DPER_TD3, PL_ST_Vim_TD3, PL_SAC, PL_SAC_Beta, PL_ST_Vim_SAC, PL_DPER_ST_Vim_SAC, PL_DPER_ST_Vim_SAC_Beta, PL_DPER_ST_Vim_TD3,MM_ST_Vim_SAC")
     parser.add_argument("--smooth_window", type=int, default=300, help="平滑窗口大小，用于平滑学习曲线 (仅对移动平均有效)")
     parser.add_argument("--smooth_method", type=str, default="moving", choices=["moving","zero_phase_des"], help="曲线平滑方法: moving=滑动平均, zero_phase_des=零相位双重指数平滑")
     parser.add_argument("--smooth_alpha", type=float, default=0.05, help="零相位双重指数平滑的水平平滑因子 (0-1)，越大越关注近期数据")
@@ -63,8 +63,8 @@ def get_config(argv=None):
     parser.add_argument("--batch_size", type=int, default=256, help="批次大小")
     parser.add_argument("--gamma", type=float, default=0.95, help="折扣因子") 
     parser.add_argument("--tau", type=float, default=0.003, help="软更新参数")
-    parser.add_argument("--actor_lr", type=float, default=2e-4, help="Actor学习率")
-    parser.add_argument("--critic_lr", type=float, default=2e-3, help="Critic学习率")
+    parser.add_argument("--actor_lr", type=float, default=4e-4, help="Actor学习率")
+    parser.add_argument("--critic_lr", type=float, default=4e-4, help="Critic学习率")
     parser.add_argument("--policy_noise", type=float, default=0.2, help="策略噪声")
     parser.add_argument("--noise_clip", type=float, default=0.5, help="噪声裁剪")
     parser.add_argument("--policy_freq", type=int, default=2, help="策略更新频率")
@@ -104,6 +104,7 @@ def get_config(argv=None):
     parser.add_argument("--distance_sensor_names", type=str, default="", help="距离传感器名称列表，逗号分隔；为空时按 prefix+编号生成")
     parser.add_argument("--distance_sensor_log_penalty_weight", type=float, default=1.0, help="距离传感器对数惩罚权重")
     parser.add_argument("--distance_sensor_log_penalty_min", type=float, default=-3.0, help="距离传感器对数惩罚最小值(下限)")
+    parser.add_argument("--distance_sensor_penalty_max_distance", type=float, default=2.0, help="静态障碍物惩罚的最大距离 (米)")
     parser.add_argument("--distance_sensor_penalty_eps", type=float, default=1e-3, help="距离传感器惩罚数值稳定项")
     parser.add_argument("--distance_sensor_query_max_attempts", type=int, default=1, help="每步距离传感器查询最大重试次数")
     parser.add_argument("--distance_sensor_query_retry_sleep", type=float, default=0.02, help="距离传感器查询重试间隔 (秒)")
