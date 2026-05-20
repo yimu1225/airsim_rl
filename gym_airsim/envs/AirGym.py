@@ -161,7 +161,7 @@ class AirSimEnv(gym.Env):
             start_index=self.distance_sensor_start_index,
         )
         self.distance_sensor_count = len(self.distance_sensor_names)
-        self.distance_sensor_log_penalty_weight = float(config.distance_sensor_log_penalty_weight)
+     
         self.distance_sensor_log_penalty_min = float(config.distance_sensor_log_penalty_min)
         self.distance_sensor_penalty_max_distance = max(1e-6, float(config.distance_sensor_penalty_max_distance))
         self.distance_sensor_penalty_eps = max(1e-6, float(config.distance_sensor_penalty_eps))
@@ -503,8 +503,7 @@ class AirSimEnv(gym.Env):
         The penalty range is decoupled from the sensor MaxDistance so that
         sensor reach can change without widening the close-range penalty band.
         """
-        if self.distance_sensor_log_penalty_weight <= 0.0:
-            return 0.0
+  
         if scan_distance is None:
             return 0.0
 
@@ -527,8 +526,8 @@ class AirSimEnv(gym.Env):
         # Clamp above the penalty range: readings at or beyond the cap contribute 0 risk.
         d_clip = np.clip(d, self.distance_sensor_penalty_eps, penalty_range)
         mean_log_gap = float(np.mean(np.log(d_clip) - np.log(penalty_range)))
-        penalty = self.distance_sensor_log_penalty_weight * mean_log_gap
-        return float(max(penalty, self.distance_sensor_log_penalty_min))
+       
+        return float(max(mean_log_gap, self.distance_sensor_log_penalty_min))
 
     def _update_distance_sensor_obstacle_distance(self):
         try:

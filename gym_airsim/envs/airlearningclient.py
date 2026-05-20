@@ -259,7 +259,7 @@ class AirLearningClient(object):
         self,
         sensor_names=None,
         sensor_prefix="DistanceSensor",
-        sensor_count=36,
+        sensor_count=108,
         start_index=0,
     ):
         if isinstance(sensor_names, str):
@@ -308,16 +308,16 @@ class AirLearningClient(object):
         self,
         sensor_names=None,
         sensor_prefix="DistanceSensor",
-        sensor_count=36,
+        sensor_count=108,
         start_index=0,
         max_range_m=None,
         max_attempts=3,
         retry_sleep=0.1,
     ):
         """
-        读取无人机所在水平面内均匀分布的距离传感器。
+        读取无人机3层距离传感器 (俯仰 -15°/0°/+15°)。
 
-        默认名称为 DistanceSensor0..DistanceSensor35；如 settings.json 使用不同命名，
+        默认名称为 DistanceSensor0..DistanceSensor107；如 settings.json 使用不同命名，
         可通过 sensor_names 传入逗号分隔或列表形式的名称。
 
         Returns:
@@ -376,14 +376,14 @@ class AirLearningClient(object):
         self,
         sensor_names=None,
         sensor_prefix="DistanceSensor",
-        sensor_count=36,
+        sensor_count=108,
         start_index=0,
         max_range_m=None,
         max_attempts=3,
         retry_sleep=0.1,
     ):
         """
-        使用平面距离传感器估计周围四个方向的最近障碍距离（米）。
+        使用3层距离传感器估计周围四个方向的最近障碍距离（米）。
 
         Returns:
             tuple: (global_min_distance_m, per_direction_min_distance_dict)
@@ -430,14 +430,14 @@ class AirLearningClient(object):
         threshold_m=None,
         sensor_names=None,
         sensor_prefix="DistanceSensor",
-        sensor_count=36,
+        sensor_count=108,
         start_index=0,
         max_range_m=None,
         max_attempts=3,
         retry_sleep=0.1,
     ):
         """
-        使用距离传感器检查周围障碍距离是否低于阈值。
+        使用3层距离传感器检查周围障碍距离是否低于阈值。
 
         Returns:
             tuple: (is_too_close, global_min_distance_m, per_direction_min_distance_dict)

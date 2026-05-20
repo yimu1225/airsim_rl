@@ -1,7 +1,7 @@
 # ST-Vim-SAC algorithm-specific parameters
 # SAC parameters aligned with SB3-style defaults where practical.
 ent_coef: 'auto'
-alpha_lr: 1e-4  # alpha/entropy coefficient optimizer learning rate
+alpha_lr: 5e-5  # alpha/entropy coefficient optimizer learning rate
 target_entropy: auto
 target_update_interval: 1
 policy_freq: 1

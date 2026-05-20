@@ -271,7 +271,7 @@ def _extract_critic_privileged_distance_sensor(env_core):
     scan = getattr(env_core, "last_distance_sensor_scan_distance", None)
     if scan is None:
         cfg = getattr(env_core, "config", None)
-        count = int(getattr(env_core, "distance_sensor_count", getattr(cfg, "distance_sensor_count", 36)))
+        count = int(getattr(env_core, "distance_sensor_count", getattr(cfg, "distance_sensor_count", 108)))
         max_distance = getattr(env_core, "last_distance_sensor_max_distance", None)
         if max_distance is not None:
             max_distance = np.asarray(max_distance, dtype=np.float32).reshape(-1)
