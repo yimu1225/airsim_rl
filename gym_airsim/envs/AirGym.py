@@ -617,7 +617,7 @@ class AirSimEnv(gym.Env):
         reward_vel = float(np.minimum(reward_vel, reward_vel * np.sign(alignment)))
 
         # Match NavRL base term: reward_vel 
-        r = 3 * reward_vel + distance_penalty
+        r = 3 * reward_vel 
 
         # NavRL-style smoothness penalty: ||v_t - v_{t-1}||
         smooth_penalty_weight = 0.1
@@ -899,10 +899,10 @@ class AirSimEnv(gym.Env):
             # 原课程切换逻辑：基于历史成功率和成功次数
             if len(self.success_deque)>0:
                 succes_rate=sum(self.success_deque) / len(self.success_deque)
-                if succes_rate>0.5 and self.level==0 and self.success_count>300:
+                if succes_rate>0.6 and self.level==0 and self.success_count>500:
                     self.level=1
                     self.game_config_handler=GameConfigHandler(range_dic_name="settings.medium_range_dic")
-                elif succes_rate > 0.6 and self.level == 1 and self.success_count>500:
+                elif succes_rate > 0.7 and self.level == 1 and self.success_count>800:
                     self.level = 2
                     self.game_config_handler = GameConfigHandler(range_dic_name="settings.hard_range_dic")
         

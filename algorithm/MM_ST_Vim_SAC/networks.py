@@ -103,12 +103,6 @@ class STVimEncoder(nn.Module):
             nn.GELU(),
             nn.Linear(self.base_proj_dim, self.base_proj_dim),
         )
-        self.fusion = nn.Sequential(
-            nn.LayerNorm(self.temporal_dim),
-            nn.Linear(self.temporal_dim, self.temporal_dim * 2),
-            nn.GELU(),
-            nn.Linear(self.temporal_dim * 2, self.temporal_dim),
-        )
         self.temporal_mamba = TemporalMambaStack(
             dim=self.temporal_dim,
             n_layers=self.temporal_layers,
@@ -151,7 +145,6 @@ class STVimEncoder(nn.Module):
         base_tokens = self.base_proj(base_seq.reshape(batch_size * seq_len, self.base_dim))
         base_tokens = base_tokens.view(batch_size, seq_len, self.base_proj_dim)
         fused_tokens = torch.cat([frame_tokens, base_tokens], dim=-1)
-        fused_tokens = self.fusion(fused_tokens)
 
         temporal_tokens = self.temporal_mamba(fused_tokens)
         if self.flatten_all_tokens:
