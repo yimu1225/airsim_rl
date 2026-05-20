@@ -104,7 +104,12 @@ class PLSTVimTD3Agent:
         self.batch_size = args.batch_size
 
         self.batch_size = args.batch_size
-        self.replay_buffer = ReplayBuffer(args.buffer_size, self.seq_len, seed=seed)
+        self.replay_buffer = ReplayBuffer(
+            args.buffer_size,
+            self.seq_len,
+            seed=seed,
+            disk_dir=getattr(args, "pl_replay_disk_dir", None),
+        )
         self.total_it = 0
 
     def _assert_finite_tensor(self, name: str, tensor: torch.Tensor):

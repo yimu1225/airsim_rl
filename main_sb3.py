@@ -127,6 +127,15 @@ FEATURE_EXTRACTORS = {
 PER_ALGORITHMS = {"PER_TD3", "PL_PER_TD3", "PER_ST_Vim_TD3", "PER_ST_Vim_SAC", "PL_PER_ST_Vim_SAC", "PL_PER_ST_Vim_TD3"}
 SAC_ALGORITHMS = {"SAC", "LSTM_SAC", "ST_Vim_SAC", "PER_ST_Vim_SAC", "PL_SAC", "PL_PER_ST_Vim_SAC"}
 PPO_ALGORITHMS = {"PPO", "ST_Vim_PPO", "PL_ST_Vim_PPO"}
+PL_ALGORITHMS = {
+    "PL_PER_TD3",
+    "PL_TD3",
+    "PL_ST_Vim_PPO",
+    "PL_ST_Vim_TD3",
+    "PL_SAC",
+    "PL_PER_ST_Vim_SAC",
+    "PL_PER_ST_Vim_TD3",
+}
 
 
 class _EpisodePrintCallback(BaseCallback):
@@ -272,8 +281,8 @@ def _policy_kwargs(algo_name: str, args) -> dict:
         activation_fn=nn.ReLU,
         normalize_images=False,
     )
-    if algo_name == "PL_ST_Vim_PPO":
-        policy_kwargs["privileged_key"] = str(getattr(args, "privileged_key", "distance_sensor"))
+    if algo_name in PL_ALGORITHMS:
+        policy_kwargs["privileged_key"] = ("clean_base", "clean_depth")
     return policy_kwargs
 
 

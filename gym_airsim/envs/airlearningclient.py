@@ -91,11 +91,27 @@ class AirLearningClient(object):
         self.last_depth_noisy = None
         self.width, self.height = None, None
 
-        # Depth noise settings (mild by default, configurable in settings.py).
-        self.enable_depth_noise = getattr(settings, "enable_depth_noise", True)
-        self.depth_gaussian_sigma = float(getattr(settings, "depth_gaussian_sigma", 3.0))
-        self.depth_salt_prob = float(getattr(settings, "depth_salt_prob", 0.002))
-        self.depth_pepper_prob = float(getattr(settings, "depth_pepper_prob", 0.002))
+        # DPRL-style depth noise settings on the normalized 0-255 depth image.
+        cfg = config
+        self.enable_depth_noise = bool(
+            getattr(cfg, "enable_observation_noise", getattr(settings, "enable_depth_noise", True))
+        )
+        self.depth_gaussian_sigma = float(
+            getattr(cfg, "depth_noise_gaussian_std", getattr(settings, "depth_gaussian_sigma", 3.0))
+        )
+        self.depth_gaussian_clip = float(
+            getattr(cfg, "depth_noise_gaussian_clip", getattr(settings, "depth_gaussian_clip", 30.0))
+        )
+        salt_pepper_prob = getattr(cfg, "depth_noise_salt_pepper_prob", None)
+        if salt_pepper_prob is None:
+            salt_pepper_prob = float(getattr(settings, "depth_salt_prob", 0.002)) + float(
+                getattr(settings, "depth_pepper_prob", 0.002)
+            )
+        self.depth_salt_pepper_prob = max(0.0, float(salt_pepper_prob))
+        self.depth_motion_blur_kernel_size = max(
+            1,
+            int(getattr(cfg, "depth_noise_motion_blur_kernel_size", getattr(settings, "depth_motion_blur_kernel_size", 1))),
+        )
 
         # 使用传入的ip和port，如果为None则使用settings中的默认值
         client_ip = ip if ip is not None else settings.ip
@@ -115,25 +131,42 @@ class AirLearningClient(object):
 
     def _add_depth_noise(self, img):
         """
-        Add mild Gaussian + salt-and-pepper noise on depth image (0-255 scale).
+        Add DPRL-style salt-and-pepper, clipped Gaussian, and motion-blur noise
+        on the current project's normalized 0-255 depth image.
         Supports 2D (H, W) and 3D (N, H, W) inputs.
         """
         if (not self.enable_depth_noise) or img is None:
-            return img
+            return np.asarray(img, dtype=np.float32)
 
         noisy = np.array(img, dtype=np.float32, copy=True)
 
-        # Gaussian noise.
-        if self.depth_gaussian_sigma > 0.0:
-            gaussian = np.random.normal(0.0, self.depth_gaussian_sigma, size=noisy.shape).astype(np.float32)
-            noisy += gaussian
-
         # Salt-and-pepper noise.
-        if self.depth_salt_prob > 0.0 or self.depth_pepper_prob > 0.0:
-            salt_mask = np.random.random(size=noisy.shape) < self.depth_salt_prob
-            pepper_mask = np.random.random(size=noisy.shape) < self.depth_pepper_prob
+        if self.depth_salt_pepper_prob > 0.0:
+            half_prob = 0.5 * self.depth_salt_pepper_prob
+            salt_mask = np.random.random(size=noisy.shape) < half_prob
+            pepper_mask = np.random.random(size=noisy.shape) < half_prob
             noisy[salt_mask] = 255.0
             noisy[pepper_mask] = 0.0
+
+        # Clipped Gaussian noise.
+        if self.depth_gaussian_sigma > 0.0:
+            gaussian = np.random.normal(0.0, self.depth_gaussian_sigma, size=noisy.shape).astype(np.float32)
+            if self.depth_gaussian_clip > 0.0:
+                gaussian = np.clip(gaussian, -self.depth_gaussian_clip, self.depth_gaussian_clip)
+            noisy += gaussian
+            noisy = np.clip(noisy, 0.0, 255.0)
+
+        # Horizontal motion blur, matching the DPRL augmentation structure.
+        kernel_size = self.depth_motion_blur_kernel_size
+        if kernel_size > 1:
+            if kernel_size % 2 == 0:
+                kernel_size += 1
+            kernel = np.zeros((kernel_size, kernel_size), dtype=np.float32)
+            kernel[kernel_size // 2, :] = 1.0 / float(kernel_size)
+            if noisy.ndim == 2:
+                noisy = cv2.filter2D(noisy, -1, kernel)
+            else:
+                noisy = np.stack([cv2.filter2D(frame, -1, kernel) for frame in noisy], axis=0)
 
         return np.clip(noisy, 0.0, 255.0).astype(np.float32)
 

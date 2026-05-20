@@ -153,7 +153,11 @@ class PLSACAgent:
         return self.actor_encoder.repr_dim * self.depth_seq_len
 
     def _make_replay_buffer(self, args, seed=None):
-        return ReplayBuffer(args.buffer_size, seed=seed)
+        return ReplayBuffer(
+            args.buffer_size,
+            seed=seed,
+            disk_dir=getattr(args, "pl_replay_disk_dir", None),
+        )
 
     def _sample_replay(self):
         sample = self.replay_buffer.sample(self.batch_size)

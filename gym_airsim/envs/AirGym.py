@@ -63,6 +63,10 @@ class AirSimEnv(gym.Env):
 
         self.depth_stack = collections.deque(maxlen=self.stack_frames)
         self.clean_depth_stack = collections.deque(maxlen=self.stack_frames)
+        self.last_clean_base_state = np.zeros((self.base_dim,), dtype=np.float32)
+        self.last_noisy_base_state = np.zeros((self.base_dim,), dtype=np.float32)
+        algorithm_name_upper = str(getattr(config, "algorithm_name", "")).upper()
+        self.use_clean_privileged_obs = "PL_" in algorithm_name_upper or algorithm_name_upper.startswith("PL")
 
         # 速度需要大于 2 或者持续时间大于 0.4
         # 否则效果不佳！
@@ -126,6 +130,7 @@ class AirSimEnv(gym.Env):
         # For non-dynamic levels, the configured range is [0], so this deterministically clears dynamics.
         sample_vars.append("NumberOfDynamicObjects")
         self.game_config_handler.sample(*sample_vars, change_counter=0, base_seed=self.base_seed)
+        self._update_base_state_norm_bounds()
 
         # 现在启动 UE4，它会读取上面写入的 JSON
         disable_game_restart = config.disable_game_restart
@@ -138,7 +143,7 @@ class AirSimEnv(gym.Env):
         # 无人机 API，传入config中的ip和port参数
         client_ip = config.airsim_ip if config is not None else None
         client_port = config.airsim_port if config is not None else None
-        self.airgym = AirLearningClient(z=takeoff_height, ip=client_ip, port=client_port)
+        self.airgym = AirLearningClient(z=takeoff_height, ip=client_ip, port=client_port, config=config)
 
         # 从AirSim获取一次深度图，确定原始分辨率，并设置observation_space
         try:
@@ -177,16 +182,24 @@ class AirSimEnv(gym.Env):
         self.distance_sensor_read_fail_count = 0
         
         self.depth_shape = (self.stack_frames, STATE_DEPTH_H, STATE_DEPTH_W)
-        self.observation_space = spaces.Dict({
+        observation_spaces = {
             "depth": spaces.Box(low=np.float32(0), high=np.float32(255), shape=self.depth_shape, dtype=np.float32),
-            "base": spaces.Box(low=-np.inf, high=np.inf, shape=(self.base_dim,), dtype=np.float32),
+            "base": spaces.Box(low=np.float32(0), high=np.float32(255), shape=(self.base_dim,), dtype=np.float32),
             "distance_sensor": spaces.Box(
                 low=0.0,
                 high=np.inf,
                 shape=(self.distance_sensor_count,),
                 dtype=np.float32,
             ),
-        })
+        }
+        if self.use_clean_privileged_obs:
+            observation_spaces["clean_depth"] = spaces.Box(
+                low=np.float32(0), high=np.float32(255), shape=self.depth_shape, dtype=np.float32
+            )
+            observation_spaces["clean_base"] = spaces.Box(
+                low=np.float32(0), high=np.float32(255), shape=(self.base_dim,), dtype=np.float32
+            )
+        self.observation_space = spaces.Dict(observation_spaces)
 
         # 动作持续时间使用仿真时间，不再跟 AirSim ClockSpeed 绑定。
         self.action_duration = config.action_duration
@@ -243,7 +256,7 @@ class AirSimEnv(gym.Env):
         max_retry = 5
         for attempt in range(max_retry):
             try:
-                self.airgym = AirLearningClient(z=z, ip=ip, port=port)
+                self.airgym = AirLearningClient(z=z, ip=ip, port=port, config=self.config)
                 self.ue4_rpc_fail_count = 0
                 return True
             except Exception as e:
@@ -370,17 +383,99 @@ class AirSimEnv(gym.Env):
         else:
             print("---------------:) :) :) Success, Oh Yeah! (: (: (:------------ !!!\n")
 
+    def _update_base_state_norm_bounds(self):
+        arena_size = np.asarray(self.game_config_handler.get_cur_item("ArenaSize"), dtype=np.float32).reshape(-1)
+        if arena_size.size < 3:
+            arena_size = np.asarray([70.0, 70.0, 10.0], dtype=np.float32)
+
+        xy_extent = np.maximum(arena_size[:2], 1.0)
+        z_extent = max(float(arena_size[2]), float(self.max_altitude), abs(float(getattr(self.config, "takeoff_height", -1.0))), 3.0)
+        min_forward_speed = float(getattr(self.config, "min_forward_speed", -2.0))
+        max_forward_speed = float(getattr(self.config, "max_forward_speed", 2.0))
+        if max_forward_speed <= min_forward_speed:
+            max_forward_speed = min_forward_speed + 1e-3
+        max_vertical_speed = max(float(getattr(self.config, "max_vertical_speed", 0.3)), 1e-3)
+        max_yaw_rate = max(float(getattr(self.config, "max_yaw_rate", np.pi / 3.0)), 1e-3)
+
+        self.base_state_norm_low = np.asarray(
+            [
+                -xy_extent[0],
+                -xy_extent[1],
+                -z_extent,
+                float(self.min_altitude),
+                min_forward_speed,
+                -max_vertical_speed,
+                -max_yaw_rate,
+                -np.pi / 2.0,
+                -np.pi / 2.0,
+                -np.pi,
+                -np.pi,
+            ],
+            dtype=np.float32,
+        )
+        self.base_state_norm_high = np.asarray(
+            [
+                xy_extent[0],
+                xy_extent[1],
+                z_extent,
+                float(self.max_altitude),
+                max_forward_speed,
+                max_vertical_speed,
+                max_yaw_rate,
+                np.pi / 2.0,
+                np.pi / 2.0,
+                np.pi,
+                np.pi,
+            ],
+            dtype=np.float32,
+        )
+
+    def normalize_base_state(self, inform):
+        """
+        Normalize raw 11D base state to the DPRL-style [0, 255] range.
+
+        Raw order:
+        [rel_x, rel_y, rel_z, altitude, forward_speed, z_velocity, yaw_rate,
+         pitch, roll, yaw, relative_yaw]
+        """
+        inform = np.asarray(inform, dtype=np.float32)
+        low = self.base_state_norm_low
+        high = self.base_state_norm_high
+        span = np.maximum(high - low, 1e-6)
+        normalized = (inform - low) / span * 255.0
+        return np.clip(normalized, 0.0, 255.0).astype(np.float32)
+
+    def _add_base_state_noise(self, clean_base_norm):
+        clean_base_norm = np.asarray(clean_base_norm, dtype=np.float32)
+        if not bool(getattr(self.config, "enable_observation_noise", True)):
+            return clean_base_norm.copy()
+
+        std = float(getattr(self.config, "base_state_noise_std", 2.0))
+        clip = float(getattr(self.config, "base_state_noise_clip", 5.0))
+        noise = np.random.normal(0.0, std, size=clean_base_norm.shape).astype(np.float32)
+        if clip > 0.0:
+            noise = np.clip(noise, -clip, clip)
+        noisy_base = clean_base_norm + noise
+        return np.clip(noisy_base, 0.0, 255.0).astype(np.float32)
+
     def get_obs(self):
-        inform = self.state()
-        # 归一化base state
-        # inform = self.normalize_base_state(inform)
+        raw_inform = self.state().astype(np.float32)
+        clean_inform = self.normalize_base_state(raw_inform)
+        noisy_inform = self._add_base_state_noise(clean_inform)
+        self.last_clean_base_state = clean_inform.copy()
+        self.last_noisy_base_state = noisy_inform.copy()
         
         depth_stack_np = np.array(self.depth_stack, dtype=np.float32)
-        return {
+        clean_depth_stack_np = np.array(self.clean_depth_stack, dtype=np.float32)
+        obs = {
             "depth": depth_stack_np,
-            "base": inform,
+            "base": noisy_inform,
             "distance_sensor": np.asarray(self.last_distance_sensor_scan_distance, dtype=np.float32).reshape(-1),
         }
+        if self.use_clean_privileged_obs:
+            obs["clean_depth"] = clean_depth_stack_np
+            obs["clean_base"] = clean_inform
+        return obs
 
     def _get_zero_depth(self):
         """返回与当前深度图像分辨率一致的全零数组"""
@@ -416,7 +511,8 @@ class AirSimEnv(gym.Env):
                     self.airgym = AirLearningClient(
                         z=self.airgym.z,
                         ip=self.config.airsim_ip if self.config else None,
-                        port=self.config.airsim_port if self.config else None
+                        port=self.config.airsim_port if self.config else None,
+                        config=self.config,
                     )
                     try:
                         depth = self.airgym.getScreenDepth(max_attempts=3)
@@ -481,19 +577,6 @@ class AirSimEnv(gym.Env):
             self.r_yaw              # [relative_angle_to_target]
         ))
         
-        return inform
-
-    def normalize_base_state(self, inform):
-        """
-        将base state归一化到[0, 1]范围
-        基于当前环境的实际参数（从 config 和 game_config_handler 获取）
-        
-        Args:
-            inform: 11维状态向量 [rel_x, rel_y, rel_z, altitude, fwd_speed, z_vel, yaw_rate, pitch, roll, yaw, angle_to_goal]
-        
-        Returns:
-            归一化后的11维向量，每个值在[0, 1]范围内
-        """
         return inform
 
     def _compute_distance_sensor_log_penalty(self, scan_distance, max_distance=None):
@@ -735,7 +818,8 @@ class AirSimEnv(gym.Env):
                 self.airgym = AirLearningClient(
                     z=self.airgym.z,
                     ip=self.config.airsim_ip if self.config else None,
-                    port=self.config.airsim_port if self.config else None
+                    port=self.config.airsim_port if self.config else None,
+                    config=self.config,
                 )
                 # 重启后再尝试一次（同样最多3次）
                 try:
@@ -901,9 +985,11 @@ class AirSimEnv(gym.Env):
                 if succes_rate>0.6 and self.level==0 and self.success_count>500:
                     self.level=1
                     self.game_config_handler=GameConfigHandler(range_dic_name="settings.medium_range_dic")
+                    self._update_base_state_norm_bounds()
                 elif succes_rate > 0.7 and self.level == 1 and self.success_count>800:
                     self.level = 2
                     self.game_config_handler = GameConfigHandler(range_dic_name="settings.hard_range_dic")
+                    self._update_base_state_norm_bounds()
         
             # if len(self.success_deque)>0:
             #     succes_rate=sum(self.success_deque) / len(self.success_deque)
@@ -1121,6 +1207,8 @@ class AirSimEnv(gym.Env):
         # 每次调用 sampleGameConfig 表示一次环境变化
         self.change_counter += 1
         self.game_config_handler.sample(*arg, change_counter=self.change_counter, base_seed=self.base_seed)
+        if "ArenaSize" in arg:
+            self._update_base_state_norm_bounds()
 
     def close(self):
         """Close the environment and clean up resources."""

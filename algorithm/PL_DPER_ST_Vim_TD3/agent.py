@@ -107,6 +107,7 @@ class PLDPERSTVimTD3Agent:
             alpha=get_algo_param(args, "dper_td3_alpha", 0.6),
             eps=get_algo_param(args, "dper_td3_priority_eps", 1e-6),
             seed=seed,
+            disk_dir=getattr(args, "pl_replay_disk_dir", None),
         )
 
         self.gamma = args.gamma

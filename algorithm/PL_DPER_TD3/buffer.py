@@ -1,11 +1,12 @@
 import numpy as np
 
+from ..disk_replay import DiskArrayFactory
 from ..sum_tree_replay import SumTreePrioritizedReplayBuffer
 
 class PrioritizedReplayBuffer(SumTreePrioritizedReplayBuffer):
     """Prioritized replay buffer using proportional SumTree sampling."""
 
-    def __init__(self, capacity, alpha=0.6, eps=1e-6, seed=None, depth_field_indices=()):
+    def __init__(self, capacity, alpha=0.6, eps=1e-6, seed=None, depth_field_indices=(), storage_factory=None):
         super().__init__(
             capacity,
             alpha=alpha,
@@ -14,6 +15,7 @@ class PrioritizedReplayBuffer(SumTreePrioritizedReplayBuffer):
             depth_field_indices=depth_field_indices,
             depth_dtype=np.float16,
             return_stacked=True,
+            storage_factory=storage_factory,
         )
 
 
@@ -28,6 +30,7 @@ class DualPrioritizedReplayBuffer:
         alpha=0.6,
         eps=1e-6,
         seed=None,
+        disk_dir=None,
     ):
         total_capacity = int(capacity)
         success_capacity_ratio = float(np.clip(success_capacity_ratio, 0.05, 0.95))
@@ -36,9 +39,15 @@ class DualPrioritizedReplayBuffer:
         success_capacity = max(1, int(round(total_capacity * success_capacity_ratio)))
         regular_capacity = max(1, total_capacity - success_capacity)
 
+        self.disk_factory = DiskArrayFactory(root=disk_dir, prefix="pl_dper_replay") if disk_dir else None
         depth_field_indices = (1, 5)
         self.success_buffer = PrioritizedReplayBuffer(
-            success_capacity, alpha=alpha, eps=eps, seed=seed, depth_field_indices=depth_field_indices
+            success_capacity,
+            alpha=alpha,
+            eps=eps,
+            seed=seed,
+            depth_field_indices=depth_field_indices,
+            storage_factory=self.disk_factory,
         )
         self.regular_buffer = PrioritizedReplayBuffer(
             regular_capacity,
@@ -46,6 +55,7 @@ class DualPrioritizedReplayBuffer:
             eps=eps,
             seed=None if seed is None else seed + 1,
             depth_field_indices=depth_field_indices,
+            storage_factory=self.disk_factory,
         )
 
         self.rng = np.random.default_rng(seed)

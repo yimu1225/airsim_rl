@@ -99,7 +99,11 @@ class PLSTVimSACAgent:
             self.alpha = float(self.ent_coef)
             self.auto_entropy_tuning = False
 
-        self.replay_buffer = ReplayBuffer(args.buffer_size, seed=seed)
+        self.replay_buffer = ReplayBuffer(
+            args.buffer_size,
+            seed=seed,
+            disk_dir=getattr(args, "pl_replay_disk_dir", None),
+        )
         self.gamma = args.gamma
         self.tau = args.tau
         self.batch_size = args.batch_size

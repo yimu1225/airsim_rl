@@ -15,6 +15,14 @@ from stable_baselines3.td3.policies import TD3Policy
 from torch import nn
 
 
+def _as_privileged_keys(privileged_key) -> tuple[str, ...]:
+    if privileged_key is None:
+        return tuple()
+    if isinstance(privileged_key, str):
+        return (privileged_key,)
+    return tuple(str(key) for key in privileged_key)
+
+
 class PLContinuousCritic(ContinuousCritic):
     """Critic that appends raw privileged observation features to encoded state features."""
 
@@ -29,12 +37,17 @@ class PLContinuousCritic(ContinuousCritic):
         normalize_images: bool = True,
         n_critics: int = 2,
         share_features_extractor: bool = True,
-        privileged_key: str = "distance_sensor",
+        privileged_key: str | tuple[str, ...] = ("clean_base", "clean_depth"),
     ) -> None:
         self.privileged_key = privileged_key
+        self.privileged_keys = _as_privileged_keys(privileged_key)
         self.privileged_dim = 0
-        if isinstance(observation_space, spaces.Dict) and privileged_key in observation_space.spaces:
-            self.privileged_dim = int(spaces.utils.flatdim(observation_space.spaces[privileged_key]))
+        if isinstance(observation_space, spaces.Dict):
+            self.privileged_dim = sum(
+                int(spaces.utils.flatdim(observation_space.spaces[key]))
+                for key in self.privileged_keys
+                if key in observation_space.spaces
+            )
         super(ContinuousCritic, self).__init__(
             observation_space,
             action_space,
@@ -55,10 +68,17 @@ class PLContinuousCritic(ContinuousCritic):
     def _privileged_features(self, obs) -> th.Tensor | None:
         if self.privileged_dim <= 0 or not isinstance(obs, dict):
             return None
-        value = obs[self.privileged_key].float()
-        if value.dim() == 1:
-            value = value.unsqueeze(0)
-        return value.reshape(value.shape[0], -1)
+        features = []
+        for key in self.privileged_keys:
+            if key not in obs:
+                continue
+            value = obs[key].float()
+            if value.dim() == 1:
+                value = value.unsqueeze(0)
+            features.append(value.reshape(value.shape[0], -1))
+        if not features:
+            return None
+        return th.cat(features, dim=1)
 
     def _q_input(self, obs, actions: th.Tensor, detach_features: bool = False) -> th.Tensor:
         grad_enabled = (not self.share_features_extractor) and (not detach_features)
@@ -81,17 +101,22 @@ class PLContinuousCritic(ContinuousCritic):
 class PLActorCriticPolicy(MultiInputActorCriticPolicy):
     """PPO actor-critic policy with privileged inputs for the value branch only."""
 
-    def __init__(self, *args, privileged_key: str = "distance_sensor", **kwargs) -> None:
+    def __init__(self, *args, privileged_key: str | tuple[str, ...] = ("clean_base", "clean_depth"), **kwargs) -> None:
         observation_space = args[0] if args else kwargs.get("observation_space")
-        self.privileged_key = str(privileged_key)
-        self.privileged_dim = self._infer_privileged_dim(observation_space, self.privileged_key)
+        self.privileged_key = privileged_key
+        self.privileged_keys = _as_privileged_keys(privileged_key)
+        self.privileged_dim = self._infer_privileged_dim(observation_space, self.privileged_keys)
         super().__init__(*args, **kwargs)
 
     @staticmethod
-    def _infer_privileged_dim(observation_space: spaces.Space | None, privileged_key: str) -> int:
-        if isinstance(observation_space, spaces.Dict) and privileged_key in observation_space.spaces:
-            return int(spaces.utils.flatdim(observation_space.spaces[privileged_key]))
-        return 0
+    def _infer_privileged_dim(observation_space: spaces.Space | None, privileged_keys: tuple[str, ...]) -> int:
+        if not isinstance(observation_space, spaces.Dict):
+            return 0
+        return sum(
+            int(spaces.utils.flatdim(observation_space.spaces[key]))
+            for key in privileged_keys
+            if key in observation_space.spaces
+        )
 
     def _get_constructor_parameters(self) -> dict:
         data = super()._get_constructor_parameters()
@@ -109,8 +134,18 @@ class PLActorCriticPolicy(MultiInputActorCriticPolicy):
     def _privileged_features(self, obs: PyTorchObs, batch_size: int, dtype: th.dtype, device: th.device) -> th.Tensor:
         if self.privileged_dim <= 0:
             return th.empty((batch_size, 0), dtype=dtype, device=device)
-        if isinstance(obs, dict) and self.privileged_key in obs:
-            privileged = obs[self.privileged_key].float()
+        if isinstance(obs, dict):
+            pieces = []
+            for key in self.privileged_keys:
+                if key not in obs:
+                    continue
+                privileged = obs[key].float()
+                if privileged.dim() == 1:
+                    privileged = privileged.unsqueeze(0)
+                pieces.append(privileged.reshape(privileged.shape[0], -1))
+            if not pieces:
+                return th.zeros((batch_size, self.privileged_dim), dtype=dtype, device=device)
+            privileged = th.cat(pieces, dim=1)
             if privileged.dim() == 1:
                 privileged = privileged.unsqueeze(0)
             privileged = privileged.reshape(privileged.shape[0], -1).to(device=device, dtype=dtype)
@@ -181,7 +216,7 @@ class PLActorCriticPolicy(MultiInputActorCriticPolicy):
 class PLTD3Policy(TD3Policy):
     """TD3 policy with a privileged-learning critic."""
 
-    def __init__(self, *args, privileged_key: str = "distance_sensor", **kwargs) -> None:
+    def __init__(self, *args, privileged_key: str | tuple[str, ...] = ("clean_base", "clean_depth"), **kwargs) -> None:
         self.privileged_key = privileged_key
         super().__init__(*args, **kwargs)
 
@@ -194,7 +229,7 @@ class PLTD3Policy(TD3Policy):
 class PLSACPolicy(SACPolicy):
     """SAC policy with a privileged-learning critic."""
 
-    def __init__(self, *args, privileged_key: str = "distance_sensor", **kwargs) -> None:
+    def __init__(self, *args, privileged_key: str | tuple[str, ...] = ("clean_base", "clean_depth"), **kwargs) -> None:
         self.privileged_key = privileged_key
         super().__init__(*args, **kwargs)
 

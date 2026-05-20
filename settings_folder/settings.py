@@ -196,11 +196,14 @@ yaw_rate_2_16 = yaw_rate_2_8 * 0.5
 # ---------------------------
 # depth image noise (mild)
 # ---------------------------
-# Apply lightweight sensor noise augmentation on depth images (0-255 range).
+# Apply DPRL-style sensor noise augmentation on depth images (0-255 range):
+# salt-and-pepper -> clipped Gaussian -> horizontal motion blur.
 enable_depth_noise = True
 depth_gaussian_sigma = 10.0     # std of Gaussian noise (pixel intensity)
+depth_gaussian_clip = 30.0      # Gaussian noise is clipped to [-clip, clip]
 depth_salt_prob = 0.01        # probability of salt pixels
 depth_pepper_prob = 0.01      # probability of pepper pixels
+depth_motion_blur_kernel_size = 3
 
 
 # ---------------------------

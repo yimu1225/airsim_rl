@@ -84,7 +84,11 @@ class PLTD3Agent:
         )
         self.critic_optimizer = Adam(self.critic_params, lr=args.critic_lr)
 
-        self.replay_buffer = ReplayBuffer(args.buffer_size, seed=seed)
+        self.replay_buffer = ReplayBuffer(
+            args.buffer_size,
+            seed=seed,
+            disk_dir=getattr(args, "pl_replay_disk_dir", None),
+        )
 
         self.gamma = args.gamma
         self.tau = args.tau

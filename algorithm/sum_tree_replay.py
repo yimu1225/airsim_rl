@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import numpy as np
 
+from .disk_replay import zeros
+
 
 class SumTreePrioritySampler:
     """Binary sum tree for sampling integer indices by proportional priority."""
@@ -92,6 +94,7 @@ class SumTreePrioritizedReplayBuffer:
         depth_field_indices=(),
         depth_dtype=np.float16,
         return_stacked=True,
+        storage_factory=None,
     ):
         self.capacity = int(capacity)
         if self.capacity <= 0:
@@ -100,6 +103,7 @@ class SumTreePrioritizedReplayBuffer:
         self.eps = float(eps)
         self.depth_dtype = depth_dtype
         self.return_stacked = bool(return_stacked)
+        self.storage_factory = storage_factory
 
         self.arrays = None
         self.field_shapes = None
@@ -123,8 +127,8 @@ class SumTreePrioritizedReplayBuffer:
         self.field_shapes = [np.asarray(item).shape for item in data]
         self.field_dtypes = [self._dtype_for_field(i) for i in range(len(data))]
         self.arrays = [
-            np.zeros((self.capacity, *shape), dtype=dtype)
-            for shape, dtype in zip(self.field_shapes, self.field_dtypes)
+            zeros((self.capacity, *shape), dtype=dtype, factory=self.storage_factory, name=f"field_{idx}")
+            for idx, (shape, dtype) in enumerate(zip(self.field_shapes, self.field_dtypes))
         ]
 
     def _validate_shapes(self, data):

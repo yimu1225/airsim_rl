@@ -73,6 +73,17 @@ def get_config(argv=None):
     # 可视化 (Visualization)
     parser.add_argument("--render_window", action='store_true', default=False, help="显示实时可视化窗口 (默认开启，可用 --no-render_window 关闭)")
     parser.add_argument("--depth_view_scale", type=float, default=2.5, help="深度图显示窗口放大倍数")
+
+    # 观测噪声 (Observation Noise)
+    parser.add_argument("--enable_observation_noise", action='store_true', default=True, help="是否对传给算法的图像和基础状态加噪声")
+    parser.add_argument("--disable_observation_noise", action='store_false', dest="enable_observation_noise", help="关闭传给算法的图像和基础状态噪声")
+    parser.add_argument("--depth_noise_gaussian_std", type=float, default=10.0, help="深度图高斯噪声标准差，作用在0-255图像强度上")
+    parser.add_argument("--depth_noise_gaussian_clip", type=float, default=30.0, help="深度图高斯噪声裁剪范围 [-clip, clip]")
+    parser.add_argument("--depth_noise_salt_pepper_prob", type=float, default=0.01, help="深度图椒盐噪声总概率，一半salt一半pepper")
+    parser.add_argument("--depth_noise_motion_blur_kernel_size", type=int, default=3, help="深度图水平运动模糊kernel大小，<=1表示关闭")
+    parser.add_argument("--base_state_noise_std", type=float, default=2.0, help="基础状态归一化到[0,255]后的高斯噪声标准差")
+    parser.add_argument("--base_state_noise_clip", type=float, default=5.0, help="基础状态归一化到[0,255]后的噪声裁剪范围 [-clip, clip]")
+    parser.add_argument("--pl_replay_disk_dir", type=str, default="/mnt/d/airsim_rl_replay", help="PL系列磁盘经验池临时目录；每次运行自动创建子目录并在退出/中断时清理")
     
     
         

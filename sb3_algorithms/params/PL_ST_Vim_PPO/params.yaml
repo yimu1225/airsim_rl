@@ -11,7 +11,7 @@ target_kl: null  # 目标 KL 阈值；null 表示不提前停止
 gae_lambda: 0.95  # GAE lambda
 lr: 0.0007  # PPO optimizer 学习率
 max_grad_norm: 0.5  # PPO 梯度裁剪阈值
-privileged_key: distance_sensor  # 仅 value/critic 分支使用的特权观测键
+privileged_key: clean_depth  # 兼容旧配置；SB3入口会强制使用 clean_base + clean_depth
 
 # Vim + temporal Mamba visual encoder parameters, matching ST_Vim_PPO.
 st_mamba_embed_dim: 64  # VisionMamba 每帧 CLS/token 嵌入维度
