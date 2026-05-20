@@ -98,11 +98,11 @@ def get_config(argv=None):
     parser.add_argument("--altitude_penalty_value", type=float, default=1.0, help="飞出高度惩罚范围时的固定惩罚值")
     parser.add_argument("--enable_takeoff_obstacle_check", type=str.lower, choices=["true", "false"], default="false", help="是否启用起飞后距离传感器避障检查 (true/false)")
     parser.add_argument("--takeoff_obstacle_reset_retries", type=int, default=3, help="起飞后近障触发重置的最大重试次数")
-    parser.add_argument("--distance_sensor_count", type=int, default=36, help="平面内均匀分布的距离传感器数量")
+    parser.add_argument("--distance_sensor_count", type=int, default=108, help="3层距离传感器总数 (每层36个, 俯仰-15°/0°/+15°)")
     parser.add_argument("--distance_sensor_prefix", type=str, default="DistanceSensor", help="距离传感器自动命名前缀")
     parser.add_argument("--distance_sensor_start_index", type=int, default=0, help="距离传感器自动命名起始编号")
     parser.add_argument("--distance_sensor_names", type=str, default="", help="距离传感器名称列表，逗号分隔；为空时按 prefix+编号生成")
-    parser.add_argument("--distance_sensor_log_penalty_weight", type=float, default=1.0, help="距离传感器对数惩罚权重")
+
     parser.add_argument("--distance_sensor_log_penalty_min", type=float, default=-3.0, help="距离传感器对数惩罚最小值(下限)")
     parser.add_argument("--distance_sensor_penalty_max_distance", type=float, default=2.0, help="静态障碍物惩罚的最大距离 (米)")
     parser.add_argument("--distance_sensor_penalty_eps", type=float, default=1e-3, help="距离传感器惩罚数值稳定项")

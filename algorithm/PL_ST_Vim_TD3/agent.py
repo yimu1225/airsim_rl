@@ -28,7 +28,7 @@ class PLSTVimTD3Agent:
             getattr(
                 args,
                 "critic_priv_dim",
-                getattr(args, "distance_sensor_count", 36),
+                getattr(args, "distance_sensor_count", 108),
             )
         )
         self.depth_shape = depth_shape
