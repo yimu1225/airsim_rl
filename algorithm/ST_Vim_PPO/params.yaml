@@ -1,5 +1,5 @@
 # ST-Vim-PPO algorithm-specific parameters
-rollout_buffer_size: 2048
+rollout_buffer_size: 1024
 ppo_epochs: 10
 ppo_batch_size: 64
 clip_range: 0.2
@@ -10,7 +10,7 @@ ent_coef: 0.0
 target_kl: null
 gae_lambda: 0.95
 lr: 0.0007
-max_grad_norm: 0.5
+max_grad_norm: 0.1
 
 # Vim + temporal Mamba visual encoder parameters, matching ST_Vim_TD3.
 st_mamba_embed_dim: 64
