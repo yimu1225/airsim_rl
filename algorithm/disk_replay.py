@@ -13,6 +13,7 @@ import numpy as np
 _RUN_DIRS: list[Path] = []
 _CLEANUP_REGISTERED = False
 _ORIGINAL_SIGNAL_HANDLERS = {}
+_STALE_CLEANED_ROOTS: set[tuple[Path, str]] = set()
 
 
 def _default_replay_root() -> Path:
@@ -26,6 +27,26 @@ def _cleanup_run_dirs() -> None:
         run_dir = _RUN_DIRS.pop()
         try:
             shutil.rmtree(run_dir, ignore_errors=True)
+        except Exception:
+            pass
+
+
+def _cleanup_stale_run_dirs(root: Path, prefix: str) -> None:
+    """Remove replay temp dirs left by a previous interrupted run."""
+    key = (root.resolve(), prefix)
+    if key in _STALE_CLEANED_ROOTS:
+        return
+    _STALE_CLEANED_ROOTS.add(key)
+
+    if not root.exists():
+        return
+    for child in root.iterdir():
+        if not child.is_dir() or not child.name.startswith(f"{prefix}_"):
+            continue
+        if child in _RUN_DIRS:
+            continue
+        try:
+            shutil.rmtree(child, ignore_errors=True)
         except Exception:
             pass
 
@@ -59,6 +80,7 @@ def make_run_dir(root=None, prefix: str = "run") -> Path:
     _register_cleanup_once()
     base = Path(root).expanduser() if root else _default_replay_root()
     base.mkdir(parents=True, exist_ok=True)
+    _cleanup_stale_run_dirs(base, prefix)
     run_dir = Path(tempfile.mkdtemp(prefix=f"{prefix}_", dir=str(base)))
     _RUN_DIRS.append(run_dir)
     return run_dir
@@ -68,18 +90,22 @@ class DiskArrayFactory:
     """Small owner for replay arrays that should live on disk for this run."""
 
     def __init__(self, root=None, prefix: str = "pl_replay"):
-        self.run_dir = make_run_dir(root=root, prefix=prefix)
+        self.run_dir = None
         self._counter = 0
+        self.run_dir = make_run_dir(root=root, prefix=prefix)
 
     def zeros(self, shape, dtype=np.float32, name: str = "array"):
+        if self.run_dir is None:
+            raise RuntimeError("Disk replay directory was not initialized.")
         self._counter += 1
         safe_name = "".join(ch if ch.isalnum() or ch in "._-" else "_" for ch in str(name))
         path = self.run_dir / f"{self._counter:03d}_{safe_name}.dat"
         array = np.memmap(path, mode="w+", dtype=dtype, shape=tuple(shape))
-        array[:] = 0
         return array
 
     def cleanup(self) -> None:
+        if self.run_dir is None:
+            return
         try:
             shutil.rmtree(self.run_dir, ignore_errors=True)
         except Exception:
@@ -88,6 +114,7 @@ class DiskArrayFactory:
             _RUN_DIRS.remove(self.run_dir)
         except ValueError:
             pass
+        self.run_dir = None
 
     def __del__(self):
         self.cleanup()
