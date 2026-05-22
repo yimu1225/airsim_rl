@@ -3,8 +3,7 @@ beta_concentration_offset: 1.0
 beta_concentration_eps: 1.0e-6
 
 # Use SB3-style ent_coef: can be a float (fixed) or a string 'auto' / 'auto_<init_value>'
-ent_coef: 'auto'
-alpha_lr: 8e-5  # alpha/entropy coefficient optimizer learning rate
+ent_coef: 0.2
 target_entropy: auto
 target_update_interval: 1
 policy_freq: 2

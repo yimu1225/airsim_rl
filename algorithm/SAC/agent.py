@@ -52,7 +52,7 @@ class SACAgent:
 
         # Entropy temperature / entropy coefficient (ent_coef) handling
         # Support SB3-style: ent_coef can be a float or a string like 'auto' or 'auto_0.1'
-        self.ent_coef = get_algo_param(args, "ent_coef", None)
+        self.ent_coef = get_algo_param(args, "ent_coef", 0.2)
         # target entropy: fallback to -dim(A) heuristic when not provided or set to 'auto' / null
         self.target_entropy = get_algo_param(args, "target_entropy", None)
         if self.target_entropy is None or self.target_entropy == "auto":
@@ -76,8 +76,8 @@ class SACAgent:
             self.log_alpha = torch.log(torch.ones(1, device=self.device) * init_value).requires_grad_(True)
             self.alpha_optimizer = Adam([self.log_alpha], lr=float(get_algo_param(args, "alpha_lr", args.actor_lr)))
             # alpha property returns current scalar value via exp()
-            self.alpha = self.log_alpha.exp()
-            self.auto_entropy_tuning = True
+            pass  # alpha fixed at 0.2, auto-tuning disabled
+            self.auto_entropy_tuning = False
         else:
             # fixed ent_coef: prefer explicit ent_coef value, otherwise fall back to legacy 'alpha' config
             if self.ent_coef is None:
@@ -372,7 +372,7 @@ class SACAgent:
                 self.alpha_optimizer.step()
                 
                 # Update alpha value
-                self.alpha = self.log_alpha.exp().item()
+                pass  # alpha fixed at 0.2, auto-tuning disabled
                 alpha_loss_value = float(alpha_loss.item())
 
         # ============ Soft Update Target Networks ============
@@ -438,4 +438,4 @@ class SACAgent:
         
         if self.auto_entropy_tuning and checkpoint.get('log_alpha') is not None:
             self.log_alpha.data.copy_(checkpoint['log_alpha'])
-            self.alpha = self.log_alpha.exp().item()
+            pass  # alpha fixed at 0.2, auto-tuning disabled

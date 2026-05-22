@@ -48,7 +48,7 @@ class MambaEncoder(nn.Module):
         self.spatial_encoder = CNN(
             input_height=height,
             input_width=width,
-            input_channels=in_chans,
+            input_channels=1,
         )
         self.embed_dim = self.spatial_encoder.repr_dim
 
@@ -65,8 +65,17 @@ class MambaEncoder(nn.Module):
         self.repr_dim = self.embed_dim * self.seq_len if self.flatten_all_tokens else self.embed_dim
 
     def forward(self, depth_seq):
-        if depth_seq.dim() == 4:
-            depth_seq = depth_seq.unsqueeze(0)
+        if depth_seq.dim() == 2:
+            # (H, W) -> (1, 1, 1, H, W)
+            depth_seq = depth_seq.unsqueeze(0).unsqueeze(0).unsqueeze(0)
+        elif depth_seq.dim() == 3:
+            # (T, H, W) -> (1, T, 1, H, W)
+            depth_seq = depth_seq.unsqueeze(0).unsqueeze(2)
+        elif depth_seq.dim() == 4:
+            # (B, T, H, W) -> (B, T, 1, H, W)
+            depth_seq = depth_seq.unsqueeze(2)
+        elif depth_seq.dim() != 5:
+            raise ValueError(f"Unsupported depth_seq shape: {tuple(depth_seq.shape)}")
 
         bsz, seq_len, channels, height, width = depth_seq.shape
         if seq_len != self.seq_len:
