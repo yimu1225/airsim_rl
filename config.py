@@ -29,7 +29,7 @@ def get_config(argv=None):
     parser.add_argument("--env_name", type=str, default='AirSimEnv-v42', help="要训练的环境名称")
 
     # 算法选择 (Algorithm Selection)
-    parser.add_argument("--algorithm_name", type=str, default='CL-ST_Vim_SAC,CL-SAC',
+    parser.add_argument("--algorithm_name", type=str, default='CL-PER_Mamba_SAC,CL-Mamba_SAC,CL-SAC',
                         help="要训练的算法。支持: TD3, DDPG, DPER_TD3, ST_Vim_TD3, STV_Patch_TD3, Vim_TD3, ST_Seq_Vim_TD3, STV_Seq_Vim_TD3, DPER_ST_Vim_TD3, ST_SVim_TD3, Mamba_TD3, ST_DualVim_TD3, AETD3, SAC, SAC_Beta, LSTM_SAC, ST_Vim_SAC, ST_SVim_SAC, ST_Vim_SAC_Beta, DPER_ST_Vim_SAC, DPER_ST_Vim_SAC_Beta, PPO, ST_Vim_PPO, PL_ST_Vim_PPO, PL_TD3, PL_DPER_TD3, PL_ST_Vim_TD3, PL_SAC, PL_SAC_Beta, PL_ST_Vim_SAC, PL_DPER_ST_Vim_SAC, PL_DPER_ST_Vim_SAC_Beta, PL_DPER_ST_Vim_TD3,MM_ST_Vim_SAC")
     parser.add_argument("--smooth_window", type=int, default=300, help="平滑窗口大小，用于平滑学习曲线 (仅对移动平均有效)")
     parser.add_argument("--smooth_method", type=str, default="moving", choices=["moving","zero_phase_des"], help="曲线平滑方法: moving=滑动平均, zero_phase_des=零相位双重指数平滑")
@@ -53,7 +53,7 @@ def get_config(argv=None):
     parser.add_argument("--buffer_size", type=int, default=40000, help='经验池大小 (注意内存占用: 30000步约占用4GB)')
     parser.add_argument("--learning_starts", type=int, default=3000, help="训练开始前的时间步数 (兼容 start_timesteps)。在此步数之前使用随机动作探索，之后改用策略网络采样。")
     parser.add_argument("--update_after", type=int, default=3000, help="开始网络更新的时间步数。默认与 learning_starts 相同。在 learning_starts 之后、update_after 之前，将使用策略网络采集经验，但仍不进行训练更新。")
-    parser.add_argument("--gradient_steps", type=float, default=1.0, help="每次收集数据后的梯度更新倍数")
+    parser.add_argument("--gradient_steps", type=float, default=0.5, help="每次收集数据后的梯度更新倍数")
     parser.add_argument("--episode_length", type=int, default=300, help='每个环境中的最大回合长度 ')
     parser.add_argument("--eval_freq", type=int, default=5000, help="评估频率")
     parser.add_argument("--hidden_dim", type=int, default=128, help="隐藏层维度")
@@ -88,7 +88,7 @@ def get_config(argv=None):
     parser.add_argument("--max_vertical_speed", type=float, default=0.3, help="最大垂直速度 (m/s)")
     parser.add_argument("--max_yaw_rate", type=float, default=np.pi/3, help="最大偏航角速度 (rad/s)")
     parser.add_argument("--takeoff_height", type=float, default=-1.0, help="起飞目标高度 (NED坐标系中负值为向上)")
-    parser.add_argument("--action_duration", type=float, default=0.2, help="每个速度指令的仿真持续时间 (秒)")
+    parser.add_argument("--action_duration", type=float, default=0.15, help="每个速度指令的仿真持续时间 (秒)")
 
     # 飞行高度限制 (Flight Altitude Limits)
     parser.add_argument("--max_flight_altitude", type=float, default=2.5, help="最大飞行高度 (米, 正值为向上)")
@@ -103,7 +103,7 @@ def get_config(argv=None):
     parser.add_argument("--distance_sensor_start_index", type=int, default=0, help="距离传感器自动命名起始编号")
     parser.add_argument("--distance_sensor_names", type=str, default="", help="距离传感器名称列表，逗号分隔；为空时按 prefix+编号生成")
 
-    parser.add_argument("--distance_sensor_log_penalty_min", type=float, default=-3.0, help="距离传感器对数惩罚最小值(下限)")
+    parser.add_argument("--distance_sensor_log_penalty_min", type=float, default=-5.0, help="距离传感器对数惩罚最小值(下限)")
     parser.add_argument("--distance_sensor_penalty_max_distance", type=float, default=2.0, help="静态障碍物惩罚的最大距离 (米)")
     parser.add_argument("--distance_sensor_penalty_eps", type=float, default=1e-3, help="距离传感器惩罚数值稳定项")
     parser.add_argument("--distance_sensor_query_max_attempts", type=int, default=1, help="每步距离传感器查询最大重试次数")

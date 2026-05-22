@@ -1,0 +1,18 @@
+# PER-Mamba-SAC algorithm-specific parameters
+ent_coef: 0.2
+target_entropy: auto
+target_update_interval: 1
+policy_freq: 1
+
+# Mamba temporal encoder parameters
+mamba_sac_temporal_depth: 1
+mamba_d_state: 16
+mamba_d_conv: 4
+mamba_expand: 2
+mamba_sac_flatten_all_tokens: true
+
+# Prioritized replay parameters
+per_alpha: 0.6
+per_beta0: 0.4
+per_beta1: 1.0
+per_eps: 0.000001

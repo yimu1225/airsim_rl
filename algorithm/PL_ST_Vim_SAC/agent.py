@@ -80,7 +80,7 @@ class PLSTVimSACAgent:
         self.critic_optimizer = Adam(self.critic_params, lr=args.critic_lr)
 
         # Entropy tuning
-        self.ent_coef = get_algo_param(args, "ent_coef", "auto")
+        self.ent_coef = get_algo_param(args, "ent_coef", 0.2)
         target_entropy = get_algo_param(args, "target_entropy", "auto")
         self.target_entropy = -float(self.action_dim) if target_entropy in (None, "auto") else float(target_entropy)
         self.log_alpha = None
@@ -93,8 +93,8 @@ class PLSTVimSACAgent:
                     raise ValueError("Initial ent_coef value must be greater than 0.")
             self.log_alpha = torch.log(torch.ones(1, device=self.device) * init_value).requires_grad_(True)
             self.alpha_optimizer = Adam([self.log_alpha], lr=float(get_algo_param(args, "alpha_lr", args.actor_lr)))
-            self.alpha = self.log_alpha.exp().item()
-            self.auto_entropy_tuning = True
+            pass  # alpha fixed at 0.2, auto-tuning disabled
+            self.auto_entropy_tuning = False
         else:
             self.alpha = float(self.ent_coef)
             self.auto_entropy_tuning = False
@@ -303,7 +303,7 @@ class PLSTVimSACAgent:
                 self.alpha_optimizer.zero_grad()
                 alpha_loss.backward()
                 self.alpha_optimizer.step()
-                self.alpha = self.log_alpha.exp().item()
+                pass  # alpha fixed at 0.2, auto-tuning disabled
                 alpha_loss_value = float(alpha_loss.item())
 
         if self.total_it % self.target_update_interval == 0:
@@ -379,4 +379,4 @@ class PLSTVimSACAgent:
             self.log_alpha.data.copy_(checkpoint["log_alpha"])
             if "alpha_optimizer" in checkpoint:
                 self.alpha_optimizer.load_state_dict(checkpoint["alpha_optimizer"])
-            self.alpha = self.log_alpha.exp().item()
+            pass  # alpha fixed at 0.2, auto-tuning disabled

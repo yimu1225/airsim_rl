@@ -77,7 +77,7 @@ easy_range_dic = { "End": ["Mutable"],
                                       "Seed": list(range(0, 10000)),
                                       "VelocityRange": [[0, 2]],
                                       "Name": ["Name"],
-                                      "NumberOfObjects": list(range(80, 100))}
+                                      "NumberOfObjects": list(range(60, 80))}
 medium_range_dic = { "End": ["Mutable"],
                                       "MinimumDistance": [2,3],
                                       "EnvType": ["Indoor"],
@@ -88,7 +88,7 @@ medium_range_dic = { "End": ["Mutable"],
                                       "Seed": list(range(0, 10000)),
                                       "VelocityRange": [[0, 4]],
                                       "Name": ["Name"],
-                                      "NumberOfObjects": list(range(110, 130))}
+                                      "NumberOfObjects": list(range(90, 110))}
 hard_range_dic = { "End": ["Mutable"],
                                       "MinimumDistance": [2,3],
                                       "EnvType": ["Indoor"],
@@ -99,7 +99,7 @@ hard_range_dic = { "End": ["Mutable"],
                                       "Seed": list(range(0, 10000)),
                                       "VelocityRange": [[0, 5]],
                                       "Name": ["Name"],
-                                      "NumberOfObjects": list(range(160, 180))}
+                                      "NumberOfObjects": list(range(120, 140))}
 dynamic_obstacles_dic = { "End": ["Mutable"],
                                       "MinimumDistance": [2,3],
                                       "EnvType": ["Indoor"],
@@ -197,7 +197,7 @@ yaw_rate_2_16 = yaw_rate_2_8 * 0.5
 # depth image noise (mild)
 # ---------------------------
 # Apply lightweight sensor noise augmentation on depth images (0-255 range).
-enable_depth_noise = True
+enable_depth_noise = False
 depth_gaussian_sigma = 10.0     # std of Gaussian noise (pixel intensity)
 depth_salt_prob = 0.01        # probability of salt pixels
 depth_pepper_prob = 0.01      # probability of pepper pixels
