@@ -1,7 +1,65 @@
 import torch.nn as nn
+import torch
 import numpy as np
 from gymnasium import spaces
-from stable_baselines3.common.torch_layers import NatureCNN
+
+
+class NatureCNN(nn.Module):
+    """
+    Local copy of Stable-Baselines3 NatureCNN.
+
+    This keeps the original DQN Nature convolutional backbone local so it can be
+    edited without changing the vendored/stable-baselines3 implementation.
+    """
+    def __init__(
+        self,
+        observation_space,
+        features_dim=512,
+        normalized_image=False,
+    ):
+        super().__init__()
+        del normalized_image
+        if not isinstance(observation_space, spaces.Box):
+            raise TypeError(f"NatureCNN expects spaces.Box, got {type(observation_space)!r}")
+        if observation_space.shape is None or len(observation_space.shape) != 3:
+            raise ValueError(
+                f"NatureCNN expects channel-first image shape (C,H,W), got {observation_space.shape}"
+            )
+
+        self._observation_space = observation_space
+        self._features_dim = int(features_dim)
+        n_input_channels = int(observation_space.shape[0])
+
+        self.conv1 = nn.Conv2d(n_input_channels, 32, kernel_size=8, stride=4, padding=0)
+        self.relu1 = nn.ReLU()
+        self.conv2 = nn.Conv2d(32, 64, kernel_size=4, stride=2, padding=0)
+        self.relu2 = nn.ReLU()
+        self.conv3 = nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=0)
+        self.relu3 = nn.ReLU()
+        self.flatten = nn.Flatten()
+
+        with torch.no_grad():
+            sample = torch.zeros(1, *observation_space.shape, dtype=torch.float32)
+            n_flatten = self.flatten(self._forward_conv(sample)).shape[1]
+
+        self.linear = nn.Sequential(nn.Linear(n_flatten, self._features_dim), nn.ReLU())
+        self.repr_dim = self._features_dim
+
+    @property
+    def features_dim(self):
+        return self._features_dim
+
+    def _forward_conv(self, observations):
+        x = self.relu1(self.conv1(observations))
+        x = self.relu2(self.conv2(x))
+        x = self.relu3(self.conv3(x))
+        return x
+
+    def _forward_head(self, features):
+        return self.linear(self.flatten(features))
+
+    def forward(self, observations):
+        return self._forward_head(self._forward_conv(observations))
 
 
 class BaseStateExpander(nn.Module):

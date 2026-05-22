@@ -2,7 +2,7 @@
 ent_coef: 0.2
 target_entropy: auto
 target_update_interval: 1
-policy_freq: 2
+policy_freq: 1
 
 # Single-pool prioritized replay parameters.
 per_alpha: 0.6
@@ -11,10 +11,10 @@ per_beta1: 1.0
 per_eps: 0.000001
 
 # Vim + temporal Mamba visual encoder parameters, matching ST_Vim_SAC.
-st_mamba_embed_dim: 128
+st_mamba_embed_dim: 64
 st_mamba_depth: 1
 st_mamba_patch_size: 32
-st_mamba_d_state: 16
+st_mamba_d_state: 32
 st_mamba_d_conv: 4
 st_mamba_expand: 2
 st_mamba_drop_rate: 0.05
