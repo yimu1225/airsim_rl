@@ -1,6 +1,6 @@
 # SAC algorithm-specific parameters
 # Use SB3-style ent_coef: can be a float (fixed) or a string 'auto' / 'auto_<init_value>'
-ent_coef: 0.2  # use 'auto' to learn entropy coefficient, or a float value to fix it
+ent_coef: 'auto'  # use 'auto' to learn entropy coefficient, or a float value to fix it
 target_entropy: auto  # auto -> use SB3 heuristic -action_dim; can set to a float to override
 target_update_interval: 1  # SB3-style critic target update interval, in gradient steps
 policy_freq: 1  # SAC/SB3 updates actor every gradient step

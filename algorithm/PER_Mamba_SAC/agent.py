@@ -151,7 +151,7 @@ class PERMambaSACAgent(MambaSACAgent):
                 self.alpha_optimizer.zero_grad()
                 alpha_loss.backward()
                 self.alpha_optimizer.step()
-                pass  # alpha fixed at 0.2, auto-tuning disabled
+                self.alpha = float(self.log_alpha.exp().detach().item())
                 alpha_loss_value = float(alpha_loss.item())
 
         # ============ Soft Update Target Networks ============

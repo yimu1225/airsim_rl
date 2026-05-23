@@ -76,8 +76,8 @@ class MambaCSJA_SACAgent:
             self.log_alpha = torch.log(torch.ones(1, device=self.device) * init_value).requires_grad_(True)
             self.alpha_optimizer = Adam([self.log_alpha], lr=float(get_algo_param(args, "alpha_lr", args.actor_lr)))
             # alpha property returns current scalar value via exp()
-            pass  # alpha fixed at 0.2, auto-tuning disabled
-            self.auto_entropy_tuning = False
+            self.alpha = float(init_value)
+            self.auto_entropy_tuning = True
         else:
             # fixed ent_coef: prefer explicit ent_coef value, otherwise fall back to legacy 'alpha' config
             if self.ent_coef is None:
@@ -335,9 +335,9 @@ class MambaCSJA_SACAgent:
                 self.alpha_optimizer.zero_grad()
                 alpha_loss.backward()
                 self.alpha_optimizer.step()
+                self.alpha = float(self.log_alpha.exp().detach().item())
                 
                 # Update alpha value
-                pass  # alpha fixed at 0.2, auto-tuning disabled
                 alpha_loss_value = float(alpha_loss.item())
 
         # ============ Soft Update Target Networks ============
@@ -403,4 +403,3 @@ class MambaCSJA_SACAgent:
         
         if self.auto_entropy_tuning and checkpoint.get('log_alpha') is not None:
             self.log_alpha.data.copy_(checkpoint['log_alpha'])
-            pass  # alpha fixed at 0.2, auto-tuning disabled
