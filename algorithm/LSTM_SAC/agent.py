@@ -70,8 +70,8 @@ class LSTMSACAgent:
                     raise ValueError("Initial ent_coef value must be greater than 0.")
             self.log_alpha = torch.log(torch.ones(1, device=self.device) * init_value).requires_grad_(True)
             self.alpha_optimizer = Adam([self.log_alpha], lr=float(get_algo_param(self.args, "alpha_lr", self.args.actor_lr)))
-            pass  # alpha fixed at 0.2, auto-tuning disabled
-            self.auto_entropy_tuning = False
+            self.alpha = float(init_value)
+            self.auto_entropy_tuning = True
         else:
             self.alpha = float(self.ent_coef)
             self.auto_entropy_tuning = False
@@ -239,7 +239,7 @@ class LSTMSACAgent:
                 self.alpha_optimizer.zero_grad()
                 alpha_loss.backward()
                 self.alpha_optimizer.step()
-                pass  # alpha fixed at 0.2, auto-tuning disabled
+                self.alpha = float(self.log_alpha.exp().detach().item())
                 alpha_loss_value = float(alpha_loss.item())
 
         if self.total_it % self.target_update_interval == 0:
@@ -317,7 +317,6 @@ class LSTMSACAgent:
             self.log_alpha.data.copy_(checkpoint["log_alpha"])
             if "alpha_optimizer" in checkpoint:
                 self.alpha_optimizer.load_state_dict(checkpoint["alpha_optimizer"])
-            pass  # alpha fixed at 0.2, auto-tuning disabled
 
 
 SACAgent = LSTMSACAgent

@@ -288,6 +288,135 @@ def _extract_critic_privileged_distance_sensor(env_core):
     arr = np.asarray(scan, dtype=np.float32)
     return arr.reshape(-1).astype(np.float32)
 
+
+def _ordered_replay_indices(size: int, capacity: int, next_pos: int):
+    size = int(size)
+    capacity = int(capacity)
+    next_pos = int(next_pos)
+    if size <= 0 or capacity <= 0:
+        return np.asarray([], dtype=np.int64)
+    if size >= capacity:
+        return (np.arange(next_pos, next_pos + size, dtype=np.int64) % capacity)
+    return np.arange(size, dtype=np.int64)
+
+
+def _reset_sum_tree_priorities(priority_sampler, priorities):
+    priority_sampler.priorities.fill(0.0)
+    priority_sampler.sum_tree.fill(0.0)
+    priority_sampler.max_priority = 1.0
+    for idx, priority in enumerate(np.asarray(priorities, dtype=np.float32).reshape(-1)):
+        priority_sampler.set_priority(idx, float(priority))
+
+
+def _retain_sum_tree_replay(buffer, keep_fraction: float):
+    if getattr(buffer, "arrays", None) is None:
+        return 0, 0
+    old_size = int(getattr(buffer, "current_size", 0))
+    capacity = int(getattr(buffer, "capacity", 0))
+    if old_size <= 0 or capacity <= 0:
+        return old_size, old_size
+
+    keep = min(old_size, max(1, int(np.ceil(old_size * float(keep_fraction)))))
+    ordered = _ordered_replay_indices(old_size, capacity, getattr(buffer, "pos", 0))
+    keep_indices = ordered[-keep:]
+
+    for array in buffer.arrays:
+        array[:keep] = array[keep_indices].copy()
+
+    old_priorities = getattr(buffer, "priorities", None)
+    kept_priorities = (
+        np.asarray(old_priorities[keep_indices], dtype=np.float32).copy()
+        if old_priorities is not None
+        else np.ones((keep,), dtype=np.float32)
+    )
+
+    buffer.current_size = keep
+    buffer.pos = keep % capacity
+
+    priority_sampler = getattr(buffer, "priority_sampler", None)
+    if priority_sampler is not None:
+        _reset_sum_tree_priorities(priority_sampler, kept_priorities)
+        buffer.priorities = priority_sampler.priorities
+    elif old_priorities is not None:
+        buffer.priorities.fill(0.0)
+        buffer.priorities[:keep] = kept_priorities
+        buffer.max_priority = max(1.0, float(np.max(kept_priorities))) if keep > 0 else 1.0
+
+    return old_size, keep
+
+
+def _retain_numpy_replay(buffer, keep_fraction: float):
+    old_size = int(getattr(buffer, "current_size", 0))
+    capacity = int(getattr(buffer, "max_size", getattr(buffer, "capacity", 0)))
+    if old_size <= 0 or capacity <= 0:
+        return old_size, old_size
+
+    keep = min(old_size, max(1, int(np.ceil(old_size * float(keep_fraction)))))
+    next_pos = int(getattr(buffer, "ptr", getattr(buffer, "pos", 0)))
+    ordered = _ordered_replay_indices(old_size, capacity, next_pos)
+    keep_indices = ordered[-keep:]
+
+    for value in vars(buffer).values():
+        if isinstance(value, np.ndarray) and value.shape[:1] == (capacity,):
+            value[:keep] = value[keep_indices].copy()
+
+    buffer.current_size = keep
+    if hasattr(buffer, "ptr"):
+        buffer.ptr = keep % capacity
+    if hasattr(buffer, "pos"):
+        buffer.pos = keep % capacity
+    if hasattr(buffer, "priorities"):
+        priorities = np.asarray(buffer.priorities[:keep], dtype=np.float32)
+        buffer.max_priority = max(1.0, float(np.max(priorities))) if priorities.size > 0 else 1.0
+    return old_size, keep
+
+
+def _retain_replay_buffer_on_curriculum_change(replay_buffer, keep_fraction: float = 0.10):
+    """Keep a small slice of old-level replay when curriculum level changes."""
+    if replay_buffer is None:
+        return 0, 0
+
+    if hasattr(replay_buffer, "_episode_cache"):
+        replay_buffer._episode_cache = []
+    if hasattr(replay_buffer, "_episode_success"):
+        replay_buffer._episode_success = False
+
+    if hasattr(replay_buffer, "success_buffer") and hasattr(replay_buffer, "regular_buffer"):
+        success_old_size = int(replay_buffer.success_buffer.size())
+        regular_old_size = int(replay_buffer.regular_buffer.size())
+        total_old_size = success_old_size + regular_old_size
+        per_pool_keep = int(np.ceil(total_old_size * float(keep_fraction) * 0.5))
+        success_keep_fraction = (
+            min(1.0, float(per_pool_keep) / float(success_old_size))
+            if success_old_size > 0
+            else keep_fraction
+        )
+        regular_keep_fraction = (
+            min(1.0, float(per_pool_keep) / float(regular_old_size))
+            if regular_old_size > 0
+            else keep_fraction
+        )
+        old_success, new_success = _retain_replay_buffer_on_curriculum_change(
+            replay_buffer.success_buffer,
+            keep_fraction=success_keep_fraction,
+        )
+        old_regular, new_regular = _retain_replay_buffer_on_curriculum_change(
+            replay_buffer.regular_buffer,
+            keep_fraction=regular_keep_fraction,
+        )
+        return old_success + old_regular, new_success + new_regular
+
+    if getattr(replay_buffer, "arrays", None) is not None:
+        return _retain_sum_tree_replay(replay_buffer, keep_fraction)
+
+    if hasattr(replay_buffer, "current_size") and (
+        hasattr(replay_buffer, "max_size") or hasattr(replay_buffer, "capacity")
+    ):
+        return _retain_numpy_replay(replay_buffer, keep_fraction)
+
+    old_size = replay_buffer.size() if hasattr(replay_buffer, "size") else 0
+    return int(old_size), int(old_size)
+
 def main():
     base_args = get_config()
     seeds = base_args.seed if isinstance(base_args.seed, (list, tuple)) else [base_args.seed]
@@ -829,6 +958,8 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, ba
                     next_restart += restart_interval
 
                 # Reset
+                env_core_before_reset = _get_env_core(env)
+                old_level_before_reset = int(getattr(env_core_before_reset, "level", 0))
                 try:
                     obs, _ = env.reset(seed=args.seed + episode_num)
                 except Exception as e:
@@ -839,6 +970,20 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, ba
                         obs, _ = env.reset(seed=args.seed + episode_num)
                     else:
                         raise
+                env_core_after_reset = _get_env_core(env)
+                new_level_after_reset = int(getattr(env_core_after_reset, "level", old_level_before_reset))
+                if bool(getattr(env_core_after_reset, "use_curriculum", False)) and new_level_after_reset != old_level_before_reset:
+                    old_replay_size, new_replay_size = _retain_replay_buffer_on_curriculum_change(
+                        getattr(agent, "replay_buffer", None),
+                        keep_fraction=0.10,
+                    )
+                    writer.add_scalar("curriculum/level", new_level_after_reset, total_timesteps)
+                    writer.add_scalar("curriculum/replay_size_before_retain", old_replay_size, total_timesteps)
+                    writer.add_scalar("curriculum/replay_size_after_retain", new_replay_size, total_timesteps)
+                    print(
+                        f"[Curriculum] Level changed {old_level_before_reset} -> {new_level_after_reset}; "
+                        f"retained replay {new_replay_size}/{old_replay_size} (~10%)."
+                    )
                 state = obs['depth']
                 base = obs['base']
                 if use_base_sequence:

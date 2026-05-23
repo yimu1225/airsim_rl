@@ -199,7 +199,7 @@ class STSVimSACAgent(STVimSACAgent):
                 self.alpha_optimizer.zero_grad()
                 alpha_loss.backward()
                 self.alpha_optimizer.step()
-                pass  # alpha fixed at 0.2, auto-tuning disabled
+                self.alpha = float(self.log_alpha.exp().detach().item())
                 alpha_loss_value = float(alpha_loss.item())
 
         if self.total_it % self.target_update_interval == 0:
@@ -287,7 +287,6 @@ class STSVimSACAgent(STVimSACAgent):
             self.log_alpha.data.copy_(checkpoint["log_alpha"])
             if "alpha_optimizer" in checkpoint:
                 self.alpha_optimizer.load_state_dict(checkpoint["alpha_optimizer"])
-            pass  # alpha fixed at 0.2, auto-tuning disabled
 
 
 SACAgent = STSVimSACAgent

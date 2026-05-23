@@ -29,13 +29,13 @@ def get_config(argv=None):
     parser.add_argument("--env_name", type=str, default='AirSimEnv-v42', help="要训练的环境名称")
 
     # 算法选择 (Algorithm Selection)
-    parser.add_argument("--algorithm_name", type=str, default='CL-PER_ST_Vim_SAC,CL-ST_Vim_SAC,CL-SAC',
+    parser.add_argument("--algorithm_name", type=str, default='CL-MambaCSJA_SAC',
                         help="要训练的算法。支持: TD3, DDPG, DPER_TD3, ST_Vim_TD3, STV_Patch_TD3, Vim_TD3, ST_Seq_Vim_TD3, STV_Seq_Vim_TD3, DPER_ST_Vim_TD3, ST_SVim_TD3, Mamba_TD3, ST_DualVim_TD3, AETD3, SAC, SAC_Beta, LSTM_SAC, ST_Vim_SAC, ST_SVim_SAC, ST_Vim_SAC_Beta, DPER_ST_Vim_SAC, DPER_ST_Vim_SAC_Beta, PPO, ST_Vim_PPO, PL_ST_Vim_PPO, PL_TD3, PL_DPER_TD3, PL_ST_Vim_TD3, PL_SAC, PL_SAC_Beta, PL_ST_Vim_SAC, PL_DPER_ST_Vim_SAC, PL_DPER_ST_Vim_SAC_Beta, PL_DPER_ST_Vim_TD3,MM_ST_Vim_SAC,MambaCSJA_SAC")
     parser.add_argument("--smooth_window", type=int, default=300, help="平滑窗口大小，用于平滑学习曲线 (仅对移动平均有效)")
     parser.add_argument("--smooth_method", type=str, default="moving", choices=["moving","zero_phase_des"], help="曲线平滑方法: moving=滑动平均, zero_phase_des=零相位双重指数平滑")
     parser.add_argument("--smooth_alpha", type=float, default=0.05, help="零相位双重指数平滑的水平平滑因子 (0-1)，越大越关注近期数据")
     parser.add_argument("--smooth_beta", type=float, default=0.3, help="零相位双重指数平滑的趋势平滑因子 (0-1)，越大越关注近期趋势变化")
-    parser.add_argument("--plot_cl", action='store_true', default=False, help="绘图时是0否检索带 CL- 前缀的算法 (默认: True)")
+    parser.add_argument("--plot_cl", action='store_true', default=True, help="绘图时是0否检索带 CL- 前缀的算法 (默认: True)")
     parser.add_argument("--plot_non_cl", action='store_true', default=True, help="绘图时是否检索常规算法 (默认: True)")
     parser.add_argument("--use_percentile", action='store_true', default=False, help="使用四分位范围作为阴影带而不是均值加置信区间")
     parser.add_argument("--ci_type", type=str, default="std", choices=["std", "sem"], help="阴影区域类型: std=标准差, sem=标准误差")
@@ -43,7 +43,7 @@ def get_config(argv=None):
     parser.add_argument("--curve_smooth_step", type=float, default=1.0, help="baselines 风格 EMA 重采样 smooth_step")
 
     # 训练设置 (Training Setup)
-    parser.add_argument("--seed", type=str, default="2", help="随机种子 (支持逗号分隔多个种子)")
+    parser.add_argument("--seed", type=str, default="1", help="随机种子 (支持逗号分隔多个种子)")
     parser.add_argument("--curriculum_start_level", type=int, default=0, choices=[0, 1, 2, 3], help="课程学习起始等级 (0-3, 默认: 0)。注意：算法名以 'CL-' 前缀开头时自动启用课程学习")
     parser.add_argument("--non_curriculum_level", type=int, default=2, choices=[0, 1, 2, 3], help="非课程学习时的固定难度等级 (0-3, 默认: 3)")
     parser.add_argument("--steps_per_update", type=int, default=100, help='每次更新前收集的步数')

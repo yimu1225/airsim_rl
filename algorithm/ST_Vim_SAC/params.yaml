@@ -1,6 +1,6 @@
 # ST-Vim-SAC algorithm-specific parameters
 # SAC parameters aligned with SB3-style defaults where practical.
-ent_coef: 0.2
+ent_coef: 'auto'
 target_entropy: auto
 target_update_interval: 1
 policy_freq: 1
