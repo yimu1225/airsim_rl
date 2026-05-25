@@ -251,6 +251,38 @@ def _get_env_core(env):
     return env.unwrapped if hasattr(env, "unwrapped") else env
 
 
+def _set_env_curriculum_progress(env, total_timesteps, max_timesteps):
+    env_core = _get_env_core(env)
+    if not bool(getattr(env_core, "use_curriculum", False)):
+        return None
+    if getattr(env_core, "curriculum_mode", "progress") != "progress":
+        return None
+    set_progress = getattr(env_core, "set_curriculum_progress", None)
+    if not callable(set_progress):
+        return None
+
+    denominator = max(float(max_timesteps), 1.0)
+    progress_ratio = min(max(float(total_timesteps) / denominator, 0.0), 1.0)
+    return set_progress(progress_ratio)
+
+
+def _log_curriculum_info(writer, info, total_timesteps):
+    if not isinstance(info, dict):
+        return
+
+    tag_map = {
+        "progress_ratio": "curriculum/progress_ratio",
+        "difficulty": "curriculum/difficulty",
+        "level": "curriculum/level",
+        "number_of_objects_min": "curriculum/number_of_objects_min",
+        "number_of_objects_max": "curriculum/number_of_objects_max",
+    }
+    for key, tag in tag_map.items():
+        value = info.get(key)
+        if value is not None:
+            writer.add_scalar(tag, value, total_timesteps)
+
+
 def _pause_env_simulation(env):
     """
     Keep UE/AirSim time stopped while the learner is updating from replay.
@@ -371,7 +403,7 @@ def _retain_numpy_replay(buffer, keep_fraction: float):
     return old_size, keep
 
 
-def _retain_replay_buffer_on_curriculum_change(replay_buffer, keep_fraction: float = 0.10):
+def _retain_replay_buffer_on_curriculum_change(replay_buffer, keep_fraction: float = 0.05):
     """Keep a small slice of old-level replay when curriculum level changes."""
     if replay_buffer is None:
         return 0, 0
@@ -493,6 +525,7 @@ def main():
                 env.action_space.seed(seed)
 
             # Initial Reset
+            _set_env_curriculum_progress(env, total_timesteps=0, max_timesteps=args.max_timesteps)
             obs, _ = env.reset(seed=seed)
             # Obs is a dict keys: 'depth', 'base'
             
@@ -677,6 +710,7 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, ba
                 # Force restart for robust recovery when UE process exists but window/sim is unhealthy
                 if env.check_ue4_status(force_restart=True, reason="env_step_exception"):
                     # Force episode end and reset only after a restart
+                    _set_env_curriculum_progress(env, total_timesteps, max_timesteps)
                     obs, _ = env.reset(seed=args.seed + episode_num)
                     next_obs = obs  # Use fresh observation as 'next_obs' effectively
                     reward = 0.0
@@ -908,19 +942,27 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, ba
                 env_core = _get_env_core(env)
                 if len(env_core.success_deque) > 0:
                     success_rate = sum(env_core.success_deque) / len(env_core.success_deque)
+                curriculum_info = _set_env_curriculum_progress(env, total_timesteps, max_timesteps)
                 
                 # Log to TensorBoard (use total_timesteps as x-axis)
                 writer.add_scalar('train/episode_reward', episode_reward, total_timesteps)
                 writer.add_scalar('train/episode_length', episode_timesteps, total_timesteps)
                 writer.add_scalar('train/success_rate', success_rate, total_timesteps)
                 writer.add_scalar('train/success_count', env_core.success_count, total_timesteps)
+                _log_curriculum_info(writer, curriculum_info, total_timesteps)
 
                 # Log to CSV
                 with open(csv_filename, mode='a', newline='') as f:
                     csv_writer = csv.writer(f)
                     csv_writer.writerow([episode_num, total_timesteps, episode_reward, episode_timesteps, success_rate])
 
-                print(f"[{display_algo_name}] Episode {episode_num}, Reward: {episode_reward:.2f}, Length: {episode_timesteps}, Success Rate: {success_rate:.3f}, Level: {env_core.level}, Total Timesteps: {total_timesteps}, Total Successes: {env_core.success_count}")
+                curriculum_suffix = ""
+                if curriculum_info is not None:
+                    curriculum_suffix = (
+                        f", Difficulty: {curriculum_info['difficulty']:.3f}, "
+                        f"Objects: {curriculum_info['number_of_objects_min']}-{curriculum_info['number_of_objects_max']}"
+                    )
+                print(f"[{display_algo_name}] Episode {episode_num}, Reward: {episode_reward:.2f}, Length: {episode_timesteps}, Success Rate: {success_rate:.3f}, Level: {env_core.level}{curriculum_suffix}, Total Timesteps: {total_timesteps}, Total Successes: {env_core.success_count}")
                 
                 # Periodic CUDA memory cleanup
                 if episode_num % 50 == 0:
@@ -972,17 +1014,21 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, ba
                         raise
                 env_core_after_reset = _get_env_core(env)
                 new_level_after_reset = int(getattr(env_core_after_reset, "level", old_level_before_reset))
-                if bool(getattr(env_core_after_reset, "use_curriculum", False)) and new_level_after_reset != old_level_before_reset:
+                if (
+                    bool(getattr(env_core_after_reset, "use_curriculum", False))
+                    and getattr(env_core_after_reset, "curriculum_mode", "success") == "success"
+                    and new_level_after_reset != old_level_before_reset
+                ):
                     old_replay_size, new_replay_size = _retain_replay_buffer_on_curriculum_change(
                         getattr(agent, "replay_buffer", None),
-                        keep_fraction=0.10,
+                        keep_fraction=0.05,
                     )
                     writer.add_scalar("curriculum/level", new_level_after_reset, total_timesteps)
                     writer.add_scalar("curriculum/replay_size_before_retain", old_replay_size, total_timesteps)
                     writer.add_scalar("curriculum/replay_size_after_retain", new_replay_size, total_timesteps)
                     print(
                         f"[Curriculum] Level changed {old_level_before_reset} -> {new_level_after_reset}; "
-                        f"retained replay {new_replay_size}/{old_replay_size} (~10%)."
+                        f"retained replay {new_replay_size}/{old_replay_size} (~5%)."
                     )
                 state = obs['depth']
                 base = obs['base']

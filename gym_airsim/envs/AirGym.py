@@ -90,6 +90,15 @@ class AirSimEnv(gym.Env):
         algorithm_name = config.algorithm_name
         self.use_curriculum = algorithm_name.upper().startswith("CL-")
         self.curriculum_start_level = config.curriculum_start_level
+        self.curriculum_mode = str(getattr(config, "curriculum_mode", "progress")).lower()
+        self.curriculum_progress_max_ratio = max(
+            float(getattr(config, "curriculum_progress_max_ratio", 0.8)),
+            1e-6,
+        )
+        self.curriculum_progress_ratio = 0.0
+        self.curriculum_difficulty = 0.0
+        self.curriculum_number_of_objects_min = None
+        self.curriculum_number_of_objects_max = None
         self.non_curriculum_level = config.non_curriculum_level
         
         # Level 到配置字典的映射
@@ -101,7 +110,9 @@ class AirSimEnv(gym.Env):
         }
         
         # 确定目标 level
-        if self.use_curriculum:
+        if self.use_curriculum and self.curriculum_mode == "progress":
+            target_level = 0
+        elif self.use_curriculum:
             target_level = self.curriculum_start_level
         else:
             target_level = self.non_curriculum_level
@@ -111,6 +122,8 @@ class AirSimEnv(gym.Env):
         # UE4 环境配置（必须在 restart_game 之前，这样 UE4 启动时会读取正确的 JSON）
         config_name = level_config_map[target_level]
         self.game_config_handler = GameConfigHandler(range_dic_name=config_name)
+        if self.use_curriculum and self.curriculum_mode == "progress":
+            self.set_curriculum_progress(0.0)
         
         # 保存基础种子用于确定性环境采样
         self.base_seed = int(config.seed)
@@ -865,11 +878,57 @@ class AirSimEnv(gym.Env):
         )
         self.distance_sensor_read_fail_count = 0
 
+    def _get_number_of_objects_bounds(self, range_values):
+        if not range_values:
+            raise ValueError("NumberOfObjects range must not be empty")
+        return int(range_values[0]), int(range_values[-1]) + 1
+
+    def set_curriculum_progress(self, progress_ratio):
+        progress_ratio = float(np.clip(progress_ratio, 0.0, 1.0))
+        difficulty = float(np.clip(progress_ratio / self.curriculum_progress_max_ratio, 0.0, 1.0))
+
+        easy_min, easy_max = self._get_number_of_objects_bounds(settings.easy_range_dic["NumberOfObjects"])
+        hard_min, hard_max = self._get_number_of_objects_bounds(settings.hard_range_dic["NumberOfObjects"])
+
+        cur_min = int(round(easy_min + difficulty * (hard_min - easy_min)))
+        cur_max = int(round(easy_max + difficulty * (hard_max - easy_max)))
+        current_range = list(range(cur_min, cur_max))
+        self.game_config_handler.set_range(("NumberOfObjects", current_range))
+
+        self.curriculum_progress_ratio = progress_ratio
+        self.curriculum_difficulty = difficulty
+        self.curriculum_number_of_objects_min = cur_min
+        self.curriculum_number_of_objects_max = cur_max
+
+        if difficulty < 0.5:
+            self.level = 0
+        elif difficulty < 1.0:
+            self.level = 1
+        else:
+            self.level = 2
+
+        return {
+            "progress_ratio": progress_ratio,
+            "difficulty": difficulty,
+            "level": self.level,
+            "number_of_objects_min": cur_min,
+            "number_of_objects_max": cur_max,
+        }
+
+    def get_curriculum_info(self):
+        return {
+            "progress_ratio": self.curriculum_progress_ratio,
+            "difficulty": self.curriculum_difficulty,
+            "level": self.level,
+            "number_of_objects_min": self.curriculum_number_of_objects_min,
+            "number_of_objects_max": self.curriculum_number_of_objects_max,
+        }
+
     def reset(self, *, seed=None, options=None):
         """
         重置环境。
         
-        1. 根据成功率动态调整难度级别 (Level 0 -> 1 -> 2)。
+        1. 根据课程模式调整难度：progress 按训练进度连续调整障碍物数量，success 按成功率切换等级。
         2. 清除渲染器几何体。
         3. 自行取消暂停仿真以便进行重置操作。
         4. 随机化环境参数 (randomize_env)。
@@ -895,29 +954,18 @@ class AirSimEnv(gym.Env):
 
         # 课程学习等级升级（仅在启用课程学习时）
         if self.use_curriculum:
-            # 原课程切换逻辑：基于历史成功率和成功次数
-            if len(self.success_deque)>0:
-                succes_rate=sum(self.success_deque) / len(self.success_deque)
-                if succes_rate>0.6 and self.level==0 and self.success_count>500:
-                    self.level=1
-                    self.game_config_handler=GameConfigHandler(range_dic_name="settings.medium_range_dic")
-                elif succes_rate > 0.7 and self.level == 1 and self.success_count>800:
-                    self.level = 2
-                    self.game_config_handler = GameConfigHandler(range_dic_name="settings.hard_range_dic")
-        
-            # if len(self.success_deque)>0:
-            #     succes_rate=sum(self.success_deque) / len(self.success_deque)
-            #     if succes_rate>0.5 and self.level==0 and self.success_count>300:
-            #         self.level=1
-            #         self.game_config_handler=GameConfigHandler(range_dic_name="settings.medium_range_dic")
-            #     elif succes_rate > 0.6 and self.level == 1 and self.success_count>600:
-            #         self.level = 2
-            #         self.game_config_handler = GameConfigHandler(range_dic_name="settings.hard_range_dic")
-            #     # elif succes_rate > 0.7 and self.level == 2 and self.success_count > 900:
-            #     #     self.level = 3
-            #     #     self.game_config_handler = GameConfigHandler(range_dic_name="settings.dynamic_obstacles_dic")
-
-            
+            if self.curriculum_mode == "progress":
+                self.set_curriculum_progress(self.curriculum_progress_ratio)
+            elif self.curriculum_mode == "success":
+                # 原课程切换逻辑：基于历史成功率和成功次数
+                if len(self.success_deque)>0:
+                    succes_rate=sum(self.success_deque) / len(self.success_deque)
+                    if succes_rate>0.6 and self.level==0 and self.success_count>500:
+                        self.level=1
+                        self.game_config_handler=GameConfigHandler(range_dic_name="settings.medium_range_dic")
+                    elif succes_rate > 0.7 and self.level == 1 and self.success_count>800:
+                        self.level = 2
+                        self.game_config_handler = GameConfigHandler(range_dic_name="settings.hard_range_dic")
 
         print("--- Resetting Episode ---")
         
