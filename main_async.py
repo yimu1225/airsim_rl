@@ -58,6 +58,7 @@ from algorithm.ST_DualVim_TD3.agent import DualBranchVideoMambaTD3Agent
 from algorithm.SAC.agent import SACAgent
 from algorithm.PL_SAC.agent import PLSACAgent
 from algorithm.PL_ST_Vim_SAC.agent import PLSTVimSACAgent
+from algorithm.PL_PER_ST_Vim_SAC.agent import PLPERSTVimSACAgent
 from algorithm.PL_DPER_ST_Vim_SAC.agent import PLDPERSTVimSACAgent
 from algorithm.PL_DPER_ST_Vim_TD3.agent import PLDPERSTVimTD3Agent
 from algorithm.LSTM_SAC.agent import LSTMSACAgent
@@ -194,6 +195,7 @@ def get_agent_class(algo_name):
         'PL_SAC': PLSACAgent,
         'PL_SAC_Beta': PLSACBetaAgent,
         'PL_ST_Vim_SAC': PLSTVimSACAgent,
+        'PL_PER_ST_Vim_SAC': PLPERSTVimSACAgent,
         'PL_DPER_ST_Vim_SAC': PLDPERSTVimSACAgent,
         'PL_DPER_ST_Vim_SAC_Beta': PLDPERSTVimSACBetaAgent,
         'LSTM_SAC': LSTMSACAgent,
@@ -301,24 +303,13 @@ def _is_pl_algorithm(algo_name: str) -> bool:
     core_name = to_internal_core_algorithm_name(algo_name)
     return core_name in {
         "PL_TD3", "PL_DPER_TD3", "PL_ST_Vim_TD3", "PL_SAC", "PL_SAC_Beta",
-        "PL_ST_Vim_SAC", "PL_DPER_ST_Vim_SAC", "PL_DPER_ST_Vim_SAC_Beta", "PL_DPER_ST_Vim_TD3", "PL_ST_Vim_PPO",
+        "PL_ST_Vim_SAC", "PL_PER_ST_Vim_SAC", "PL_DPER_ST_Vim_SAC",
+        "PL_DPER_ST_Vim_SAC_Beta", "PL_DPER_ST_Vim_TD3", "PL_ST_Vim_PPO",
     }
 
 
-def _extract_critic_privileged_distance_sensor(env_core):
-    scan = getattr(env_core, "last_distance_sensor_scan_distance", None)
-    if scan is None:
-        cfg = getattr(env_core, "config", None)
-        count = int(getattr(env_core, "distance_sensor_count", getattr(cfg, "distance_sensor_count", 108)))
-        max_distance = getattr(env_core, "last_distance_sensor_max_distance", None)
-        if max_distance is not None:
-            max_distance = np.asarray(max_distance, dtype=np.float32).reshape(-1)
-            if max_distance.size == count:
-                return max_distance.copy()
-        return np.ones((count,), dtype=np.float32)
-
-    arr = np.asarray(scan, dtype=np.float32)
-    return arr.reshape(-1).astype(np.float32)
+def _as_clean_critic_depth(clean_depth):
+    return np.asarray(clean_depth, dtype=np.float32)
 
 
 def _ordered_replay_indices(size: int, capacity: int, next_pos: int):
@@ -496,6 +487,7 @@ def main():
                 'DPER_ST_Vim_TD3',
                 'PL_ST_Vim_TD3',
                 'PL_ST_Vim_SAC',
+                'PL_PER_ST_Vim_SAC',
                 'PL_DPER_ST_Vim_SAC',
                 'PL_DPER_ST_Vim_SAC_Beta',
                 'PL_DPER_ST_Vim_TD3',
@@ -551,16 +543,11 @@ def main():
             device = torch.device("cuda" if args.cuda and torch.cuda.is_available() else "cpu")
             AgentClass = get_agent_class(algo_name)
 
-            if _is_pl_algorithm(algo_name):
-                env_core = _get_env_core(env)
-                inferred_priv = _extract_critic_privileged_distance_sensor(env_core)
-                setattr(args, "critic_priv_dim", int(np.asarray(inferred_priv).reshape(-1).shape[0]))
-            
             # pass seed to agent so it can create its own RNG
             agent = AgentClass(base_dim, model_depth_shape, action_space, args, device=device, seed=seed)
 
             # Run training for this algorithm
-            env = train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, base_state, depth_image, n_frames)
+            env = train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, obs, n_frames)
 
             # Close AirSim after training this algorithm/seed
             if hasattr(env, 'game_handler') and env.game_handler is not None:
@@ -574,7 +561,7 @@ def main():
             print(f"Memory cleaned for {algo_name} (seed={seed}).")
 
 
-def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, base_state, depth_image, n_frames):
+def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, initial_obs, n_frames):
 
     if args.load_model != "":
         print(f"Loading model: {args.load_model}")
@@ -634,8 +621,9 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, ba
     episode_timesteps = 0
     update_step = 0
 
-    state = depth_image
-    base = base_state
+    obs = initial_obs
+    state = obs['depth']
+    base = obs['base']
     base_seq_algos = {"ST_Seq_Vim_TD3", "STV_Seq_Vim_TD3", "LSTM_SAC", "MM_ST_Vim_SAC"}
     use_base_sequence = bool(is_recurrent and core_algo_name in base_seq_algos)
     base_seq_deque = None
@@ -675,8 +663,7 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, ba
 
             critic_priv_current = None
             if is_pl_algo:
-                env_core = _get_env_core(env)
-                critic_priv_current = _extract_critic_privileged_distance_sensor(env_core)
+                critic_priv_current = _as_clean_critic_depth(obs.get("clean_depth", state))
 
             env_core_for_signal = _get_env_core(env)
             success_rate_signal = 0.0
@@ -817,8 +804,7 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, ba
 
             critic_priv_next = None
             if is_pl_algo:
-                env_core = _get_env_core(env)
-                critic_priv_next = _extract_critic_privileged_distance_sensor(env_core)
+                critic_priv_next = _as_clean_critic_depth(next_obs.get("clean_depth", next_state))
             
             if is_recurrent:
                 if core_algo_name in {'ST_SVim_TD3', 'ST_SVim_SAC'}:
@@ -929,6 +915,7 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, ba
 
             # State Update
             state = next_state
+            obs = next_obs
             base = next_base
             if use_base_sequence:
                 base_seq_deque = next_base_seq_deque

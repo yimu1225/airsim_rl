@@ -44,4 +44,22 @@ conda install -c "nvidia/label/cuda-12.8.0" cuda-nvcc -y
 
 tensorboard --logdir=./results --port=6007
 
-python3 main_async.py
+git fetch --all && git reset --hard @{u}
+
+用 git log --oneline -1 拿到提交号，例如 5f74b2a。
+git log --oneline -1
+
+然后同步到 ubuntu:
+git checkout ubuntu
+git cherry-pick 5f74b2a
+git checkout main
+
+如果 cherry-pick 遇到冲突：
+
+git status
+# 手动解决冲突文件
+git add 冲突文件
+git cherry-pick --continue
+如果发现不想继续同步这次修改：
+
+git cherry-pick --abort

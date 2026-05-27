@@ -11,12 +11,7 @@ from .networks import Actor, Critic, STVimEncoder
 
 
 class PLSTVimSACAgent:
-    """Privileged Learning ST-Vim-SAC agent.
-
-    The actor uses base state + depth sequence only, while the critic additionally
-    receives privileged distance-sensor information, following the asymmetric
-    actor-critic (AAC) / privileged learning paradigm.
-    """
+    """ST-Vim-SAC where the actor sees noisy depth and the critic sees clean depth."""
 
     def __init__(self, base_dim: int, depth_shape, action_space, args, device=None, seed=None):
         self.device = torch.device(device if device is not None else ("cuda" if torch.cuda.is_available() else "cpu"))
@@ -28,13 +23,6 @@ class PLSTVimSACAgent:
         self.args.depth_shape = depth_shape
         self.base_dim = base_dim
         self.base_feature_dim = getattr(args, "base_feature_dim", 32)
-        self.critic_priv_dim = int(
-            getattr(
-                args,
-                "critic_priv_dim",
-                getattr(args, "distance_sensor_count", 108),
-            )
-        )
         self.depth_shape = depth_shape
         self.action_dim = action_space.shape[0]
 
@@ -55,9 +43,9 @@ class PLSTVimSACAgent:
         self.critic_base_adapter_target = StateAdapter(base_dim, self.base_feature_dim).to(self.device)
         self.critic_base_adapter_target.load_state_dict(self.critic_base_adapter.state_dict())
 
-        # State dimensions: actor only sees visual+base, critic also sees priv
+        # State dimensions match the base algorithm; only critic depth differs.
         self.actor_state_dim = self.base_feature_dim + self.actor_encoder.repr_dim
-        self.critic_state_dim = self.actor_state_dim + self.critic_priv_dim
+        self.critic_state_dim = self.actor_state_dim
 
         # Actor and Critic networks
         self.actor = Actor(self.actor_state_dim, action_space.shape, args.hidden_dim).to(self.device)
@@ -128,25 +116,6 @@ class PLSTVimSACAgent:
             raise ValueError(f"Expected single-channel sequence frames, got {tuple(depth_batch.shape)}")
         return depth_batch
 
-    def _prepare_priv(self, priv_batch: torch.Tensor) -> torch.Tensor:
-        if priv_batch.dim() == 1:
-            priv_batch = priv_batch.view(1, -1)
-        elif priv_batch.dim() > 2:
-            priv_batch = priv_batch.view(priv_batch.size(0), -1)
-
-        if priv_batch.size(1) != self.critic_priv_dim:
-            if priv_batch.size(1) > self.critic_priv_dim:
-                priv_batch = priv_batch[:, : self.critic_priv_dim]
-            else:
-                pad = torch.zeros(
-                    priv_batch.size(0),
-                    self.critic_priv_dim - priv_batch.size(1),
-                    device=priv_batch.device,
-                    dtype=priv_batch.dtype,
-                )
-                priv_batch = torch.cat([priv_batch, pad], dim=1)
-        return priv_batch
-
     # ------------------------------------------------------------------
     #  Encoding
     # ------------------------------------------------------------------
@@ -156,19 +125,17 @@ class PLSTVimSACAgent:
         depth_features = self.actor_encoder(depth)
         return torch.cat([base_features, depth_features], dim=1)
 
-    def _encode_critic_state(self, base, depth, priv):
-        depth = self._format_depth_sequence(depth)
+    def _encode_critic_state(self, base, depth, critic_depth):
+        depth = self._format_depth_sequence(critic_depth)
         base_features = self.critic_base_adapter(base)
         depth_features = self.critic_encoder(depth)
-        priv_features = self._prepare_priv(priv)
-        return torch.cat([base_features, depth_features, priv_features], dim=1)
+        return torch.cat([base_features, depth_features], dim=1)
 
-    def _encode_critic_state_target(self, base, depth, priv):
-        depth = self._format_depth_sequence(depth)
+    def _encode_critic_state_target(self, base, depth, critic_depth):
+        depth = self._format_depth_sequence(critic_depth)
         base_features = self.critic_base_adapter_target(base)
         depth_features = self.critic_encoder_target(depth)
-        priv_features = self._prepare_priv(priv)
-        return torch.cat([base_features, depth_features, priv_features], dim=1)
+        return torch.cat([base_features, depth_features], dim=1)
 
     # ------------------------------------------------------------------
     #  Replay sampling (non-prioritized)
