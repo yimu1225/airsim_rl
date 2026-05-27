@@ -3,7 +3,7 @@
 ent_coef: 'auto'
 target_entropy: auto
 target_update_interval: 1
-policy_freq: 2
+policy_freq: 1
 
 # Vim + temporal Mamba encoder parameters.
 # st_vim_embed_dim controls frame-wise VisionMamba tokens.
