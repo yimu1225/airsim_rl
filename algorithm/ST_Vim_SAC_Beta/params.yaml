@@ -6,7 +6,7 @@ beta_concentration_eps: 1.0e-6
 ent_coef: 'auto'
 target_entropy: auto
 target_update_interval: 1
-policy_freq: 2
+policy_freq: 1
 
 # Vim + temporal Mamba visual encoder parameters, matching ST_Vim_TD3.
 st_mamba_embed_dim: 64
