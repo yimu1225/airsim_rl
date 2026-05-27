@@ -63,6 +63,8 @@ class AirSimEnv(gym.Env):
 
         self.depth_stack = collections.deque(maxlen=self.stack_frames)
         self.clean_depth_stack = collections.deque(maxlen=self.stack_frames)
+        algorithm_name_upper = str(getattr(config, "algorithm_name", "")).upper()
+        self.use_clean_privileged_obs = "PL_" in algorithm_name_upper or algorithm_name_upper.startswith("PL")
 
         # 速度需要大于 2 或者持续时间大于 0.4
         # 否则效果不佳！
@@ -151,7 +153,7 @@ class AirSimEnv(gym.Env):
         # 无人机 API，传入config中的ip和port参数
         client_ip = config.airsim_ip if config is not None else None
         client_port = config.airsim_port if config is not None else None
-        self.airgym = AirLearningClient(z=takeoff_height, ip=client_ip, port=client_port)
+        self.airgym = AirLearningClient(z=takeoff_height, ip=client_ip, port=client_port, config=config)
 
         # 从AirSim获取一次深度图，确定原始分辨率，并设置observation_space
         try:
@@ -190,7 +192,7 @@ class AirSimEnv(gym.Env):
         self.distance_sensor_read_fail_count = 0
         
         self.depth_shape = (self.stack_frames, STATE_DEPTH_H, STATE_DEPTH_W)
-        self.observation_space = spaces.Dict({
+        observation_spaces = {
             "depth": spaces.Box(low=np.float32(0), high=np.float32(255), shape=self.depth_shape, dtype=np.float32),
             "base": spaces.Box(low=-np.inf, high=np.inf, shape=(self.base_dim,), dtype=np.float32),
             "distance_sensor": spaces.Box(
@@ -199,7 +201,12 @@ class AirSimEnv(gym.Env):
                 shape=(self.distance_sensor_count,),
                 dtype=np.float32,
             ),
-        })
+        }
+        if self.use_clean_privileged_obs:
+            observation_spaces["clean_depth"] = spaces.Box(
+                low=np.float32(0), high=np.float32(255), shape=self.depth_shape, dtype=np.float32
+            )
+        self.observation_space = spaces.Dict(observation_spaces)
 
         # 动作持续时间使用仿真时间，不再跟 AirSim ClockSpeed 绑定。
         self.action_duration = config.action_duration
@@ -256,7 +263,7 @@ class AirSimEnv(gym.Env):
         max_retry = 5
         for attempt in range(max_retry):
             try:
-                self.airgym = AirLearningClient(z=z, ip=ip, port=port)
+                self.airgym = AirLearningClient(z=z, ip=ip, port=port, config=self.config)
                 self.ue4_rpc_fail_count = 0
                 return True
             except Exception as e:
@@ -384,16 +391,19 @@ class AirSimEnv(gym.Env):
             print("---------------:) :) :) Success, Oh Yeah! (: (: (:------------ !!!\n")
 
     def get_obs(self):
-        inform = self.state()
+        inform = self.state().astype(np.float32)
         # 归一化base state
         # inform = self.normalize_base_state(inform)
         
         depth_stack_np = np.array(self.depth_stack, dtype=np.float32)
-        return {
+        obs = {
             "depth": depth_stack_np,
             "base": inform,
             "distance_sensor": np.asarray(self.last_distance_sensor_scan_distance, dtype=np.float32).reshape(-1),
         }
+        if self.use_clean_privileged_obs:
+            obs["clean_depth"] = np.array(self.clean_depth_stack, dtype=np.float32)
+        return obs
 
     def _get_zero_depth(self):
         """返回与当前深度图像分辨率一致的全零数组"""
@@ -429,7 +439,8 @@ class AirSimEnv(gym.Env):
                     self.airgym = AirLearningClient(
                         z=self.airgym.z,
                         ip=self.config.airsim_ip if self.config else None,
-                        port=self.config.airsim_port if self.config else None
+                        port=self.config.airsim_port if self.config else None,
+                        config=self.config,
                     )
                     try:
                         depth = self.airgym.getScreenDepth(max_attempts=3)
@@ -748,7 +759,8 @@ class AirSimEnv(gym.Env):
                 self.airgym = AirLearningClient(
                     z=self.airgym.z,
                     ip=self.config.airsim_ip if self.config else None,
-                    port=self.config.airsim_port if self.config else None
+                    port=self.config.airsim_port if self.config else None,
+                    config=self.config,
                 )
                 # 重启后再尝试一次（同样最多3次）
                 try:

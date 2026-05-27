@@ -36,7 +36,7 @@ class DualPrioritizedReplayBuffer:
         success_capacity = max(1, int(round(total_capacity * success_capacity_ratio)))
         regular_capacity = max(1, total_capacity - success_capacity)
 
-        depth_field_indices = (1, 5)
+        depth_field_indices = (1, 5, 7, 8)
         self.success_buffer = PrioritizedReplayBuffer(
             success_capacity, alpha=alpha, eps=eps, seed=seed, depth_field_indices=depth_field_indices
         )
@@ -51,17 +51,17 @@ class DualPrioritizedReplayBuffer:
         self.rng = np.random.default_rng(seed)
         self._episode_cache = []
         self._episode_success = False
-        self.critic_priv_dim = None
+        self.critic_priv_shape = None
 
     @staticmethod
-    def _flatten_priv(priv, target_dim=None):
+    def _as_priv(priv, target_shape=None):
         if priv is None:
-            if target_dim is None:
+            if target_shape is None:
                 return np.zeros((0,), dtype=np.float32)
-            return np.zeros((target_dim,), dtype=np.float32)
-        arr = np.asarray(priv, dtype=np.float32).reshape(-1)
-        if target_dim is not None and arr.size != target_dim:
-            raise ValueError(f"critic_priv dim mismatch: expected {target_dim}, got {arr.size}")
+            return np.zeros(target_shape, dtype=np.float32)
+        arr = np.asarray(priv, dtype=np.float32)
+        if target_shape is not None and arr.shape != tuple(target_shape):
+            raise ValueError(f"critic_depth shape mismatch: expected {target_shape}, got {arr.shape}")
         return arr
 
     def add(
@@ -77,12 +77,12 @@ class DualPrioritizedReplayBuffer:
         critic_priv=None,
         next_critic_priv=None,
     ):
-        if self.critic_priv_dim is None:
-            critic_priv_flat = self._flatten_priv(critic_priv)
-            self.critic_priv_dim = int(critic_priv_flat.size)
+        if self.critic_priv_shape is None:
+            critic_depth = self._as_priv(critic_priv)
+            self.critic_priv_shape = critic_depth.shape
         else:
-            critic_priv_flat = self._flatten_priv(critic_priv, target_dim=self.critic_priv_dim)
-        next_critic_priv_flat = self._flatten_priv(next_critic_priv, target_dim=self.critic_priv_dim)
+            critic_depth = self._as_priv(critic_priv, target_shape=self.critic_priv_shape)
+        next_critic_depth = self._as_priv(next_critic_priv, target_shape=self.critic_priv_shape)
 
         transition = (
             base_state,
@@ -92,8 +92,8 @@ class DualPrioritizedReplayBuffer:
             next_base_state,
             next_depth,
             done,
-            critic_priv_flat,
-            next_critic_priv_flat,
+            critic_depth,
+            next_critic_depth,
         )
         self._episode_cache.append(transition)
         if bool(is_success):

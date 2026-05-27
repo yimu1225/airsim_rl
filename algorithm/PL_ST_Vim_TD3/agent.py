@@ -24,13 +24,6 @@ class PLSTVimTD3Agent:
         self.args = args
         self.base_dim = base_dim
         self.base_feature_dim = getattr(args, "base_feature_dim", 32)
-        self.critic_priv_dim = int(
-            getattr(
-                args,
-                "critic_priv_dim",
-                getattr(args, "distance_sensor_count", 108),
-            )
-        )
         self.depth_shape = depth_shape
         if not hasattr(self.args, "depth_shape"):
             self.args.depth_shape = depth_shape
@@ -62,7 +55,7 @@ class PLSTVimTD3Agent:
                 f"Actor/Critic visual dims mismatch: {self.visual_feature_dim} vs {self.critic_encoder.repr_dim}"
             )
 
-        self.critic_fused_feature_dim = self.visual_feature_dim + self.base_feature_dim + self.critic_priv_dim
+        self.critic_fused_feature_dim = self.visual_feature_dim + self.base_feature_dim
         self.critic_1 = Critic(
             feature_dim=self.critic_fused_feature_dim,
             action_dim=self.action_dim,
@@ -130,25 +123,6 @@ class PLSTVimTD3Agent:
 
     def _scale_action(self, action):
         return action * self.action_scale + self.action_bias
-
-    def _prepare_priv(self, priv_batch: torch.Tensor) -> torch.Tensor:
-        if priv_batch.dim() == 1:
-            priv_batch = priv_batch.view(1, -1)
-        elif priv_batch.dim() > 2:
-            priv_batch = priv_batch.view(priv_batch.size(0), -1)
-
-        if priv_batch.size(1) != self.critic_priv_dim:
-            if priv_batch.size(1) > self.critic_priv_dim:
-                priv_batch = priv_batch[:, : self.critic_priv_dim]
-            else:
-                pad = torch.zeros(
-                    priv_batch.size(0),
-                    self.critic_priv_dim - priv_batch.size(1),
-                    device=priv_batch.device,
-                    dtype=priv_batch.dtype,
-                )
-                priv_batch = torch.cat([priv_batch, pad], dim=1)
-        return priv_batch
 
     def _get_current_noise(self, progress_ratio: float) -> float:
         return max(float(self.exploration_noise), 1e-8)
@@ -228,11 +202,10 @@ class PLSTVimTD3Agent:
             next_action = (next_action + noise).clamp(-1.0, 1.0)
             self._assert_finite_tensor("train.next_action_noisy", next_action)
 
-            target_visual = self.critic_encoder_target(next_depth)
+            target_visual = self.critic_encoder_target(next_critic_priv)
             self._assert_finite_tensor("train.target_visual", target_visual)
             target_base = self.critic_base_net_target(next_state)
-            target_priv = self._prepare_priv(next_critic_priv)
-            target_input = torch.cat([target_visual, target_base, target_priv], dim=-1)
+            target_input = torch.cat([target_visual, target_base], dim=-1)
             target_Q1 = self.critic_1_target(target_input, next_action)
             target_Q2 = self.critic_2_target(target_input, next_action)
             self._assert_finite_tensor("train.target_Q1", target_Q1)
@@ -241,11 +214,10 @@ class PLSTVimTD3Agent:
             target_Q = reward + (1.0 - dones) * self.gamma * target_Q
             self._assert_finite_tensor("train.target_Q", target_Q)
 
-        current_visual = self.critic_encoder(depth)
+        current_visual = self.critic_encoder(critic_priv)
         self._assert_finite_tensor("train.current_visual", current_visual)
         current_base = self.critic_base_net(state)
-        current_priv = self._prepare_priv(critic_priv)
-        critic_input = torch.cat([current_visual, current_base, current_priv], dim=-1)
+        critic_input = torch.cat([current_visual, current_base], dim=-1)
         current_Q1 = self.critic_1(critic_input, action)
         current_Q2 = self.critic_2(critic_input, action)
         self._assert_finite_tensor("train.current_Q1", current_Q1)
@@ -276,11 +248,10 @@ class PLSTVimTD3Agent:
             self._assert_finite_tensor("train.actor_action_raw", actor_action)
 
             with torch.no_grad():
-                q_visual = self.critic_encoder(depth)
+                q_visual = self.critic_encoder(critic_priv)
             self._assert_finite_tensor("train.q_visual", q_visual)
             q_base = self.critic_base_net(state)
-            q_priv = self._prepare_priv(critic_priv)
-            q_input = torch.cat([q_visual, q_base, q_priv], dim=-1)
+            q_input = torch.cat([q_visual, q_base], dim=-1)
             actor_loss = -self.critic_1(q_input, actor_action).mean()
             self._assert_finite_tensor("train.actor_loss", actor_loss)
 
@@ -296,11 +267,10 @@ class PLSTVimTD3Agent:
 
             try:
                 with torch.no_grad():
-                    q_visual = self.critic_encoder(depth)
+                    q_visual = self.critic_encoder(critic_priv)
                     q_base = self.critic_base_net(state)
-                    q_priv = self._prepare_priv(critic_priv)
                 self._assert_finite_tensor("train.q_visual", q_visual)
-                q_input = torch.cat([q_visual, q_base, q_priv], dim=-1)
+                q_input = torch.cat([q_visual, q_base], dim=-1)
                 actor_loss = -self.critic_1(q_input, actor_action).mean()
                 self._assert_finite_tensor("train.actor_loss", actor_loss)
 

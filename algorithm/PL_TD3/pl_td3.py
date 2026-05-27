@@ -18,13 +18,6 @@ class PLTD3Agent:
 
         self.base_dim = base_dim
         self.base_feature_dim = getattr(args, "base_feature_dim", 32)
-        self.critic_priv_dim = int(
-            getattr(
-                args,
-                "critic_priv_dim",
-                getattr(args, "distance_sensor_count", 108),
-            )
-        )
         self.depth_shape = depth_shape  # (C, H, W)
         self.action_dim = action_space.shape[0]
         self.max_action = np.array(action_space.high, dtype=np.float32)
@@ -60,7 +53,7 @@ class PLTD3Agent:
         self.critic_base_adapter_target.load_state_dict(self.critic_base_adapter.state_dict())
 
         self.actor_state_dim = self.base_feature_dim + self.actor_encoder.repr_dim
-        self.critic_state_dim = self.base_feature_dim + self.critic_encoder.repr_dim + self.critic_priv_dim
+        self.critic_state_dim = self.base_feature_dim + self.critic_encoder.repr_dim
 
         self.actor = Actor(self.actor_state_dim, action_space.shape, args.hidden_dim).to(self.device)
         self.actor_target = Actor(self.actor_state_dim, action_space.shape, args.hidden_dim).to(self.device)
@@ -102,25 +95,6 @@ class PLTD3Agent:
             depth_batch = depth_batch.unsqueeze(0)
         return encoder_net(depth_batch)
 
-    def _prepare_priv(self, priv_batch: torch.Tensor) -> torch.Tensor:
-        if priv_batch.dim() == 1:
-            priv_batch = priv_batch.view(1, -1)
-        elif priv_batch.dim() > 2:
-            priv_batch = priv_batch.view(priv_batch.size(0), -1)
-
-        if priv_batch.size(1) != self.critic_priv_dim:
-            if priv_batch.size(1) > self.critic_priv_dim:
-                priv_batch = priv_batch[:, : self.critic_priv_dim]
-            else:
-                pad = torch.zeros(
-                    priv_batch.size(0),
-                    self.critic_priv_dim - priv_batch.size(1),
-                    device=priv_batch.device,
-                    dtype=priv_batch.dtype,
-                )
-                priv_batch = torch.cat([priv_batch, pad], dim=1)
-        return priv_batch
-
     def _concat_actor_state(self, base: torch.Tensor, depth: torch.Tensor, encoder_net, base_adapter, detach_encoder: bool = False) -> torch.Tensor:
         base_features = base_adapter(base)
         depth_features = self._encode(depth, encoder_net)
@@ -132,16 +106,16 @@ class PLTD3Agent:
         self,
         base: torch.Tensor,
         depth: torch.Tensor,
-        priv: torch.Tensor,
+        critic_depth: torch.Tensor,
         encoder_net,
         base_adapter,
         detach_encoder: bool = False,
     ) -> torch.Tensor:
         base_features = base_adapter(base)
-        depth_features = self._encode(depth, encoder_net)
+        depth_features = self._encode(critic_depth, encoder_net)
         if detach_encoder:
             depth_features = depth_features.detach()
-        return torch.cat([base_features, depth_features, self._prepare_priv(priv)], dim=1)
+        return torch.cat([base_features, depth_features], dim=1)
 
     def _get_current_noise(self, progress_ratio: float) -> float:
         return max(float(self.exploration_noise), 1e-8)
