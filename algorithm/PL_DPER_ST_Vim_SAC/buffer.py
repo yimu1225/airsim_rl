@@ -14,6 +14,7 @@ class PrioritizedReplayBuffer(SumTreePrioritizedReplayBuffer):
             depth_field_indices=depth_field_indices,
             depth_dtype=np.float16,
             return_stacked=True,
+            return_depth_float32=False,
         )
 
 

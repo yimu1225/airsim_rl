@@ -132,6 +132,10 @@ class DPERVimTD3Agent:
             mu = self.mu_high
         return float(np.clip(mu, 0.0, 0.8))
 
+    def _to_float_tensor(self, data):
+        tensor = torch.as_tensor(data, device=self.device)
+        return tensor if tensor.dtype == torch.float32 else tensor.float()
+
     def select_action(self, base_state, depth_img, noise: bool = True, progress_ratio: float = 0.0):
         if isinstance(base_state, np.ndarray):
             base_state = torch.as_tensor(base_state, dtype=torch.float32, device=self.device)
@@ -177,15 +181,15 @@ class DPERVimTD3Agent:
         else:
             state, depth, action, reward, next_state, next_depth, dones = zip(*samples)
 
-        depth = torch.as_tensor(np.asarray(depth), dtype=torch.float32, device=self.device)
-        next_depth = torch.as_tensor(np.asarray(next_depth), dtype=torch.float32, device=self.device)
-        state = torch.as_tensor(np.asarray(state), dtype=torch.float32, device=self.device)
-        next_state = torch.as_tensor(np.asarray(next_state), dtype=torch.float32, device=self.device)
-        action = torch.as_tensor(np.asarray(action), dtype=torch.float32, device=self.device)
+        depth = self._to_float_tensor(depth)
+        next_depth = self._to_float_tensor(next_depth)
+        state = self._to_float_tensor(state)
+        next_state = self._to_float_tensor(next_state)
+        action = self._to_float_tensor(action)
         action = ((action - self.action_bias) / self.action_scale).clamp(-1.0, 1.0)
-        reward = torch.as_tensor(np.asarray(reward), dtype=torch.float32, device=self.device).view(-1, 1)
-        dones = torch.as_tensor(np.asarray(dones), dtype=torch.float32, device=self.device).view(-1, 1)
-        weights = torch.as_tensor(importance_weights, dtype=torch.float32, device=self.device).view(-1, 1)
+        reward = self._to_float_tensor(reward).view(-1, 1)
+        dones = self._to_float_tensor(dones).view(-1, 1)
+        weights = self._to_float_tensor(importance_weights).view(-1, 1)
 
         with torch.no_grad():
             next_visual = self.actor_encoder_target(next_depth)

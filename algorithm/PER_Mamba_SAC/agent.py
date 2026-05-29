@@ -39,6 +39,10 @@ class PERMambaSACAgent(MambaSACAgent):
     def _update_replay_priorities(self, refs, td_errors):
         self.replay_buffer.update_priorities(refs, np.asarray(td_errors, dtype=np.float32))
 
+    def _to_float_tensor(self, data):
+        tensor = torch.as_tensor(data, device=self.device)
+        return tensor if tensor.dtype == torch.float32 else tensor.float()
+
     def train(self, progress_ratio=0.0):
         self.total_it += 1
 
@@ -50,18 +54,18 @@ class PERMambaSACAgent(MambaSACAgent):
             return {}
         base_states, depths, actions, rewards, next_base_states, next_depths, dones = sample
 
-        base_states = torch.as_tensor(base_states, dtype=torch.float32, device=self.device)
-        depths = torch.as_tensor(depths, dtype=torch.float32, device=self.device)
-        real_actions = torch.as_tensor(actions, dtype=torch.float32, device=self.device)
+        base_states = self._to_float_tensor(base_states)
+        depths = self._to_float_tensor(depths)
+        real_actions = self._to_float_tensor(actions)
         actions = (real_actions - self.action_bias) / self.action_scale
 
-        rewards = torch.as_tensor(rewards, dtype=torch.float32, device=self.device).view(-1, 1)
-        next_base_states = torch.as_tensor(next_base_states, dtype=torch.float32, device=self.device)
-        next_depths = torch.as_tensor(next_depths, dtype=torch.float32, device=self.device)
-        dones = torch.as_tensor(dones, dtype=torch.float32, device=self.device).view(-1, 1)
+        rewards = self._to_float_tensor(rewards).view(-1, 1)
+        next_base_states = self._to_float_tensor(next_base_states)
+        next_depths = self._to_float_tensor(next_depths)
+        dones = self._to_float_tensor(dones).view(-1, 1)
         weights = None
         if replay_weights is not None:
-            weights = torch.as_tensor(replay_weights, dtype=torch.float32, device=self.device).view(-1, 1)
+            weights = self._to_float_tensor(replay_weights).view(-1, 1)
 
         # ============ Critic Update ============
         with torch.no_grad():

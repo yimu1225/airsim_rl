@@ -119,6 +119,10 @@ class PLDPERSTVimSACAgent:
         depth_features = encoder(depth)
         return torch.cat([base_features, depth_features], dim=1)
 
+    def _to_float_tensor(self, data):
+        tensor = torch.as_tensor(data, device=self.device)
+        return tensor if tensor.dtype == torch.float32 else tensor.float()
+
     def _encode_critic_state(self, base, depth, critic_depth, encoder, base_adapter):
         return self._encode_state(base, critic_depth, encoder, base_adapter)
 
@@ -195,17 +199,17 @@ class PLDPERSTVimSACAgent:
             next_critic_privs,
         ) = sample
 
-        base_states = torch.as_tensor(base_states, dtype=torch.float32, device=self.device)
-        depths = torch.as_tensor(depths, dtype=torch.float32, device=self.device)
-        critic_privs = torch.as_tensor(critic_privs, dtype=torch.float32, device=self.device)
-        real_actions = torch.as_tensor(actions, dtype=torch.float32, device=self.device)
+        base_states = self._to_float_tensor(base_states)
+        depths = self._to_float_tensor(depths)
+        critic_privs = self._to_float_tensor(critic_privs)
+        real_actions = self._to_float_tensor(actions)
         actions = ((real_actions - self.action_bias) / self.action_scale).clamp(-1.0, 1.0)
-        rewards = torch.as_tensor(rewards, dtype=torch.float32, device=self.device).view(-1, 1)
-        next_base_states = torch.as_tensor(next_base_states, dtype=torch.float32, device=self.device)
-        next_depths = torch.as_tensor(next_depths, dtype=torch.float32, device=self.device)
-        next_critic_privs = torch.as_tensor(next_critic_privs, dtype=torch.float32, device=self.device)
-        dones = torch.as_tensor(dones, dtype=torch.float32, device=self.device).view(-1, 1)
-        weights = torch.as_tensor(replay_weights, dtype=torch.float32, device=self.device).view(-1, 1)
+        rewards = self._to_float_tensor(rewards).view(-1, 1)
+        next_base_states = self._to_float_tensor(next_base_states)
+        next_depths = self._to_float_tensor(next_depths)
+        next_critic_privs = self._to_float_tensor(next_critic_privs)
+        dones = self._to_float_tensor(dones).view(-1, 1)
+        weights = self._to_float_tensor(replay_weights).view(-1, 1)
 
         with torch.no_grad():
             next_actor_state = self._encode_state(
