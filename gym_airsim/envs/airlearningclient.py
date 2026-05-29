@@ -555,20 +555,29 @@ class AirLearningClient(object):
         vel = self.client.getMultirotorState().kinematics_estimated.linear_velocity
         return np.array([vel.x_val, vel.y_val, vel.z_val])
 
-    def get_forward_speed(self):
+    def get_body_x_velocity(self):
         """
-        获取无人机在当前朝向上的前向速度。
+        获取无人机机体系x轴速度。
         
         Returns:
-            float: 前向速度 (m/s)
+            float: 机体系x轴速度 (m/s)
         """
         # 获取当前速度和朝向
         vel = self.client.getMultirotorState().kinematics_estimated.linear_velocity
         pitch, roll, yaw = airsim.to_eularian_angles(self.client.simGetVehiclePose().orientation)
         
-        # 计算前向速度: vx*cos(yaw) + vy*sin(yaw)
-        forward_speed = vel.x_val * math.cos(yaw) + vel.y_val * math.sin(yaw)
-        return forward_speed
+        # 将世界系水平速度投影到无人机机体系x轴。
+        body_x_velocity = vel.x_val * math.cos(yaw) + vel.y_val * math.sin(yaw)
+        return body_x_velocity
+
+    def get_forward_speed(self):
+        """
+        获取无人机在当前朝向上的前向速度。
+
+        Returns:
+            float: 前向速度 (m/s)
+        """
+        return self.get_body_x_velocity()
     
     def get_z_velocity(self):
         """
@@ -646,26 +655,26 @@ class AirLearningClient(object):
 
     def take_continuous_action_3d(self, action, duration=0.1):
         """
-        执行3D连续动作控制 [v_forward, v_z, yaw_rate]。
+        执行3D连续动作控制 [body_x_velocity, yaw_rate, z_velocity]。
         
         Args:
-            action (np.array): [v_forward, v_z, yaw_rate]
+            action (np.array): [body_x_velocity, yaw_rate, z_velocity]
             duration (float): 动作持续时间
             
         Returns:
             bool: 碰撞状态
         """
 
-        v_forward = float(action[0])
-        v_z = float(action[1])
-        yaw_rate = float(action[2]) # rad/s
+        body_x_velocity = float(action[0])
+        yaw_rate = float(action[1]) # rad/s
+        v_z = float(action[2])
 
         # 获取当前偏航角
         pitch, roll, yaw = airsim.to_eularian_angles(self.client.simGetVehiclePose().orientation)
 
-        # 将机体坐标系的前向速度分解为世界坐标系的 vx, vy
-        vx = math.cos(yaw) * v_forward
-        vy = math.sin(yaw) * v_forward
+        # 将无人机机体系x轴速度分解为世界坐标系的 vx, vy。
+        vx = math.cos(yaw) * body_x_velocity
+        vy = math.sin(yaw) * body_x_velocity
 
         # 使用 moveByVelocityAsync
         # yaw_mode: is_rate=True, yaw_or_rate=yaw_rate (deg/s)
