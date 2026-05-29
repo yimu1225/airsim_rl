@@ -66,11 +66,17 @@ class SumTreePrioritySampler:
             probs = np.full((int(batch_size),), 1.0 / float(current_size), dtype=np.float32)
             return indices.astype(np.int64), probs
 
-        masses = self.rng.random(int(batch_size), dtype=np.float64) * total
-        indices = np.asarray(
-            [self._find_prefixsum_idx(mass, current_size) for mass in masses],
-            dtype=np.int64,
-        )
+        batch_size = int(batch_size)
+        masses = self.rng.random(batch_size, dtype=np.float64) * total
+        indices = np.ones((batch_size,), dtype=np.int64)
+        while indices[0] < self.tree_capacity:
+            left = indices * 2
+            left_values = self.sum_tree[left]
+            go_right = masses > left_values
+            masses = masses - left_values * go_right
+            indices = left + go_right.astype(np.int64)
+        indices = indices - self.tree_capacity
+        indices = np.minimum(indices, current_size - 1).astype(np.int64, copy=False)
         leaf_values = self.sum_tree[self.tree_capacity + indices]
         probs = np.maximum(leaf_values / max(total, self.eps), self.eps).astype(np.float32)
         return indices, probs
@@ -92,6 +98,7 @@ class SumTreePrioritizedReplayBuffer:
         depth_field_indices=(),
         depth_dtype=np.float16,
         return_stacked=True,
+        return_depth_float32=True,
     ):
         self.capacity = int(capacity)
         if self.capacity <= 0:
@@ -100,6 +107,7 @@ class SumTreePrioritizedReplayBuffer:
         self.eps = float(eps)
         self.depth_dtype = depth_dtype
         self.return_stacked = bool(return_stacked)
+        self.return_depth_float32 = bool(return_depth_float32)
 
         self.arrays = None
         self.field_shapes = None
@@ -159,7 +167,7 @@ class SumTreePrioritizedReplayBuffer:
         samples = []
         for field_idx, array in enumerate(self.arrays):
             values = array[indices]
-            if field_idx in self.depth_field_indices:
+            if self.return_depth_float32 and field_idx in self.depth_field_indices:
                 values = values.astype(np.float32)
             samples.append(values)
 
