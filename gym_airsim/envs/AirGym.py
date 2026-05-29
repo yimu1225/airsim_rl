@@ -523,7 +523,7 @@ class AirSimEnv(gym.Env):
     def _compute_distance_sensor_log_penalty(self, scan_distance, max_distance=None):
         """
         Safety shaping on distance sensor beams:
-        use all sensors (not only nearest one), with mean(log(distance)) style.
+        only beams inside the penalty range contribute to the mean(log(distance)) penalty.
         The penalty range is decoupled from the sensor MaxDistance so that
         sensor reach can change without widening the close-range penalty band.
         """
@@ -547,9 +547,15 @@ class AirSimEnv(gym.Env):
             penalty_range = np.resize(penalty_range, d.shape)
         penalty_range = np.maximum(penalty_range, self.distance_sensor_penalty_eps)
 
-        # Clamp above the penalty range: readings at or beyond the cap contribute 0 risk.
-        d_clip = np.clip(d, self.distance_sensor_penalty_eps, penalty_range)
-        mean_log_gap = float(np.mean(np.log(d_clip) - np.log(penalty_range)))
+        # Only average beams that are inside the penalty range. Averaging over all
+        # 108 beams would dilute a single close obstacle until the signal is tiny.
+        danger_mask = d < penalty_range
+        if not np.any(danger_mask):
+            return 0.0
+
+        danger_d = np.clip(d[danger_mask], self.distance_sensor_penalty_eps, penalty_range[danger_mask])
+        danger_range = penalty_range[danger_mask]
+        mean_log_gap = float(np.mean(np.log(danger_d) - np.log(danger_range)))
        
         return float(max(mean_log_gap, self.distance_sensor_log_penalty_min))
 
