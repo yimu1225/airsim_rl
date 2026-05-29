@@ -62,7 +62,7 @@ def get_config(argv=None):
     parser.add_argument("--base_feature_dim", type=int, default=32, help="基础状态先映射到该维度，再与视觉特征拼接")
     parser.add_argument("--exploration_noise", type=float, default=0.15, help="探索噪声")
     # parser.add_argument("--exploration_noise_final", type=float, default=0.10, help="探索噪声最终值（用于线性递减）")
-    parser.add_argument("--batch_size", type=int, default=256, help="批次大小")
+    parser.add_argument("--batch_size", type=int, default=512, help="批次大小")
     parser.add_argument("--gamma", type=float, default=0.95, help="折扣因子") 
     parser.add_argument("--tau", type=float, default=0.003, help="软更新参数")
     parser.add_argument("--actor_lr", type=float, default=4e-4, help="Actor学习率")
@@ -93,8 +93,8 @@ def get_config(argv=None):
     # 例如 algorithm/TD3/params.yaml、algorithm/SAC/params.yaml。
     # 这里只保留公共参数定义。
     # 连续控制参数 (Continuous Control Parameters)
-    parser.add_argument("--min_forward_speed", type=float, default=-2.0, help="最小前进速度 (m/s)")
-    parser.add_argument("--max_forward_speed", type=float, default=2.0, help="最大前进速度 (m/s)")
+    parser.add_argument("--min_forward_speed", type=float, default=-2.0, help="最小机体系x轴速度 (m/s)")
+    parser.add_argument("--max_forward_speed", type=float, default=2.0, help="最大机体系x轴速度 (m/s)")
     parser.add_argument("--max_vertical_speed", type=float, default=0.3, help="最大垂直速度 (m/s)")
     parser.add_argument("--max_yaw_rate", type=float, default=np.pi/3, help="最大偏航角速度 (rad/s)")
     parser.add_argument("--takeoff_height", type=float, default=-1.0, help="起飞目标高度 (NED坐标系中负值为向上)")

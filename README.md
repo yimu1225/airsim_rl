@@ -67,23 +67,23 @@ observation_space = {
 **状态向量组成**:
 - `[dx, dy]`: 相对目标位置
 - `[altitude]`: 当前高度
-- `[forward_speed, z_velocity, yaw_rate]`: 速度信息
+- `[body_x_velocity, z_velocity, yaw_rate]`: 速度信息
 - `[yaw]`: 偏航角
 - `[relative_angle_to_target]`: 朝向目标角度
 
 ### 动作空间
 ```python
 action_space = Box(
-    low=[min_forward_speed, -max_vertical_speed, -max_yaw_rate],
-    high=[max_forward_speed, max_vertical_speed, max_yaw_rate],
+    low=[min_forward_speed, -max_yaw_rate, -max_vertical_speed],
+    high=[max_forward_speed, max_yaw_rate, max_vertical_speed],
     dtype=np.float32
 )
 ```
 
 **动作含义**:
-- `forward_speed`: 前进速度 [0.0, 2.0] m/s
-- `z_velocity`: 垂直速度 [-0.5, 0.5] m/s  
+- `body_x_velocity`: 无人机机体系x轴速度 [0.0, 2.0] m/s
 - `yaw_rate`: 偏航角速度 [-π/12, π/12] rad/s
+- `z_velocity`: 垂直速度 [-0.5, 0.5] m/s  
 
 ### 奖励函数设计
 
@@ -198,8 +198,8 @@ parser.add_argument("--tau", type=float, default=0.005)
 
 # 环境参数
 parser.add_argument("--episode_length", type=int, default=200)
-parser.add_argument("--min_forward_speed", type=float, default=0.0)
-parser.add_argument("--max_forward_speed", type=float, default=2.0)
+parser.add_argument("--min_forward_speed", type=float, default=0.0)  # 机体系x轴速度下限
+parser.add_argument("--max_forward_speed", type=float, default=2.0)  # 机体系x轴速度上限
 parser.add_argument("--max_vertical_speed", type=float, default=0.5)
 parser.add_argument("--max_yaw_rate", type=float, default=np.pi/12)
 

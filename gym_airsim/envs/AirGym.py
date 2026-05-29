@@ -73,15 +73,15 @@ class AirSimEnv(gym.Env):
                                            np.array([+0.3, +0.3], dtype=np.float32),
                                            dtype=np.float32)
         elif (settings.control_mode == "Continuous"):
-            # Continuous action space: [forward_speed, z_velocity, yaw_rate]
-            fwd_min = config.min_forward_speed
-            fwd_max = config.max_forward_speed
+            # Continuous action space: [body_x_velocity, yaw_rate, z_velocity]
+            body_x_min = config.min_forward_speed
+            body_x_max = config.max_forward_speed
             z_max = config.max_vertical_speed
             yaw_max = config.max_yaw_rate
 
             self.action_space = spaces.Box(
-                low=np.array([fwd_min, -z_max, -yaw_max], dtype=np.float32),
-                high=np.array([fwd_max, z_max, yaw_max], dtype=np.float32),
+                low=np.array([body_x_min, -yaw_max, -z_max], dtype=np.float32),
+                high=np.array([body_x_max, yaw_max, z_max], dtype=np.float32),
                 dtype=np.float32
             )
         else:
@@ -470,7 +470,7 @@ class AirSimEnv(gym.Env):
         (注意：此方法仅返回 inform 向量，不处理图像堆叠，图像堆叠在 step 方法中维护)。
         
         Returns:
-            np.array: inform 向量 [相对距离xyz, 高度, 前向速度, z速度, 偏航角速度, 俯仰角, 横滚角, 偏航角, 朝向目标角度]
+            np.array: inform 向量 [相对距离xyz, 高度, 机体系x轴速度, z速度, 偏航角速度, 俯仰角, 横滚角, 偏航角, 朝向目标角度]
         """
         drone_pos = self.airgym.drone_pos()
         now = drone_pos[:2]
@@ -483,22 +483,22 @@ class AirSimEnv(gym.Env):
         self.r_yaw = self.airgym.goal_direction(self.goal, now)
         self.relative_position = self.airgym.get_distance(self.goal)  # [x, y]
         self.relative_z_distance = float(self.goal[2] - drone_pos[2])
-        forward_speed = self.airgym.get_forward_speed()  # 前向速度
+        body_x_velocity = self.airgym.get_body_x_velocity()  # 无人机机体系x轴速度
         z_velocity = self.airgym.get_z_velocity()  # z轴速度
         yaw_rate = self.airgym.get_yaw_rate()  # 偏航角速度
         
         # 为了向后兼容，仍保留这些属性
-        self.velocity = np.array([forward_speed, z_velocity, yaw_rate])  # 用新的速度信息
-        self.speed = forward_speed  # 前向速度作为主要速度指标
+        self.velocity = np.array([body_x_velocity, z_velocity, yaw_rate])  # 用新的速度信息
+        self.speed = body_x_velocity  # 机体系x轴速度作为主要速度指标
         
-        # 组合新的状态向量: [相对距离xyz(3), 高度(1), 前向速度(1), z速度(1), 偏航角速度(1), 俯仰角(1), 横滚角(1), 偏航角(1), 朝向目标角度(1)]
+        # 组合新的状态向量: [相对距离xyz(3), 高度(1), 机体系x轴速度(1), z速度(1), 偏航角速度(1), 俯仰角(1), 横滚角(1), 偏航角(1), 朝向目标角度(1)]
         inform = np.concatenate((
             self.relative_position,  # [x_dist, y_dist]
             [self.relative_z_distance],  # [z_dist]
             [altitude],              # [altitude]
-            [forward_speed],         # 前向速度
-            [z_velocity],           # z轴速度
-            [yaw_rate],             # 偏航角速度
+            [body_x_velocity],       # 机体系x轴速度
+            [z_velocity],            # z轴速度
+            [yaw_rate],              # 偏航角速度
             [pitch],                # [pitch] 俯仰角
             [roll],                 # [roll] 横滚角
             [yaw],                  # [yaw] 偏航角
@@ -513,7 +513,7 @@ class AirSimEnv(gym.Env):
         基于当前环境的实际参数（从 config 和 game_config_handler 获取）
         
         Args:
-            inform: 11维状态向量 [rel_x, rel_y, rel_z, altitude, fwd_speed, z_vel, yaw_rate, pitch, roll, yaw, angle_to_goal]
+            inform: 11维状态向量 [rel_x, rel_y, rel_z, altitude, body_x_vel, z_vel, yaw_rate, pitch, roll, yaw, angle_to_goal]
         
         Returns:
             归一化后的11维向量，每个值在[0, 1]范围内
