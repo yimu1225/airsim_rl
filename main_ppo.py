@@ -380,12 +380,16 @@ def train_ppo_algorithm(env, agent, args, algo_name, device, base_state, depth_i
                     last_state = agent.get_state_representation(base_tensor, depth_tensor)
                     last_value = agent.critic(last_state).cpu().numpy().flatten()[0]
             
-            # Compute returns and advantages (stored in buffer)
-            agent.rollout_buffer.compute_returns_and_advantages(last_value, 0.0)
+            # Compute returns and advantages (stored in buffer).  The last
+            # stored done flag decides whether the bootstrap value is valid.
+            last_done_idx = agent.rollout_buffer.ptr - 1
+            last_done = float(agent.rollout_buffer.dones[last_done_idx])
+            agent.rollout_buffer.compute_returns_and_advantages(last_value, last_done)
             
             # Update policy with progress bar for epochs
             from tqdm import tqdm
-            epoch_pbar = tqdm(range(args.ppo_epochs), desc=f"Training ({total_timesteps})", leave=False)
+            ppo_epochs = int(getattr(agent, "ppo_epochs", getattr(args, "ppo_epochs", 1)))
+            epoch_pbar = tqdm(range(ppo_epochs), desc=f"Training ({total_timesteps})", leave=False)
             train_info = agent.update_policy(epoch_pbar=epoch_pbar)
             epoch_pbar.close()
             

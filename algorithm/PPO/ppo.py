@@ -242,13 +242,7 @@ class PPOAgent:
             state = self._concat_state(base_tensor, depth_tensor)
             last_value = self.critic(state).cpu().numpy().flatten()[0]
         
-        # Compute returns and advantages
-        returns, advantages = self.rollout_buffer.compute_returns_and_advantages(last_value, last_done)
-        
-        # Normalize advantages
-        advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
-        
-        return returns, advantages
+        return self.rollout_buffer.compute_returns_and_advantages(last_value, last_done)
     
     def train(self, progress_ratio=0.0):
         """
@@ -265,10 +259,7 @@ class PPOAgent:
         
         self.total_it += 1
         
-        # Get trajectory data
-        data = self.rollout_buffer.get_trajectory()
-        
-        return self._update_policy(data)
+        return self.update_policy()
     
     def update_policy(self, returns=None, advantages=None, epoch_pbar=None):
         """
@@ -280,8 +271,17 @@ class PPOAgent:
             advantages: computed advantages (optional, will use stored if None)
             epoch_pbar: optional tqdm progress bar for epochs (created in training script)
         """
-        # Get trajectory data (already contains returns and advantages)
+        if (returns is None or advantages is None) and not self.rollout_buffer.returns_ready:
+            raise RuntimeError(
+                "PPO update requires computed returns/advantages. "
+                "Call finish_trajectory() or rollout_buffer.compute_returns_and_advantages() first."
+            )
+
         data = self.rollout_buffer.get_trajectory()
+        if returns is not None:
+            data['returns'] = torch.as_tensor(returns, dtype=torch.float32, device=self.device)
+        if advantages is not None:
+            data['advantages'] = torch.as_tensor(advantages, dtype=torch.float32, device=self.device)
         
         return self._update_policy(data, epoch_pbar=epoch_pbar)
     
@@ -310,6 +310,7 @@ class PPOAgent:
         n_updates = 0
         approx_kl_divs = []
         
+        continue_training = True
         # PPO epochs
         for epoch in range(self.ppo_epochs):
             # Generate random indices
@@ -337,7 +338,8 @@ class PPOAgent:
                 values = self.critic(states).squeeze(-1)
                 
                 # PPO loss
-                ratio = torch.exp(new_log_probs.squeeze(-1) - mb_old_log_probs)
+                log_ratio = new_log_probs.squeeze(-1) - mb_old_log_probs
+                ratio = torch.exp(log_ratio)
                 if self.normalize_advantage and len(mb_advantages) > 1:
                     mb_advantages = (mb_advantages - mb_advantages.mean()) / (mb_advantages.std() + 1e-8)
 
@@ -358,6 +360,16 @@ class PPOAgent:
                 # Total loss
                 entropy_loss = -entropy.mean()
                 loss = policy_loss + self.vf_coef * value_loss + self.ent_coef * entropy_loss
+
+                with torch.no_grad():
+                    approx_kl = ((torch.exp(log_ratio) - 1.0) - log_ratio).mean()
+                    approx_kl_divs.append(float(approx_kl.item()))
+
+                if self.target_kl is not None and approx_kl > 1.5 * self.target_kl:
+                    continue_training = False
+                    if epoch_pbar is not None:
+                        epoch_pbar.set_postfix_str(f"Early stop (KL: {approx_kl:.4f})")
+                    break
                 
                 # Optimize
                 self.encoder_optimizer.zero_grad()
@@ -383,22 +395,12 @@ class PPOAgent:
                 total_entropy += entropy.mean().item()
                 total_loss += loss.item()
                 n_updates += 1
-                
-                # Approximate KL divergence for early stopping
-                with torch.no_grad():
-                    log_ratio = new_log_probs.squeeze(-1) - mb_old_log_probs
-                    approx_kl = ((torch.exp(log_ratio) - 1) - log_ratio).mean()
-                    approx_kl_divs.append(approx_kl.item())
-                
-            # Early stopping based on KL divergence
-            if self.target_kl is not None and np.mean(approx_kl_divs) > 1.5 * self.target_kl:
-                if epoch_pbar is not None:
-                    epoch_pbar.set_postfix_str(f"Early stop (KL: {np.mean(approx_kl_divs):.4f})")
-                break
             
             # Update progress bar if provided
             if epoch_pbar is not None:
                 epoch_pbar.update(1)
+            if not continue_training:
+                break
         
         # Clear buffer after update
         self.rollout_buffer.after_update()

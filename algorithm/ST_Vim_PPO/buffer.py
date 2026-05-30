@@ -41,6 +41,7 @@ class RolloutBuffer:
         
         self.ptr = 0
         self.path_start_idx = 0
+        self.returns_ready = False
         
     def add(self, base_state, depth, action, reward, value, log_prob, done):
         """
@@ -55,7 +56,9 @@ class RolloutBuffer:
             log_prob: log probability of the action
             done: whether episode terminated
         """
-        idx = self.ptr % self.buffer_size
+        if self.ptr >= self.buffer_size:
+            raise RuntimeError("RolloutBuffer is full; call after_update() before adding more samples.")
+        idx = self.ptr
         
         self.base_states[idx] = base_state
         self.depth_states[idx] = depth.astype(np.float16)
@@ -66,6 +69,7 @@ class RolloutBuffer:
         self.dones[idx] = done
         
         self.ptr += 1
+        self.returns_ready = False
     
     def compute_returns_and_advantages(self, last_value, last_done):
         """
@@ -79,25 +83,28 @@ class RolloutBuffer:
             returns: discounted returns
             advantages: GAE advantages
         """
+        if self.size() <= 0:
+            raise RuntimeError("Cannot compute returns for an empty rollout buffer.")
+
         # Get the trajectory slice
         path_slice = slice(self.path_start_idx, self.ptr)
         rewards = self.rewards[path_slice]
         values = self.values[path_slice]
         dones = self.dones[path_slice]
-        
-        # Append last value for bootstrap
-        values = np.append(values, last_value)
-        dones = np.append(dones, last_done)
-        
+
         n_steps = len(rewards)
         advantages = np.zeros(n_steps, dtype=np.float32)
         last_gae = 0
         
-        # Compute GAE backwards
+        last_value = float(last_value)
+        last_done = float(last_done)
+
+        # SB3 uses episode_starts[t + 1] for non-final steps. This buffer
+        # stores transition done[t] instead, and done[t] == episode_start[t+1].
         for t in reversed(range(n_steps)):
             if t == n_steps - 1:
-                next_value = values[t + 1]
-                next_non_terminal = 1.0 - dones[t + 1]
+                next_value = last_value
+                next_non_terminal = 1.0 - last_done
             else:
                 next_value = values[t + 1]
                 next_non_terminal = 1.0 - dones[t]
@@ -106,12 +113,13 @@ class RolloutBuffer:
             last_gae = delta + self.gamma * self.gae_lambda * next_non_terminal * last_gae
             advantages[t] = last_gae
         
-        returns = advantages + values[:-1]
+        returns = advantages + values
         
         # Store returns and advantages for later retrieval
         traj_slice = slice(self.path_start_idx, self.ptr)
         self.returns[traj_slice] = returns
         self.advantages[traj_slice] = advantages
+        self.returns_ready = True
         
         return returns, advantages
     
@@ -143,6 +151,7 @@ class RolloutBuffer:
         """
         self.ptr = 0
         self.path_start_idx = 0
+        self.returns_ready = False
     
     def size(self):
         """Return current buffer size."""

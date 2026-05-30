@@ -7,51 +7,49 @@ from algorithm.ST_Vim_PPO.buffer import RolloutBuffer
 class PLRolloutBuffer(RolloutBuffer):
     """PPO rollout buffer with per-step privileged critic observations.
 
-    Lazy initialisation: ``critic_priv_dim`` is inferred from the first
-    ``add()`` call so that the buffer automatically matches the runtime
-    clean critic-depth observation shape.
+    The critic observation width is fixed from the agent config, so missing
+    sensor reads can be represented as zeros instead of breaking mini-batch
+    indexing during the PPO update.
     """
 
-    def __init__(self, *args, **kwargs):
-        self.critic_priv_shape = None
+    def __init__(self, *args, critic_priv_dim=0, **kwargs):
+        self.critic_priv_dim = int(critic_priv_dim)
+        self.critic_priv_shape = (self.critic_priv_dim,)
         self.critic_privs = None
         super().__init__(*args, **kwargs)
+        if self.critic_priv_dim > 0:
+            self.critic_privs = np.zeros(
+                (self.buffer_size, self.critic_priv_dim), dtype=np.float16
+            )
 
-    @staticmethod
-    def _as_priv(priv, target_shape=None):
+    def _as_priv(self, priv):
+        if self.critic_priv_dim <= 0:
+            return np.zeros((0,), dtype=np.float32)
         if priv is None:
-            if target_shape is None:
-                return np.zeros((0,), dtype=np.float32)
-            return np.zeros(target_shape, dtype=np.float32)
-        arr = np.asarray(priv, dtype=np.float32)
-        if target_shape is not None and arr.shape != tuple(target_shape):
-            raise ValueError(f"critic_depth shape mismatch: expected {target_shape}, got {arr.shape}")
+            return np.zeros((self.critic_priv_dim,), dtype=np.float32)
+
+        arr = np.asarray(priv, dtype=np.float32).reshape(-1)
+        if arr.size > self.critic_priv_dim:
+            arr = arr[: self.critic_priv_dim]
+        elif arr.size < self.critic_priv_dim:
+            arr = np.pad(arr, (0, self.critic_priv_dim - arr.size), mode="constant")
         return arr.astype(np.float32, copy=False)
 
     def add(self, base_state, depth, action, reward, value, log_prob, done, critic_priv=None):
-        idx = self.ptr % self.buffer_size
-
-        critic_priv_arr = self._as_priv(critic_priv)
-
-        # Lazy initialisation on first privileged observation
-        if self.critic_priv_shape is None:
-            self.critic_priv_shape = critic_priv_arr.shape
-            if critic_priv_arr.size > 0:
-                self.critic_privs = np.zeros(
-                    (self.buffer_size, *self.critic_priv_shape), dtype=np.float16
-                )
+        idx = self.ptr
 
         super().add(base_state, depth, action, reward, value, log_prob, done)
 
-        if self.critic_priv_shape is not None and np.prod(self.critic_priv_shape, dtype=np.int64) > 0:
-            self.critic_privs[idx] = self._as_priv(critic_priv, target_shape=self.critic_priv_shape)
+        if self.critic_priv_dim > 0:
+            self.critic_privs[idx] = self._as_priv(critic_priv)
 
     def get_trajectory(self):
         data = super().get_trajectory()
         path_slice = slice(self.path_start_idx, self.ptr)
 
-        if self.critic_priv_shape is None or np.prod(self.critic_priv_shape, dtype=np.int64) <= 0:
-            data["critic_privs"] = torch.empty((0, 0), dtype=torch.float32, device=self.device)
+        if self.critic_priv_dim <= 0:
+            n_samples = data["base_states"].shape[0]
+            data["critic_privs"] = torch.empty((n_samples, 0), dtype=torch.float32, device=self.device)
         else:
             data["critic_privs"] = torch.as_tensor(
                 self.critic_privs[path_slice],
