@@ -46,7 +46,7 @@ def get_config(argv=None):
     parser.add_argument("--seed", type=str, default="1,2", help="随机种子 (支持逗号分隔多个种子)")
     parser.add_argument("--curriculum_start_level", type=int, default=0, choices=[0, 1, 2, 3], help="课程学习起始等级 (0-3, 默认: 0)。注意：算法名以 'CL-' 前缀开头时自动启用课程学习")
     parser.add_argument("--curriculum_mode", type=str, default="progress", choices=["progress", "success"], help="课程学习模式: progress=按训练进度连续增加难度, success=按成功率离散切换难度")
-    parser.add_argument("--curriculum_progress_max_ratio", type=float, default=0.8, help="progress课程达到最大难度所需的训练进度比例")
+    parser.add_argument("--curriculum_progress_max_ratio", type=float, default=0.9, help="progress课程达到最大难度所需的训练进度比例")
     parser.add_argument("--non_curriculum_level", type=int, default=2, choices=[0, 1, 2, 3], help="非课程学习时的固定难度等级 (0-3, 默认: 3)")
     parser.add_argument("--steps_per_update", type=int, default=100, help='每次更新前收集的步数')
     parser.add_argument("--cuda", action='store_false', default=True, help="是否使用CUDA")

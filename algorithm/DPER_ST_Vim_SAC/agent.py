@@ -156,7 +156,14 @@ class DPERSTVimSACAgent:
             stacked = samples
         else:
             stacked = tuple(np.stack(items, axis=0) for items in zip(*samples))
-        return stacked, refs, weights, {"dper_beta": dper_beta, "replay/success_sample_ratio_target": current_mu, **mix_info}
+        replay_info = {
+            "dper_beta": dper_beta,
+            "replay/success_sample_ratio_target": current_mu,
+            "replay/success_batch_fraction": mix_info["batch_success_fraction"],
+            "replay/success_size": mix_info["success_size"],
+            "replay/regular_size": mix_info["regular_size"],
+        }
+        return stacked, refs, weights, replay_info
 
     def _update_replay_priorities(self, refs, td_errors):
         self.replay_buffer.update_priorities(refs, np.asarray(td_errors, dtype=np.float32))

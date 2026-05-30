@@ -121,6 +121,9 @@ def _log_train_metrics_per_update(writer, train_info, update_step, algo_name, to
         "replay/success_batch_fraction": "per/success_batch_fraction",
         "replay/success_size": "per/success_size",
         "replay/regular_size": "per/regular_size",
+        "batch_success_fraction": "per/success_batch_fraction",
+        "success_size": "per/success_size",
+        "regular_size": "per/regular_size",
     }
 
     for key, value in train_info.items():
@@ -176,7 +179,7 @@ def get_agent_class(algo_name):
         'TD3': TD3Agent,
         'PL_TD3': PLTD3Agent,
         'DDPG': DDPGAgent,
-        'DPER_TD3': DPERVimTD3Agent,
+        'DPER_TD3': DPERTD3Agent,
         'PL_DPER_TD3': PLDPERTD3Agent,
         'PL_DPER_ST_Vim_TD3': PLDPERSTVimTD3Agent,
         'ST_Vim_TD3': STVimTD3Agent,
@@ -310,6 +313,36 @@ def _is_pl_algorithm(algo_name: str) -> bool:
 
 def _as_clean_critic_depth(clean_depth):
     return np.asarray(clean_depth, dtype=np.float32)
+
+
+def _replay_add_supports_param(agent, param_name: str) -> bool:
+    replay_buffer = getattr(agent, "replay_buffer", None)
+    cache = getattr(agent, "_replay_add_param_cache", None)
+    if cache is None:
+        cache = {}
+        setattr(agent, "_replay_add_param_cache", cache)
+    cache_key = (id(replay_buffer), param_name)
+    if cache_key in cache:
+        return cache[cache_key]
+
+    add_fn = getattr(replay_buffer, "add", None)
+    if not callable(add_fn):
+        cache[cache_key] = False
+        return cache[cache_key]
+    try:
+        cache[cache_key] = param_name in inspect.signature(add_fn).parameters
+    except (TypeError, ValueError):
+        cache[cache_key] = False
+    return cache[cache_key]
+
+
+def _step_is_success(step_info) -> float:
+    return float(step_info.get("is_success", False)) if isinstance(step_info, dict) else 0.0
+
+
+def _add_success_kw_if_supported(agent, kwargs, step_info):
+    if _replay_add_supports_param(agent, "is_success"):
+        kwargs["is_success"] = _step_is_success(step_info)
 
 
 def _ordered_replay_indices(size: int, capacity: int, next_pos: int):
@@ -824,10 +857,7 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, in
                         critic_priv=critic_priv_current,
                         next_critic_priv=critic_priv_next,
                     )
-                    if core_algo_name in {"PL_PER_ST_Vim_SAC", "PL_PER_ST_Vim_SAC_Beta", "PL_PER_ST_Vim_TD3"}:
-                        add_kwargs["is_success"] = (
-                            float(step_info.get("is_success", False)) if isinstance(step_info, dict) else 0.0
-                        )
+                    _add_success_kw_if_supported(agent, add_kwargs, step_info)
                     agent.replay_buffer.add(
                         base_for_buffer,
                         depth_seq,
@@ -839,79 +869,39 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, in
                         **add_kwargs,
                     )
                 else:
-                    add_fn = getattr(agent.replay_buffer, "add", None)
-                    supports_success_flag = False
-                    if callable(add_fn):
-                        try:
-                            supports_success_flag = "is_success" in inspect.signature(add_fn).parameters
-                        except (TypeError, ValueError):
-                            supports_success_flag = False
-
-                    if supports_success_flag:
-                        is_success = float(step_info.get("is_success", False)) if isinstance(step_info, dict) else 0.0
-                        agent.replay_buffer.add(
-                            base_for_buffer,
-                            depth_seq,
-                            action,
-                            reward,
-                            next_base_for_buffer,
-                            next_depth_seq,
-                            done_bool,
-                            is_success,
-                        )
-                    else:
-                        agent.replay_buffer.add(
-                            base_for_buffer,
-                            depth_seq,
-                            action,
-                            reward,
-                            next_base_for_buffer,
-                            next_depth_seq,
-                            done_bool
-                        )
+                    add_kwargs = {}
+                    _add_success_kw_if_supported(agent, add_kwargs, step_info)
+                    agent.replay_buffer.add(
+                        base_for_buffer,
+                        depth_seq,
+                        action,
+                        reward,
+                        next_base_for_buffer,
+                        next_depth_seq,
+                        done_bool,
+                        **add_kwargs,
+                    )
             else:
                 if is_pl_algo:
-                    if core_algo_name == "PL_PER_TD3":
-                        is_success = float(step_info.get("is_success", False)) if isinstance(step_info, dict) else 0.0
-                        agent.replay_buffer.add(
-                            base,
-                            state,
-                            action,
-                            reward,
-                            next_base,
-                            next_state,
-                            done_bool,
-                            is_success,
-                            critic_priv=critic_priv_current,
-                            next_critic_priv=critic_priv_next,
-                        )
-                    else:
-                        agent.replay_buffer.add(
-                            base,
-                            state,
-                            action,
-                            reward,
-                            next_base,
-                            next_state,
-                            done_bool,
-                            critic_priv=critic_priv_current,
-                            next_critic_priv=critic_priv_next,
-                        )
+                    add_kwargs = dict(
+                        critic_priv=critic_priv_current,
+                        next_critic_priv=critic_priv_next,
+                    )
+                    _add_success_kw_if_supported(agent, add_kwargs, step_info)
+                    agent.replay_buffer.add(
+                        base,
+                        state,
+                        action,
+                        reward,
+                        next_base,
+                        next_state,
+                        done_bool,
+                        **add_kwargs,
+                    )
                 else:
-                    # Non-recurrent buffer
-                    add_fn = getattr(agent.replay_buffer, "add", None)
-                    supports_success_flag = False
-                    if callable(add_fn):
-                        try:
-                            supports_success_flag = "is_success" in inspect.signature(add_fn).parameters
-                        except (TypeError, ValueError):
-                            supports_success_flag = False
-
-                    if supports_success_flag:
-                        is_success = float(step_info.get("is_success", False)) if isinstance(step_info, dict) else 0.0
-                        agent.replay_buffer.add(base, state, action, reward, next_base, next_state, done_bool, is_success)
-                    else:
-                        agent.replay_buffer.add(base, state, action, reward, next_base, next_state, done_bool)
+                    add_kwargs = {}
+                    _add_success_kw_if_supported(agent, add_kwargs, step_info)
+                    agent.replay_buffer.add(base, state, action, reward, next_base, next_state, done_bool, **add_kwargs)
 
             # State Update
             state = next_state

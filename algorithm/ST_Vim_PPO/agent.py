@@ -138,10 +138,21 @@ class STVimPPOAgent:
         if self.rollout_buffer.size() == 0:
             return None
         self.total_it += 1
-        return self._update_policy(self.rollout_buffer.get_trajectory())
+        return self.update_policy()
 
     def update_policy(self, returns=None, advantages=None, epoch_pbar=None):
-        return self._update_policy(self.rollout_buffer.get_trajectory(), epoch_pbar=epoch_pbar)
+        if (returns is None or advantages is None) and not self.rollout_buffer.returns_ready:
+            raise RuntimeError(
+                "PPO update requires computed returns/advantages. "
+                "Call finish_trajectory() or rollout_buffer.compute_returns_and_advantages() first."
+            )
+
+        data = self.rollout_buffer.get_trajectory()
+        if returns is not None:
+            data["returns"] = torch.as_tensor(returns, dtype=torch.float32, device=self.device)
+        if advantages is not None:
+            data["advantages"] = torch.as_tensor(advantages, dtype=torch.float32, device=self.device)
+        return self._update_policy(data, epoch_pbar=epoch_pbar)
 
     def _update_policy(self, data, epoch_pbar=None):
         base_states = data["base_states"]

@@ -646,7 +646,7 @@ class AirSimEnv(gym.Env):
         reward_vel = float(np.minimum(reward_vel, reward_vel * np.sign(alignment)))
 
         # Match NavRL base term: reward_vel 
-        r = 3 * reward_vel 
+        r =  reward_vel 
 
         # NavRL-style smoothness penalty: ||v_t - v_{t-1}||
         smooth_penalty_weight = 0.1
@@ -690,10 +690,8 @@ class AirSimEnv(gym.Env):
         )
         self.last_distance_sensor_obstacle_penalty = 5 * float(distance_sensor_penalty)
         r += self.last_distance_sensor_obstacle_penalty
-        # print(f"Reward components: r_vel={reward_vel:.3f}, distance_penalty={distance_penalty:.3f}, "
-        #       f"smooth_penalty={smooth_penalty:.3f}, curvature_penalty={curvature_penalty:.3f}, "
-        #       f"step_penalty={step_penalty:.3f}, stagnation_penalty={stagnation_penalty:.3f}, "
-        #       f"distance_sensor_penalty={self.last_distance_sensor_obstacle_penalty:.3f}, total_reward={r:.3f}")
+        # print(f"Reward components: vel={reward_vel:.3f}, dist_penalty={distance_penalty:.3f}, smooth_penalty={smooth_penalty:.3f}, curvature_penalty={curvature_penalty:.3f}, step_penalty={step_penalty:.3f}, distance_sensor_penalty={self.last_distance_sensor_obstacle_penalty:.3f}")
+ 
 
         return r
 

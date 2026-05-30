@@ -138,13 +138,13 @@ Each key-value pair indicates the randomization frequency after UE4 restart:
 这种随机化策略可以防止过拟合，提高策略对不同环境的泛化能力。
 """
 environment_change_frequency = {
-    "ArenaSize": 5,
-    "Seed":3,
-    "NumberOfObjects": 5,
-    "NumberOfDynamicObjects": 5,
-    "End": 3,
-    "Walls1": 3,
-    "MinimumDistance": 3
+    "ArenaSize": 8,
+    "Seed":5,
+    "NumberOfObjects": 8,
+    "NumberOfDynamicObjects": 8,
+    "End": 5,
+    "Walls1": 5,
+    "MinimumDistance": 5
 }
 
 # environment_change_frequency = {
