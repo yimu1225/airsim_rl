@@ -56,7 +56,7 @@ class TD3Agent:
         self.critic_base_adapter_target = StateAdapter(self.base_dim, self.base_feature_dim).to(self.device)
         self.critic_base_adapter_target.load_state_dict(self.critic_base_adapter.state_dict())
         
-        # State dim = base_dim + encoder.repr_dim
+        # State dim = adapted base features + visual features.
         self.state_dim = self.base_feature_dim + self.actor_encoder.repr_dim
         
         # Actor & Critic
@@ -262,8 +262,12 @@ class TD3Agent:
         self.critic.load_state_dict(checkpoint["critic"])
         if "actor_target" in checkpoint:
             self.actor_target.load_state_dict(checkpoint["actor_target"])
+        else:
+            self.actor_target.load_state_dict(self.actor.state_dict())
         if "critic_target" in checkpoint:
             self.critic_target.load_state_dict(checkpoint["critic_target"])
+        else:
+            self.critic_target.load_state_dict(self.critic.state_dict())
         
         self.actor_optimizer.load_state_dict(checkpoint["actor_optimizer"])
         self.critic_optimizer.load_state_dict(checkpoint["critic_optimizer"])
@@ -272,22 +276,34 @@ class TD3Agent:
         if "actor_encoder" in checkpoint:
             self.actor_encoder.load_state_dict(checkpoint["actor_encoder"])
             self.critic_encoder.load_state_dict(checkpoint["critic_encoder"])
-            self.actor_encoder_target.load_state_dict(checkpoint["actor_encoder_target"])
-            self.critic_encoder_target.load_state_dict(checkpoint["critic_encoder_target"])
+            if "actor_encoder_target" in checkpoint:
+                self.actor_encoder_target.load_state_dict(checkpoint["actor_encoder_target"])
+            else:
+                self.actor_encoder_target.load_state_dict(self.actor_encoder.state_dict())
+            if "critic_encoder_target" in checkpoint:
+                self.critic_encoder_target.load_state_dict(checkpoint["critic_encoder_target"])
+            else:
+                self.critic_encoder_target.load_state_dict(self.critic_encoder.state_dict())
             if "actor_base_adapter" in checkpoint:
                 self.actor_base_adapter.load_state_dict(checkpoint["actor_base_adapter"])
             if "critic_base_adapter" in checkpoint:
                 self.critic_base_adapter.load_state_dict(checkpoint["critic_base_adapter"])
             if "actor_base_adapter_target" in checkpoint:
                 self.actor_base_adapter_target.load_state_dict(checkpoint["actor_base_adapter_target"])
+            else:
+                self.actor_base_adapter_target.load_state_dict(self.actor_base_adapter.state_dict())
             if "critic_base_adapter_target" in checkpoint:
                 self.critic_base_adapter_target.load_state_dict(checkpoint["critic_base_adapter_target"])
+            else:
+                self.critic_base_adapter_target.load_state_dict(self.critic_base_adapter.state_dict())
         elif "encoder" in checkpoint:
              # If loading old model with shared encoder, load key 'encoder' to both
              self.actor_encoder.load_state_dict(checkpoint["encoder"])
              self.critic_encoder.load_state_dict(checkpoint["encoder"])
              self.actor_encoder_target.load_state_dict(checkpoint["encoder"])
              self.critic_encoder_target.load_state_dict(checkpoint["encoder"])
+             self.actor_base_adapter_target.load_state_dict(self.actor_base_adapter.state_dict())
+             self.critic_base_adapter_target.load_state_dict(self.critic_base_adapter.state_dict())
         self.total_it = checkpoint.get("total_it", 0)
 
 

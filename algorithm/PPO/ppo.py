@@ -349,13 +349,15 @@ class PPOAgent:
                 
                 # Value loss, optionally clipped like SB3 PPO.
                 if self.clip_range_vf is None:
-                    values_pred = values
+                    value_loss = F.mse_loss(values, mb_returns)
                 else:
                     values_pred = mb_old_values + (values - mb_old_values).clamp(
                         -float(self.clip_range_vf),
                         float(self.clip_range_vf),
                     )
-                value_loss = F.mse_loss(values_pred, mb_returns)
+                    value_loss_unclipped = F.mse_loss(values, mb_returns, reduction="none")
+                    value_loss_clipped = F.mse_loss(values_pred, mb_returns, reduction="none")
+                    value_loss = torch.max(value_loss_unclipped, value_loss_clipped).mean()
                 
                 # Total loss
                 entropy_loss = -entropy.mean()

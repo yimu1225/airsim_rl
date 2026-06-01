@@ -162,6 +162,22 @@ def _get_env_core(env):
     return env.unwrapped if hasattr(env, "unwrapped") else env
 
 
+def _set_env_curriculum_progress(env, total_timesteps, max_timesteps):
+    """Module-level helper: set curriculum progress when env supports it and mode=progress."""
+    env_core = _get_env_core(env)
+    if not bool(getattr(env_core, "use_curriculum", False)):
+        return None
+    if getattr(env_core, "curriculum_mode", "progress") != "progress":
+        return None
+    set_progress = getattr(env_core, "set_curriculum_progress", None)
+    if not callable(set_progress):
+        return None
+
+    denominator = max(float(max_timesteps), 1.0)
+    progress_ratio = min(max(float(total_timesteps) / denominator, 0.0), 1.0)
+    return set_progress(progress_ratio)
+
+
 def train_ppo_algorithm(env, agent, args, algo_name, device, base_state, depth_image, n_frames):
     """
     Training loop for PPO algorithm.
@@ -204,6 +220,22 @@ def train_ppo_algorithm(env, agent, args, algo_name, device, base_state, depth_i
     # Training parameters
     max_timesteps = args.max_timesteps
     
+    def _get_env_core(env):
+        return env.unwrapped if hasattr(env, "unwrapped") else env
+
+    def _set_env_curriculum_progress(env, total_timesteps, max_timesteps):
+        env_core = _get_env_core(env)
+        if not bool(getattr(env_core, "use_curriculum", False)):
+            return None
+        if getattr(env_core, "curriculum_mode", "progress") != "progress":
+            return None
+        set_progress = getattr(env_core, "set_curriculum_progress", None)
+        if not callable(set_progress):
+            return None
+
+        denominator = max(float(max_timesteps), 1.0)
+        progress_ratio = min(max(float(total_timesteps) / denominator, 0.0), 1.0)
+        return set_progress(progress_ratio)
     total_timesteps = 0
     episode_num = 0
     episode_reward = 0
@@ -315,19 +347,39 @@ def train_ppo_algorithm(env, agent, args, algo_name, device, base_state, depth_i
                 env_core = _get_env_core(env)
                 if len(env_core.success_deque) > 0:
                     success_rate = sum(env_core.success_deque) / len(env_core.success_deque)
-                
-                # Log to TensorBoard
+                # Update curriculum progress based on total timesteps (progress mode)
+                curriculum_info = _set_env_curriculum_progress(env, total_timesteps, max_timesteps)
+
+                # Log to TensorBoard (use total_timesteps as x-axis)
                 writer.add_scalar('train/episode_reward', episode_reward, total_timesteps)
                 writer.add_scalar('train/episode_length', episode_timesteps, total_timesteps)
                 writer.add_scalar('train/success_rate', success_rate, total_timesteps)
                 writer.add_scalar('train/success_count', env_core.success_count, total_timesteps)
+                # log curriculum info if available
+                if isinstance(curriculum_info, dict):
+                    if 'progress_ratio' in curriculum_info:
+                        writer.add_scalar('curriculum/progress_ratio', curriculum_info['progress_ratio'], total_timesteps)
+                    if 'difficulty' in curriculum_info:
+                        writer.add_scalar('curriculum/difficulty', curriculum_info['difficulty'], total_timesteps)
+                    if 'level' in curriculum_info:
+                        writer.add_scalar('curriculum/level', curriculum_info['level'], total_timesteps)
+                    if 'number_of_objects_min' in curriculum_info:
+                        writer.add_scalar('curriculum/number_of_objects_min', curriculum_info['number_of_objects_min'], total_timesteps)
+                    if 'number_of_objects_max' in curriculum_info:
+                        writer.add_scalar('curriculum/number_of_objects_max', curriculum_info['number_of_objects_max'], total_timesteps)
 
                 # Log to CSV
                 with open(csv_filename, mode='a', newline='') as f:
                     csv_writer = csv.writer(f)
                     csv_writer.writerow([episode_num, total_timesteps, episode_reward, episode_timesteps, success_rate])
 
-                print(f"[{display_algo_name}] Episode {episode_num}, Reward: {episode_reward:.2f}, Length: {episode_timesteps}, Success Rate: {success_rate:.2f}, Level: {env_core.level}, Total Timesteps: {total_timesteps}, Total Successes: {env_core.success_count}")
+                curriculum_suffix = ""
+                if isinstance(curriculum_info, dict) and 'difficulty' in curriculum_info and 'number_of_objects_min' in curriculum_info and 'number_of_objects_max' in curriculum_info:
+                    curriculum_suffix = (
+                        f", Difficulty: {curriculum_info['difficulty']:.3f}, "
+                        f"Objects: {curriculum_info['number_of_objects_min']}-{curriculum_info['number_of_objects_max']}"
+                    )
+                print(f"[{display_algo_name}] Episode {episode_num}, Reward: {episode_reward:.2f}, Length: {episode_timesteps}, Success Rate: {success_rate:.3f}, Level: {env_core.level}{curriculum_suffix}, Total Timesteps: {total_timesteps}, Total Successes: {env_core.success_count}")
                 
                 episode_num += 1
                 episode_reward = 0
@@ -485,7 +537,8 @@ def main():
             if hasattr(env, "action_space") and hasattr(env.action_space, "seed"):
                 env.action_space.seed(seed)
 
-            # Initial Reset
+            # Initial curriculum progress update (if applicable) and Reset
+            _set_env_curriculum_progress(env, total_timesteps=0, max_timesteps=args.max_timesteps)
             obs, _ = env.reset(seed=seed)
             
             depth_image = obs['depth']
