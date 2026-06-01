@@ -10,5 +10,5 @@ vf_coef: 0.5  # PPO 价值损失权重
 ent_coef: 0.0  # PPO 熵正则权重
 target_kl: null  # PPO 目标 KL 阈值（超过可提前停止）
 gae_lambda: 0.95  # PPO/GAE 的 lambda 参数
-lr: 0.0007  # PPO 优化学习率
-max_grad_norm: 0.5  # PPO 梯度裁剪阈值
+lr: 0.0004  # PPO 优化学习率
+max_grad_norm: 1e6  # PPO 梯度裁剪阈值

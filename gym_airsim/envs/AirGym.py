@@ -245,6 +245,8 @@ class AirSimEnv(gym.Env):
             self.prev_action = 0  # For discrete actions
         self.prev_velocity = np.zeros(3, dtype=np.float32)
         self.prev_pos_xy = None
+        # 进度奖励：跟踪到目标的上一步距离
+        self.prev_goal_dist = 0.0
 
     def _reconnect_airsim_client(self, reason=""):
         """
@@ -628,7 +630,7 @@ class AirSimEnv(gym.Env):
         goal_dist_3d = float(np.linalg.norm(
             np.array([self.goal[0] - now[0], self.goal[1] - now[1], self.goal[2] - now[2]], dtype=np.float32)
         ))
-        distance_penalty = -goal_dist_3d * 0.03
+        # distance_penalty = -goal_dist_3d * 0.03
 
         if goal_dist > 1e-6:
             goal_dir = goal_vec / goal_dist
@@ -646,10 +648,10 @@ class AirSimEnv(gym.Env):
         reward_vel = float(np.minimum(reward_vel, reward_vel * np.sign(alignment)))
 
         # Match NavRL base term: reward_vel 
-        r =  reward_vel 
+        r = 3 * reward_vel 
 
         # NavRL-style smoothness penalty: ||v_t - v_{t-1}||
-        smooth_penalty_weight = 0.1
+
         if velocity_after is not None:
             curr_v = np.asarray(velocity_after, dtype=np.float32)
             prev_v = np.asarray(self.prev_velocity, dtype=np.float32)
@@ -690,8 +692,14 @@ class AirSimEnv(gym.Env):
         )
         self.last_distance_sensor_obstacle_penalty = 5 * float(distance_sensor_penalty)
         r += self.last_distance_sensor_obstacle_penalty
-        # print(f"Reward components: vel={reward_vel:.3f}, dist_penalty={distance_penalty:.3f}, smooth_penalty={smooth_penalty:.3f}, curvature_penalty={curvature_penalty:.3f}, step_penalty={step_penalty:.3f}, distance_sensor_penalty={self.last_distance_sensor_obstacle_penalty:.3f}")
- 
+
+        # 进度奖励：接近目标奖励，远离目标惩罚，不加系数
+        progress_delta = self.prev_goal_dist - goal_dist_3d
+        # r += 5 * progress_delta
+        self.prev_goal_dist = goal_dist_3d
+        # print(f"Reward components: r_vel={reward_vel:.3f}, smooth_penalty={smooth_penalty:.3f},    step_penalty={step_penalty:.3f}, distance_sensor_penalty={self.last_distance_sensor_obstacle_penalty:.3f}, progress_delta={progress_delta:.3f}, total_reward={r:.3f}")
+    
+
 
         return r
 
@@ -1141,6 +1149,9 @@ class AirSimEnv(gym.Env):
         self.prev_action = np.zeros(self.action_space.shape, dtype=np.float32) if hasattr(self.action_space, 'shape') and self.action_space.shape else 0
         self.prev_velocity = self.airgym.drone_velocity()
         self.prev_pos_xy = None
+        self.prev_goal_dist = float(np.linalg.norm(
+            np.array([self.goal[0] - now[0], self.goal[1] - now[1], self.goal[2] - now[2]], dtype=np.float32)
+        ))
         self.displacement_window.clear()
         
         # 返回 (obs, info)
