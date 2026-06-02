@@ -67,6 +67,7 @@ from algorithm.PER_ST_Vim_SAC.agent import PERSTVimSACAgent
 from algorithm.ST_SVim_SAC.agent import STSVimSACAgent
 from algorithm.DPER_ST_Vim_SAC.agent import DPERSTVimSACAgent
 from algorithm.MambaCSJA_SAC.agent import MambaCSJA_SACAgent
+from algorithm.DPER_MambaCSJA_SAC.agent import DPERMambaCSJASACAgent
 from algorithm.Mamba_SAC.agent import MambaSACAgent
 from algorithm.PER_Mamba_SAC.agent import PERMambaSACAgent
 from algorithm.beta_sac import (
@@ -209,6 +210,7 @@ def get_agent_class(algo_name):
         'DPER_ST_Vim_SAC_Beta': DPERSTVimSACBetaAgent,
         'Mamba_SAC': MambaSACAgent,
         'MambaCSJA_SAC': MambaCSJA_SACAgent,
+        'DPER_MambaCSJA_SAC': DPERMambaCSJASACAgent,
         'PER_Mamba_SAC': PERMambaSACAgent,
     }
     if core_algo_name in agents:
