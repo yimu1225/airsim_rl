@@ -85,6 +85,18 @@ class LSTMSACAgent:
         self.target_update_interval = int(get_algo_param(self.args, "target_update_interval", 1))
         self.total_it = 0
 
+        # ── Curriculum: paper-style 4-stage feature pre-training ──
+        # progress_ratio thresholds: 0, 0.25, 0.50, 0.75
+        # At each threshold, feature extractor is trained for
+        # lstm_sac_feature_train_steps gradient updates, then frozen.
+        self.learning_starts = int(getattr(self.args, "learning_starts", 0))
+        self.feature_train_steps = int(
+            get_algo_param(self.args, "lstm_sac_feature_train_steps", 2500)
+        )
+        self._current_stage = -1
+        self._feature_steps_in_stage = 0
+        self._feature_only_mode = False
+
     def _format_depth_sequence(self, depth_batch: torch.Tensor) -> torch.Tensor:
         if depth_batch.dim() == 2:
             depth_batch = depth_batch.unsqueeze(0).unsqueeze(0).unsqueeze(0)
@@ -133,7 +145,6 @@ class LSTMSACAgent:
         return self.feature_extractor.reconstruction_loss(frames, kl_weight=self.kl_weight)
 
     def select_action(self, base_state, depth, deterministic=False, with_log_prob=False, progress_ratio=0.0):
-        del progress_ratio
         base = torch.as_tensor(base_state, dtype=torch.float32, device=self.device)
         depth_tensor = torch.as_tensor(depth, dtype=torch.float32, device=self.device)
         with torch.no_grad():
@@ -146,8 +157,43 @@ class LSTMSACAgent:
             real_action = self.action_scale * action + self.action_bias
             return real_action.cpu().numpy().flatten()
 
+    def _update_curriculum_stage(self, progress_ratio: float):
+        """Determine curriculum stage and feature-training mode based on progress_ratio.
+
+        Paper-style 4 stages:
+          Stage 0: progress_ratio < 0.25  → train feature 2500 updates, then freeze
+          Stage 1: 0.25 ≤ progress_ratio < 0.50 → train feature 2500 updates, then freeze
+          Stage 2: 0.50 ≤ progress_ratio < 0.75 → train feature 2500 updates, then freeze
+          Stage 3: 0.75 ≤ progress_ratio → train feature 2500 updates, then freeze
+
+        Feature training only happens during the first ``feature_train_steps``
+        gradient updates of each stage, AFTER ``learning_starts`` env steps.
+
+        Returns dict with training-mode info.
+        """
+        # Map progress_ratio → stage (0,1,2,3)
+        ratio = float(progress_ratio)
+        new_stage = min(int(ratio / 0.25), 3) if ratio < 1.0 else 3
+
+        stage_changed = new_stage != self._current_stage
+        if stage_changed:
+            self._feature_steps_in_stage = 0
+        self._current_stage = new_stage
+
+        # Feature-only mode: first feature_train_steps gradient updates of
+        # this stage, but only after learning_starts env steps are done.
+        in_feature_window = (
+            self._feature_steps_in_stage < self.feature_train_steps
+        )
+        self._feature_only_mode = bool(in_feature_window)
+
+        return {
+            "stage": new_stage,
+            "stage_changed": stage_changed,
+            "feature_only": self._feature_only_mode,
+        }
+
     def train(self, progress_ratio=0.0):
-        del progress_ratio
         self.total_it += 1
         if self.replay_buffer.size() < self.batch_size:
             return {}
@@ -166,8 +212,13 @@ class LSTMSACAgent:
         next_depths = torch.as_tensor(next_depths, dtype=torch.float32, device=self.device)
         dones = torch.as_tensor(dones, dtype=torch.float32, device=self.device).view(-1, 1)
 
+        # ── Paper-style curriculum stage ──
+        cur = self._update_curriculum_stage(progress_ratio)
+        feature_only = cur["feature_only"]
+
+        # Feature extractor update (always computed, only backpropped during window)
         feature_loss, recon_loss, kl_loss = self._feature_loss(depths)
-        if self.feature_loss_weight > 0.0:
+        if self.feature_loss_weight > 0.0 and feature_only:
             self.feature_optimizer.zero_grad()
             (self.feature_loss_weight * feature_loss).backward()
             nn.utils.clip_grad_norm_(
@@ -176,6 +227,22 @@ class LSTMSACAgent:
             )
             self.feature_optimizer.step()
 
+        # ── Paper: freeze policy during feature-only phase ──
+        if feature_only:
+            self._feature_steps_in_stage += 1
+            return {
+                "stage": cur["stage"],
+                "feature_only": 1.0,
+                "feature_loss": float(feature_loss.detach().item()),
+                "recon_loss": float(recon_loss.detach().item()),
+                "kl_loss": float(kl_loss.detach().item()),
+                "critic_loss": 0.0,
+                "alpha": float(self.alpha),
+                "target_q_mean": 0.0,
+                "current_q_mean": 0.0,
+            }
+
+        # ── Normal policy update (policy_only_mode) ──
         with torch.no_grad():
             next_actor_state = self._state_sequence(next_base_states, next_depths, detach_features=True)
             next_actions, next_log_prob = self.actor.action_log_prob(next_actor_state)
@@ -246,6 +313,8 @@ class LSTMSACAgent:
             self._soft_update()
 
         result = {
+            "stage": cur["stage"],
+            "feature_only": 0.0,
             "critic_loss": float(critic_loss.item()),
             "alpha": float(self.alpha),
             "target_q_mean": target_q_mean_value,
@@ -287,6 +356,7 @@ class LSTMSACAgent:
             "feature_optimizer": self.feature_optimizer.state_dict(),
             "total_it": self.total_it,
             "alpha": self.alpha,
+            "curriculum_stage": self._current_stage,
         }
         if self.auto_entropy_tuning:
             checkpoint["log_alpha"] = self.log_alpha.detach()
@@ -313,6 +383,7 @@ class LSTMSACAgent:
             self.feature_optimizer.load_state_dict(checkpoint["feature_optimizer"])
         self.total_it = checkpoint.get("total_it", 0)
         self.alpha = checkpoint.get("alpha", self.alpha)
+        self._current_stage = checkpoint.get("curriculum_stage", -1)
         if self.auto_entropy_tuning and "log_alpha" in checkpoint:
             self.log_alpha.data.copy_(checkpoint["log_alpha"])
             if "alpha_optimizer" in checkpoint:

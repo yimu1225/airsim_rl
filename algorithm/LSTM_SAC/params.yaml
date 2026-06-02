@@ -9,3 +9,6 @@ lstm_sac_feature_dim: 64
 lstm_sac_hidden_dim: 512
 lstm_sac_feature_loss_weight: 1.0
 lstm_sac_reconstruction_kl_weight: 0.5
+
+# ── Paper-style curriculum (4 stages, 2500 feature-train steps each) ──
+lstm_sac_feature_train_steps: 2500

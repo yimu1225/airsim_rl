@@ -61,7 +61,6 @@ from algorithm.PL_ST_Vim_SAC.agent import PLSTVimSACAgent
 from algorithm.PL_PER_ST_Vim_SAC.agent import PLPERSTVimSACAgent
 from algorithm.PL_DPER_ST_Vim_SAC.agent import PLDPERSTVimSACAgent
 from algorithm.PL_DPER_ST_Vim_TD3.agent import PLDPERSTVimTD3Agent
-from algorithm.LSTM_SAC.agent import LSTMSACAgent
 from algorithm.ST_Vim_SAC.agent import STVimSACAgent
 from algorithm.MM_ST_Vim_SAC.agent import MMSTVimSACAgent
 from algorithm.PER_ST_Vim_SAC.agent import PERSTVimSACAgent
@@ -201,7 +200,6 @@ def get_agent_class(algo_name):
         'PL_PER_ST_Vim_SAC': PLPERSTVimSACAgent,
         'PL_DPER_ST_Vim_SAC': PLDPERSTVimSACAgent,
         'PL_DPER_ST_Vim_SAC_Beta': PLDPERSTVimSACBetaAgent,
-        'LSTM_SAC': LSTMSACAgent,
         'ST_Vim_SAC': STVimSACAgent,
         'MM_ST_Vim_SAC': MMSTVimSACAgent,
         'PER_ST_Vim_SAC': PERSTVimSACAgent,
@@ -526,7 +524,6 @@ def main():
                 'PL_DPER_ST_Vim_TD3',
                 'ST_SVim_TD3',
                 'ST_DualVim_TD3',
-                'LSTM_SAC',
                 'ST_Vim_SAC',
                 'MM_ST_Vim_SAC',
                 'PER_ST_Vim_SAC',
@@ -657,7 +654,7 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, in
     obs = initial_obs
     state = obs['depth']
     base = obs['base']
-    base_seq_algos = {"ST_Seq_Vim_TD3", "STV_Seq_Vim_TD3", "LSTM_SAC", "MM_ST_Vim_SAC"}
+    base_seq_algos = {"ST_Seq_Vim_TD3", "STV_Seq_Vim_TD3", "MM_ST_Vim_SAC"}
     use_base_sequence = bool(is_recurrent and core_algo_name in base_seq_algos)
     base_seq_deque = None
     base_seq = None
