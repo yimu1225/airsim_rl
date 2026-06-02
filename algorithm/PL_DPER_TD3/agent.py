@@ -98,10 +98,10 @@ class PLDPERTD3Agent:
 
         # Staircase schedule for success-prioritized sampling ratio mu.
         self.mu_low = float(get_algo_param(args, "dper_td3_mu_low", 0.30))
-        self.mu_mid = float(get_algo_param(args, "dper_td3_mu_mid", 0.45))
-        self.mu_high = float(get_algo_param(args, "dper_td3_mu_high", 0.60))
+        self.mu_mid = float(get_algo_param(args, "dper_td3_mu_mid", 0.40))
+        self.mu_high = float(get_algo_param(args, "dper_td3_mu_high", 0.45))
         self.mu_step1 = float(get_algo_param(args, "dper_td3_mu_step1", 0.25))
-        self.mu_step2 = float(get_algo_param(args, "dper_td3_mu_step2", 0.65))
+        self.mu_step2 = float(get_algo_param(args, "dper_td3_mu_step2", 0.70))
 
         self.exploration_noise = args.exploration_noise
 

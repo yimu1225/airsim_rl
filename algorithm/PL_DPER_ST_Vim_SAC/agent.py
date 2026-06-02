@@ -83,7 +83,7 @@ class PLDPERSTVimSACAgent:
         self.replay_buffer = DualPrioritizedReplayBuffer(
             args.buffer_size,
             success_capacity_ratio=get_algo_param(args, "dper_success_capacity_ratio", 0.3),
-            success_sample_ratio=get_algo_param(args, "dper_success_sample_ratio", 0.5),
+            success_sample_ratio=get_algo_param(args, "dper_success_sample_ratio", 0.30),
             alpha=get_algo_param(args, "dper_alpha", 0.6),
             eps=get_algo_param(args, "dper_eps", 1e-6),
             seed=seed,
@@ -134,10 +134,10 @@ class PLDPERSTVimSACAgent:
 
     def _get_current_success_sample_ratio(self, progress_ratio: float) -> float:
         mu_low = float(get_algo_param(self.args, "dper_mu_low", 0.30))
-        mu_mid = float(get_algo_param(self.args, "dper_mu_mid", 0.45))
-        mu_high = float(get_algo_param(self.args, "dper_mu_high", 0.60))
+        mu_mid = float(get_algo_param(self.args, "dper_mu_mid", 0.40))
+        mu_high = float(get_algo_param(self.args, "dper_mu_high", 0.45))
         mu_step1 = float(get_algo_param(self.args, "dper_mu_step1", 0.25))
-        mu_step2 = float(get_algo_param(self.args, "dper_mu_step2", 0.65))
+        mu_step2 = float(get_algo_param(self.args, "dper_mu_step2", 0.70))
 
         p = float(np.clip(progress_ratio, 0.0, 1.0))
         if p < mu_step1:

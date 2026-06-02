@@ -25,7 +25,7 @@ class DualPrioritizedReplayBuffer:
         self,
         capacity,
         success_capacity_ratio=0.3,
-        success_sample_ratio=0.5,
+        success_sample_ratio=0.30,
         alpha=0.6,
         eps=1e-6,
         seed=None,
