@@ -51,10 +51,8 @@ class Actor(nn.Module):
 
         self.policy = nn.Sequential(
             nn.Linear(repr_dim, hidden_dim),
-            nn.LayerNorm(hidden_dim),
             nn.ReLU(inplace=True),
             nn.Linear(hidden_dim, hidden_dim),
-            nn.LayerNorm(hidden_dim),
             nn.ReLU(inplace=True),
             nn.Linear(hidden_dim, action_shape[0])
         )
@@ -86,10 +84,8 @@ class Critic(nn.Module):
         # DDPG: Single Q-value (no double Q-learning)
         self.Q = nn.Sequential(
             nn.Linear(repr_dim + action_shape[0], hidden_dim),
-            nn.LayerNorm(hidden_dim),
             nn.ReLU(inplace=True),
             nn.Linear(hidden_dim, hidden_dim),
-            nn.LayerNorm(hidden_dim),
             nn.ReLU(inplace=True),
             nn.Linear(hidden_dim, 1)
         )

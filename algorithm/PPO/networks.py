@@ -28,10 +28,8 @@ class Actor(nn.Module):
         # Mean network
         self.mean_net = nn.Sequential(
             nn.Linear(repr_dim, hidden_dim),
-            nn.LayerNorm(hidden_dim),
             nn.ReLU(inplace=True),
             nn.Linear(hidden_dim, hidden_dim),
-            nn.LayerNorm(hidden_dim),
             nn.ReLU(inplace=True),
             nn.Linear(hidden_dim, action_dim)
         )
@@ -114,10 +112,8 @@ class Critic(nn.Module):
         
         self.value_net = nn.Sequential(
             nn.Linear(repr_dim, hidden_dim),
-            nn.LayerNorm(hidden_dim),
             nn.ReLU(inplace=True),
             nn.Linear(hidden_dim, hidden_dim),
-            nn.LayerNorm(hidden_dim),
             nn.ReLU(inplace=True),
             nn.Linear(hidden_dim, 1)
         )
