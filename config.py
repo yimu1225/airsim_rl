@@ -35,7 +35,7 @@ def get_config(argv=None):
     parser.add_argument("--smooth_method", type=str, default="moving", choices=["moving","zero_phase_des"], help="曲线平滑方法: moving=滑动平均, zero_phase_des=零相位双重指数平滑")
     parser.add_argument("--smooth_alpha", type=float, default=0.05, help="零相位双重指数平滑的水平平滑因子 (0-1)，越大越关注近期数据")
     parser.add_argument("--smooth_beta", type=float, default=0.3, help="零相位双重指数平滑的趋势平滑因子 (0-1)，越大越关注近期趋势变化")
-    parser.add_argument("--plot_cl", action='store_true', default=True, help="绘图时是0否检索带 CL- 前缀的算法 (默认: True)")
+    parser.add_argument("--plot_cl", action='store_true', default=True, help="绘图时是否检索带 CL- 前缀的算法 (默认: True)")
     parser.add_argument("--plot_non_cl", action='store_true', default=True, help="绘图时是否检索常规算法 (默认: True)")
     parser.add_argument("--use_percentile", action='store_true', default=False, help="使用四分位范围作为阴影带而不是均值加置信区间")
     parser.add_argument("--ci_type", type=str, default="std", choices=["std", "sem"], help="阴影区域类型: std=标准差, sem=标准误差")
