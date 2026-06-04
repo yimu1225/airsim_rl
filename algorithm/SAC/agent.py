@@ -88,14 +88,21 @@ class SACAgent:
 
         C, depth_h, depth_w = depth_shape
         self.depth_seq_len = max(1, int(C))
-        visual_channels = 1
+        self.use_stacked_depth = bool(get_algo_param(args, "use_stacked_depth", False))
+
+        if self.use_stacked_depth:
+            visual_channels = self.depth_seq_len
+            encoder_frame_wise = False
+        else:
+            visual_channels = 1
+            encoder_frame_wise = None
 
         # Encoders
-        self.actor_encoder = self._make_encoder(depth_h, depth_w, visual_channels).to(self.device)
-        self.critic_encoder = self._make_encoder(depth_h, depth_w, visual_channels).to(self.device)
+        self.actor_encoder = self._make_encoder(depth_h, depth_w, visual_channels, encoder_frame_wise).to(self.device)
+        self.critic_encoder = self._make_encoder(depth_h, depth_w, visual_channels, encoder_frame_wise).to(self.device)
 
         # Target Encoder for Critic (soft update)
-        self.critic_encoder_target = self._make_encoder(depth_h, depth_w, visual_channels).to(self.device)
+        self.critic_encoder_target = self._make_encoder(depth_h, depth_w, visual_channels, encoder_frame_wise).to(self.device)
         self.critic_encoder_target.load_state_dict(self.critic_encoder.state_dict())
         
         # State adapters
@@ -134,14 +141,14 @@ class SACAgent:
         self.policy_freq = getattr(args, "policy_freq", 1)
         self.target_update_interval = get_algo_param(args, "target_update_interval", 1)
 
-    def _make_encoder(self, depth_h: int, depth_w: int, visual_channels: int):
-        return Encoder(input_height=depth_h, input_width=depth_w, input_channels=visual_channels)
+    def _make_encoder(self, depth_h: int, depth_w: int, visual_channels: int, frame_wise=None):
+        return Encoder(input_height=depth_h, input_width=depth_w, input_channels=visual_channels, frame_wise=frame_wise)
 
     def _uses_sequence_encoder(self) -> bool:
         return False
 
     def _encoded_visual_dim(self) -> int:
-        if self._uses_sequence_encoder():
+        if self._uses_sequence_encoder() or self.use_stacked_depth:
             return self.actor_encoder.repr_dim
         return self.actor_encoder.repr_dim * self.depth_seq_len
 
@@ -174,6 +181,20 @@ class SACAgent:
 
             if depth_batch.size(2) != 1:
                 raise ValueError(f"Expected single-channel sequence frames, got {tuple(depth_batch.shape)}")
+            return encoder_net(depth_batch)
+
+        if self.use_stacked_depth:
+            if depth_batch.dim() == 2:
+                depth_batch = depth_batch.unsqueeze(0).unsqueeze(0)
+            elif depth_batch.dim() == 3:
+                depth_batch = depth_batch.unsqueeze(0)
+            elif depth_batch.dim() == 5:
+                if depth_batch.size(2) != 1:
+                    raise ValueError(f"Expected single-channel frames, got {tuple(depth_batch.shape)}")
+                depth_batch = depth_batch.squeeze(2)
+
+            if depth_batch.dim() != 4:
+                raise ValueError(f"Unsupported depth batch shape: {tuple(depth_batch.shape)}")
             return encoder_net(depth_batch)
 
         if depth_batch.dim() == 2:
