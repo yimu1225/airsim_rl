@@ -4,3 +4,4 @@ ent_coef: 'auto'  # use 'auto' to learn entropy coefficient, or a float value to
 target_entropy: auto  # auto -> use SB3 heuristic -action_dim; can set to a float to override
 target_update_interval: 1  # SB3-style critic target update interval, in gradient steps
 policy_freq: 1  # SAC/SB3 updates actor every gradient step
+use_stacked_depth: false  # true: 4帧当作4通道直接卷积; false: 逐帧处理再拼接
