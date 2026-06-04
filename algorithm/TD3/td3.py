@@ -37,16 +37,18 @@ class TD3Agent:
 
         # Encoder
         C, depth_h, depth_w = depth_shape
+        self.depth_seq_len = max(1, int(C))
+        visual_channels = 1
         
         # Split Encoders for Actor and Critic
-        self.actor_encoder = Encoder(input_height=depth_h, input_width=depth_w, input_channels=C).to(self.device)
-        self.critic_encoder = Encoder(input_height=depth_h, input_width=depth_w, input_channels=C).to(self.device)
+        self.actor_encoder = Encoder(input_height=depth_h, input_width=depth_w, input_channels=visual_channels).to(self.device)
+        self.critic_encoder = Encoder(input_height=depth_h, input_width=depth_w, input_channels=visual_channels).to(self.device)
         
         # Target Encoders (Soft Update)
-        self.actor_encoder_target = Encoder(input_height=depth_h, input_width=depth_w, input_channels=C).to(self.device)
+        self.actor_encoder_target = Encoder(input_height=depth_h, input_width=depth_w, input_channels=visual_channels).to(self.device)
         self.actor_encoder_target.load_state_dict(self.actor_encoder.state_dict())
         
-        self.critic_encoder_target = Encoder(input_height=depth_h, input_width=depth_w, input_channels=C).to(self.device)
+        self.critic_encoder_target = Encoder(input_height=depth_h, input_width=depth_w, input_channels=visual_channels).to(self.device)
         self.critic_encoder_target.load_state_dict(self.critic_encoder.state_dict())
 
         self.actor_base_adapter = StateAdapter(self.base_dim, self.base_feature_dim).to(self.device)
@@ -57,7 +59,7 @@ class TD3Agent:
         self.critic_base_adapter_target.load_state_dict(self.critic_base_adapter.state_dict())
         
         # State dim = adapted base features + visual features.
-        self.state_dim = self.base_feature_dim + self.actor_encoder.repr_dim
+        self.state_dim = self.base_feature_dim + self._encoded_visual_dim()
         
         # Actor & Critic
         self.actor = Actor(self.state_dim, action_space.shape, args.hidden_dim).to(self.device)
@@ -90,14 +92,51 @@ class TD3Agent:
         
         self.total_it = 0
 
+    def _uses_sequence_encoder(self) -> bool:
+        return False
+
+    def _encoded_visual_dim(self) -> int:
+        if self._uses_sequence_encoder():
+            return self.actor_encoder.repr_dim
+        return self.actor_encoder.repr_dim * self.depth_seq_len
+
     def _encode(self, depth_batch: torch.Tensor, encoder_net) -> torch.Tensor:
-        # depth_batch shape: (frames, H, W) for non-recurrent
-        # print(f"Debug: _encode input shape: {depth_batch.shape}")
-        if depth_batch.dim() == 3:
-            # Non-recurrent: (frames, H, W) -> (1, frames, H, W)
+        """Encode depth image."""
+        if self._uses_sequence_encoder():
+            if depth_batch.dim() == 2:
+                depth_batch = depth_batch.unsqueeze(0).unsqueeze(0).unsqueeze(0)
+            elif depth_batch.dim() == 3:
+                depth_batch = depth_batch.unsqueeze(0).unsqueeze(2)
+            elif depth_batch.dim() == 4:
+                if depth_batch.size(1) == 1:
+                    depth_batch = depth_batch.unsqueeze(0)
+                else:
+                    depth_batch = depth_batch.unsqueeze(2)
+            elif depth_batch.dim() == 5:
+                pass
+            else:
+                raise ValueError(f"Unsupported sequence depth batch shape: {tuple(depth_batch.shape)}")
+
+            if depth_batch.size(2) != 1:
+                raise ValueError(f"Expected single-channel sequence frames, got {tuple(depth_batch.shape)}")
+            return encoder_net(depth_batch)
+
+        if depth_batch.dim() == 2:
+            depth_batch = depth_batch.unsqueeze(0).unsqueeze(0)
+        elif depth_batch.dim() == 3:
             depth_batch = depth_batch.unsqueeze(0)
-            # print(f"Debug: after unsqueeze(0): {depth_batch.shape}")
-        return encoder_net(depth_batch)
+        elif depth_batch.dim() == 5:
+            if depth_batch.size(2) != 1:
+                raise ValueError(f"Expected single-channel frames, got {tuple(depth_batch.shape)}")
+            depth_batch = depth_batch.squeeze(2)
+
+        if depth_batch.dim() != 4:
+            raise ValueError(f"Unsupported depth batch shape: {tuple(depth_batch.shape)}")
+
+        batch_size, seq_len, height, width = depth_batch.shape
+        frames = depth_batch.reshape(batch_size * seq_len, 1, height, width)
+        frame_features = encoder_net(frames).view(batch_size, seq_len, -1)
+        return frame_features.reshape(batch_size, seq_len * frame_features.size(-1))
 
     def _concat_state(self, base: torch.Tensor, depth: torch.Tensor, encoder_net, base_adapter, detach_encoder: bool = False) -> torch.Tensor:
         base_features = base_adapter(base)
@@ -195,7 +234,7 @@ class TD3Agent:
             
             # Re-compute critic state features detached (Critic Encoder is fixed for actor update)
             with torch.no_grad():
-                 encoded_depths_critic_fixed = self.critic_encoder(depths)
+                 encoded_depths_critic_fixed = self._encode(depths, self.critic_encoder)
                  base_features_critic_fixed = self.critic_base_adapter(base_states)
                  states_critic_fixed = torch.cat([base_features_critic_fixed, encoded_depths_critic_fixed], dim=1)
 
