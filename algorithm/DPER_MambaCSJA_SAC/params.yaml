@@ -7,13 +7,13 @@ policy_freq: 1  # SAC/SB3 updates actor every gradient step
 
 # DPER (Dual Prioritized Experience Replay) parameters
 dper_success_capacity_ratio: 0.3
-dper_success_sample_ratio: 0.5
+dper_success_sample_ratio: 0.30
 dper_alpha: 0.6
 dper_eps: 1.0e-6
 dper_beta0: 0.4
 dper_beta1: 1.0
 dper_mu_low: 0.30
-dper_mu_mid: 0.45
-dper_mu_high: 0.60
+dper_mu_mid: 0.40
+dper_mu_high: 0.45
 dper_mu_step1: 0.25
-dper_mu_step2: 0.65
+dper_mu_step2: 0.70
