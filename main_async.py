@@ -81,6 +81,7 @@ from algorithm.PL_TD3.pl_td3 import PLTD3Agent
 from algorithm.PL_DPER_TD3.agent import PLDPERTD3Agent
 from algorithm.PL_ST_Vim_TD3.agent import PLSTVimTD3Agent
 from algorithm.AETD3.aetd3 import AETD3Agent
+from algorithm.SDDPG.sddpg import SDDPGAgent
 
 
 
@@ -951,6 +952,10 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, in
                 episode_num += 1
                 episode_reward = 0
                 episode_timesteps = 0
+
+                # SDDPG: decay OU noise epsilon per episode
+                if hasattr(agent, 'on_episode_end'):
+                    agent.on_episode_end()
 
                 # Check if need to restart game
                 if total_timesteps >= next_restart:

@@ -1,0 +1,33 @@
+params:
+  # Subnetwork hidden dimensions (matching paper Fig. 4)
+  sub1_hidden: [256, 128]
+  sub2_hidden: [32, 16]
+  
+  # Subnetwork output dimensions (ao / ag)
+  # Paper Fig. 4a: both subnetworks output dimension = 2 (Dense 2 | Tanh)
+  sub1_out_dim: 2
+  sub2_out_dim: 2
+  
+  # Global actor & critic hidden dimensions (paper Fig. 4a: [400, 300])
+  global_actor_hidden: [400, 300]
+  critic_hidden: [400, 300]
+  
+  # Feature projection dimensions for sg/su when feeding into global/critic
+  sg_feature_dim: 16
+  su_feature_dim: 16
+  
+  # Visual encoder output dimension per frame
+  encoder_output_dim: 64
+  
+  # OU noise parameters
+  ou_theta: 0.15
+  ou_sigma: 0.2
+  ou_mu: 0.0
+  
+  # Decayed exploration (epsilon decay per episode)
+  noise_decay: 0.002
+  noise_min: 0.001
+  initial_noise_scale: 1.0
+  
+  # Loss
+  use_smooth_l1: true
