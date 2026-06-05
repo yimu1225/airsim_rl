@@ -213,6 +213,7 @@ def get_agent_class(algo_name):
         'MambaCSJA_SAC': MambaCSJA_SACAgent,
         'DPER_MambaCSJA_SAC': DPERMambaCSJASACAgent,
         'PER_Mamba_SAC': PERMambaSACAgent,
+        'SDDPG': SDDPGAgent,
     }
     if core_algo_name in agents:
         return agents[core_algo_name]
