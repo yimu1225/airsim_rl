@@ -45,6 +45,7 @@ _CANONICAL_ALGORITHMS: Tuple[str, ...] = (
     "PL_DPER_ST_Vim_SAC",
     "PL_DPER_ST_Vim_SAC_Beta",
     "PL_DPER_ST_Vim_TD3",
+    "SDDPG",
 )
 
 ALGORITHM_GROUPS: Dict[str, List[str]] = {
@@ -86,6 +87,7 @@ ALGORITHM_GROUPS: Dict[str, List[str]] = {
         "PL_PER_ST_Vim_SAC",
         "PL_DPER_ST_Vim_SAC",
         "PL_DPER_ST_Vim_TD3",
+        "SDDPG",
     ],
     "base": [
         "TD3",
