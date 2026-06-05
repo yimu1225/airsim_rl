@@ -131,10 +131,13 @@ class LSTMSACAgent:
         depth = self._format_depth_sequence(depth)
         base = self._format_base_sequence(base, depth.size(0))
         extractor = extractor if extractor is not None else self.feature_extractor
-        image_features = extractor(depth)
+        if detach_features:
+            with torch.no_grad():
+                image_features = extractor(depth)
+        else:
+            image_features = extractor(depth)
         base_features = self.base_norm(base)
         if detach_features:
-            image_features = image_features.detach()
             base_features = base_features.detach()
         return torch.cat([image_features, base_features], dim=-1)
 
@@ -216,9 +219,9 @@ class LSTMSACAgent:
         cur = self._update_curriculum_stage(progress_ratio)
         feature_only = cur["feature_only"]
 
-        # Feature extractor update (always computed, only backpropped during window)
-        feature_loss, recon_loss, kl_loss = self._feature_loss(depths)
+        # Feature extractor update (only backpropped during feature window)
         if self.feature_loss_weight > 0.0 and feature_only:
+            feature_loss, recon_loss, kl_loss = self._feature_loss(depths)
             self.feature_optimizer.zero_grad()
             (self.feature_loss_weight * feature_loss).backward()
             nn.utils.clip_grad_norm_(
@@ -226,6 +229,9 @@ class LSTMSACAgent:
                 self.grad_clip,
             )
             self.feature_optimizer.step()
+        else:
+            with torch.no_grad():
+                feature_loss, recon_loss, kl_loss = self._feature_loss(depths)
 
         # ── Paper: freeze policy during feature-only phase ──
         if feature_only:
