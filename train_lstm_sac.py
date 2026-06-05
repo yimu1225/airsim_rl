@@ -43,7 +43,7 @@ def _to_scalar_float(value):
     return None
 
 
-def _log_train_metrics(writer, train_info, total_timesteps):
+def _log_train_metrics_per_update(writer, train_info, update_step, algo_name, total_timesteps):
     if not isinstance(train_info, dict):
         return
     for key, value in train_info.items():
@@ -90,10 +90,8 @@ def _log_curriculum_info(writer, info, total_timesteps):
 # ──────────────────────────────────────────────
 #  Main
 # ──────────────────────────────────────────────
-def main():
-    args = get_config()
-    seed = args.seed
-
+def _train_single_seed(args, seed: int):
+    """Run LSTM-SAC training for a single seed."""
     # Reproducibility
     import random
     random.seed(seed)
@@ -102,13 +100,17 @@ def main():
     if torch.cuda.is_available():
         torch.cuda.manual_seed(seed)
 
-    # Create env
-    n_frames = int(getattr(args, "n_frames", 1))
-    env = AirSimEnv(takeoff_height=args.takeoff_height, config=args, stack_frames=n_frames)
+    # Create a per-seed copy of args so env gets a single int, not a list
+    seed_args = copy.deepcopy(args)
+    seed_args.seed = seed
+
+    # Create env (单帧深度图，与论文一致)
+    seed_args.n_frames = 1
+    env = AirSimEnv(takeoff_height=seed_args.takeoff_height, config=seed_args, stack_frames=1)
     if hasattr(env.action_space, "seed"):
         env.action_space.seed(seed)
 
-    _set_env_curriculum_progress(env, 0, args.max_timesteps)
+    _set_env_curriculum_progress(env, 0, seed_args.max_timesteps)
     obs, _ = env.reset(seed=seed)
     depth_image = obs["depth"]
     base_state = obs["base"]
@@ -120,12 +122,12 @@ def main():
 
     print(f"[LSTM-SAC] Obs shapes: depth={depth_shape}, base={base_dim}")
     print(f"[LSTM-SAC] Action space: {action_space}")
-    print(f"[LSTM-SAC] Max timesteps: {args.max_timesteps}")
-    print(f"[LSTM-SAC] Learning starts (random steps): {args.learning_starts}")
+    print(f"[LSTM-SAC] Max timesteps: {seed_args.max_timesteps}")
+    print(f"[LSTM-SAC] Learning starts (random steps): {seed_args.learning_starts}")
 
     # Agent
-    device = torch.device("cuda" if args.cuda and torch.cuda.is_available() else "cpu")
-    agent = LSTMSACAgent(base_dim, model_depth_shape, action_space, args, device=device, seed=seed)
+    device = torch.device("cuda" if seed_args.cuda and torch.cuda.is_available() else "cpu")
+    agent = LSTMSACAgent(base_dim, model_depth_shape, action_space, seed_args, device=device, seed=seed)
 
     # Logging
     run_name = f"LSTM_SAC_seed{seed}"
@@ -151,20 +153,20 @@ def main():
     episode_num = 0
     episode_reward = 0.0
     episode_timesteps = 0
+    update_step = 0
 
-    max_timesteps = int(args.max_timesteps)
-    steps_per_update = int(args.steps_per_update)
-    start_timesteps = int(args.learning_starts)
-    update_after = int(getattr(args, "update_after", args.learning_starts))
+    max_timesteps = int(seed_args.max_timesteps)
+    steps_per_update = int(seed_args.steps_per_update)
+    start_timesteps = int(seed_args.learning_starts)
+    update_after = int(getattr(seed_args, "update_after", seed_args.learning_starts))
 
-    pbar = tqdm(total=max_timesteps, desc="LSTM-SAC", unit="step", smoothing=0.1)
+    print("Start LSTM-SAC Training Loop...")
 
     while total_timesteps < max_timesteps:
         # ── Collect steps_per_update ──
         for _ in range(steps_per_update):
             episode_timesteps += 1
             total_timesteps += 1
-            pbar.update(1)
 
             # Prepare sequence input
             depth_seq = obs["depth"]
@@ -212,6 +214,7 @@ def main():
                 writer.add_scalar("train/episode_reward", episode_reward, total_timesteps)
                 writer.add_scalar("train/episode_length", episode_timesteps, total_timesteps)
                 writer.add_scalar("train/success_rate", success_rate, total_timesteps)
+                writer.add_scalar("train/success_count", env_core.success_count, total_timesteps)
                 _log_curriculum_info(writer, curriculum_info, total_timesteps)
 
                 with open(csv_path, "a", newline="") as f:
@@ -219,11 +222,21 @@ def main():
                     w.writerow([episode_num, total_timesteps, episode_reward,
                                 episode_timesteps, success_rate])
 
-                pbar.set_postfix(
-                    ep=episode_num,
-                    R=f"{episode_reward:.1f}",
-                    succ=f"{success_rate:.2f}",
-                )
+                curriculum_suffix = ""
+                if curriculum_info is not None:
+                    curriculum_suffix = (
+                        f", Difficulty: {curriculum_info['difficulty']:.3f}, "
+                        f"Objects: {curriculum_info['number_of_objects_min']}-{curriculum_info['number_of_objects_max']}"
+                    )
+                print(f"[LSTM-SAC] Episode {episode_num}, Reward: {episode_reward:.2f}, Length: {episode_timesteps}, Success Rate: {success_rate:.3f}, Level: {env_core.level}{curriculum_suffix}, Total Timesteps: {total_timesteps}, Total Successes: {env_core.success_count}")
+
+                # Periodic CUDA memory cleanup
+                if episode_num % 50 == 0 and torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                    if hasattr(torch.cuda, 'memory_summary'):
+                        allocated = torch.cuda.memory_allocated() / 1024**3
+                        reserved = torch.cuda.memory_reserved() / 1024**3
+                        print(f"[Memory] CUDA cache cleared. Allocated: {allocated:.2f}GB, Reserved: {reserved:.2f}GB")
 
                 episode_num += 1
                 episode_reward = 0.0
@@ -234,13 +247,14 @@ def main():
             # ── End of episode handling ──
 
         # ── Training update ──
-        if agent.replay_buffer.size() >= args.batch_size and total_timesteps >= update_after:
-            n_updates = max(1, int(steps_per_update * args.gradient_steps))
-            for _ in range(n_updates):
+        if agent.replay_buffer.size() >= seed_args.batch_size and total_timesteps >= update_after:
+            n_updates = max(1, int(steps_per_update * seed_args.gradient_steps))
+            for _ in tqdm(range(n_updates), desc=f"Training ({total_timesteps})", leave=False):
                 progress_ratio = total_timesteps / max_timesteps
                 train_info = agent.train(progress_ratio=progress_ratio)
                 if train_info:
-                    _log_train_metrics(writer, train_info, total_timesteps)
+                    update_step += 1
+                    _log_train_metrics_per_update(writer, train_info, update_step, "LSTM_SAC", total_timesteps)
 
             # Log feature-only status
             if hasattr(agent, "_feature_only_mode") and agent._feature_only_mode:
@@ -252,17 +266,38 @@ def main():
         if total_timesteps % 10000 == 0:
             path = os.path.join(model_dir, f"async_{total_timesteps}.pth")
             agent.save(path)
+            print(f"Model saved at timestep {total_timesteps}: {path}")
 
         # ── Periodic CUDA cleanup ──
         if total_timesteps % 5000 == 0 and torch.cuda.is_available():
             torch.cuda.empty_cache()
+            gc.collect()
+            if hasattr(torch.cuda, 'memory_summary'):
+                allocated = torch.cuda.memory_allocated() / 1024**3
+                reserved = torch.cuda.memory_reserved() / 1024**3
+                print(f"[Memory] CUDA cache cleared. Allocated: {allocated:.2f}GB, Reserved: {reserved:.2f}GB")
 
     # ── Final save ──
     agent.save(os.path.join(model_dir, "async_final.pth"))
-    pbar.close()
     writer.close()
     env.close()
-    print(f"[LSTM-SAC] Training complete. Final model → {model_dir}/async_final.pth")
+    print(f"[LSTM-SAC seed={seed}] Training complete. Final model → {model_dir}/async_final.pth")
+
+
+def main():
+    args = get_config()
+    # Parse all seeds
+    raw_seed = args.seed
+    if isinstance(raw_seed, (list, tuple)):
+        seeds = [int(s) for s in raw_seed]
+    else:
+        seeds = [int(raw_seed)]
+
+    for seed in seeds:
+        print(f"\n{'='*60}")
+        print(f"Training LSTM-SAC with seed={seed}")
+        print(f"{'='*60}")
+        _train_single_seed(args, seed)
 
 
 if __name__ == "__main__":
