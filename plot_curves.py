@@ -180,21 +180,16 @@ def aggregate_seed_curves(seed_curves, resample_points=512, smooth_step=1.0, ci_
     return x_common, mean, lower, upper, std, stderr, ys.shape[0]
 
 def plot_curves(algorithms, seeds_to_plot=None, save_path="learning_curves.png",
-                smooth_window=10, smooth_method="moving", smooth_alpha=0.6, smooth_beta=0.1,
                 plot_cl=True, plot_non_cl=True, n_interpolate_points=512, smooth_step=1.0, ci_type="std"):
     """
     Plots learning curves for specified algorithms on the same figures.
     Reads CSV logs from 'results' directory.
     All algorithms are plotted together: one figure for reward, one for success rate.
-    
+
     Args:
         algorithms: 算法列表
         seeds_to_plot: 要绘制的随机种子列表（如 ['1', '2', '3']），None 表示绘制所有种子
         save_path: 保存路径
-        smooth_window: 兼容旧参数，baselines 风格聚合中不使用
-        smooth_method: 兼容旧参数，baselines 风格聚合中不使用
-        smooth_alpha: 兼容旧参数，baselines 风格聚合中不使用
-        smooth_beta: 兼容旧参数，baselines 风格聚合中不使用
         plot_cl: 是否绘制带 CL- 前缀的算法
         plot_non_cl: 是否绘制不带 CL- 前缀的算法
         n_interpolate_points: baselines 风格重采样点数（默认 512）
@@ -452,10 +447,6 @@ def main():
     plot_curves(
         algos_to_plot,
         seeds_to_plot=seeds_to_plot,
-        smooth_window=args.smooth_window,
-        smooth_method=args.smooth_method,
-        smooth_alpha=args.smooth_alpha,
-        smooth_beta=args.smooth_beta,
         plot_cl=args.plot_cl,
         plot_non_cl=args.plot_non_cl,
         n_interpolate_points=args.resample_points,
