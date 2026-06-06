@@ -1,7 +1,6 @@
 import numpy as np
 import torch
 import torch.nn.functional as F
-from torch import nn
 from torch.optim import Adam
 
 from .networks import SubNetwork1, SubNetwork2, GlobalActor, Critic
@@ -32,15 +31,15 @@ class SDDPGAgent:
     """
     State-Decomposition DDPG for UAV Navigation (SDDPG-NAV).
 
-    Paper: "A State-Decomposition DDPG Algorithm for UAV Autonomous Navigation
+    论文: "A State-Decomposition DDPG Algorithm for UAV Autonomous Navigation
             in 3-D Complex Environments"
 
-    Architecture (Fig. 4a):
-      - SubNetwork1: so (depth) -> CNN -> [32,16] + Tanh -> ao
-      - SubNetwork2: sg (target)  -> [32,16] + Tanh -> ag
+    架构:
+      - SubNetwork1: depth(4帧) -> CNN 逐帧编码 -> [32,16] + Tanh -> ao
+      - SubNetwork2: sg(4维)     -> [32,16] + Tanh -> ag
       - GlobalActor: [ao, ag, S] -> [400,300] + Tanh -> action
-      - Critic:      [S, action] -> [400,300] -> Q
-      where S = [so_repr, sg_repr, su_repr] is the full state representation.
+      - Critic:      独立 CNN 编码 depth,  concat[so_repr, sg, su, action] -> [400,300] -> Q
+      其中 S = [so_repr(256), sg(4), su(7)] 为完整状态表征
     """
 
     # Indices within the 11-D base vector
@@ -54,7 +53,7 @@ class SDDPGAgent:
             torch.manual_seed(seed)
 
         self.base_dim = base_dim
-        self.depth_shape = depth_shape  # (C, H, W)
+        self.depth_shape = depth_shape  # (4, H, W)  env 返回 4 帧堆叠
         self.action_dim = action_space.shape[0]
         self.max_action = np.array(action_space.high, dtype=np.float32)
         self.min_action = np.array(action_space.low, dtype=np.float32)
@@ -76,8 +75,6 @@ class SDDPGAgent:
 
         self.sub1_out_dim = getattr(args, "sub1_out_dim", 16)
         self.sub2_out_dim = getattr(args, "sub2_out_dim", 16)
-        self.sg_feature_dim = getattr(args, "sg_feature_dim", 16)
-        self.su_feature_dim = getattr(args, "su_feature_dim", 16)
         self.encoder_output_dim = getattr(args, "encoder_output_dim", 64)
 
         # OU noise
@@ -131,34 +128,9 @@ class SDDPGAgent:
         ).to(self.device)
         self.sub2_target.load_state_dict(self.sub2.state_dict())
 
-        # State adapters for sg / su (projection into feature space for global/critic)
-        self.sg_adapter = nn.Sequential(
-            nn.LayerNorm(self.sg_dim),
-            nn.Linear(self.sg_dim, self.sg_feature_dim),
-            nn.ReLU(inplace=True),
-        ).to(self.device)
-        self.sg_adapter_target = nn.Sequential(
-            nn.LayerNorm(self.sg_dim),
-            nn.Linear(self.sg_dim, self.sg_feature_dim),
-            nn.ReLU(inplace=True),
-        ).to(self.device)
-        self.sg_adapter_target.load_state_dict(self.sg_adapter.state_dict())
-
-        self.su_adapter = nn.Sequential(
-            nn.LayerNorm(self.su_dim),
-            nn.Linear(self.su_dim, self.su_feature_dim),
-            nn.ReLU(inplace=True),
-        ).to(self.device)
-        self.su_adapter_target = nn.Sequential(
-            nn.LayerNorm(self.su_dim),
-            nn.Linear(self.su_dim, self.su_feature_dim),
-            nn.ReLU(inplace=True),
-        ).to(self.device)
-        self.su_adapter_target.load_state_dict(self.su_adapter.state_dict())
-
-        # Compute dimensions
-        self.so_repr_dim = self.sub1.encoder.repr_dim
-        self.state_repr_dim = self.so_repr_dim + self.sg_feature_dim + self.su_feature_dim
+        # 完整状态 S = [so_repr(256), sg(4), su(7)] = 267 维
+        self.so_repr_dim = self.sub1.cat_repr_dim          # 256 (4帧×64)
+        self.state_repr_dim = self.so_repr_dim + self.sg_dim + self.su_dim  # 267
         self.global_actor_input_dim = self.sub1_out_dim + self.sub2_out_dim + self.state_repr_dim
 
         # Global Actor
@@ -174,16 +146,22 @@ class SDDPGAgent:
         ).to(self.device)
         self.global_actor_target.load_state_dict(self.global_actor.state_dict())
 
-        # Critic
+        # Critic — 拥有独立 CNN，不与 Actor 共享
         self.critic = Critic(
-            state_dim=self.state_repr_dim,
+            depth_shape=self.depth_shape,
+            sg_dim=self.sg_dim,
+            su_dim=self.su_dim,
             action_dim=self.action_dim,
             hidden_dims=self.critic_hidden,
+            encoder_output_dim=self.encoder_output_dim,
         ).to(self.device)
         self.critic_target = Critic(
-            state_dim=self.state_repr_dim,
+            depth_shape=self.depth_shape,
+            sg_dim=self.sg_dim,
+            su_dim=self.su_dim,
             action_dim=self.action_dim,
             hidden_dims=self.critic_hidden,
+            encoder_output_dim=self.encoder_output_dim,
         ).to(self.device)
         self.critic_target.load_state_dict(self.critic.state_dict())
 
@@ -191,8 +169,6 @@ class SDDPGAgent:
         self.actor_params = (
             list(self.sub1.parameters())
             + list(self.sub2.parameters())
-            + list(self.sg_adapter.parameters())
-            + list(self.su_adapter.parameters())
             + list(self.global_actor.parameters())
         )
         self.actor_optimizer = Adam(self.actor_params, lr=getattr(args, "actor_lr", 3e-4))
@@ -240,25 +216,6 @@ class SDDPGAgent:
         sg = torch.stack([dh, dv, phi_h, phi_v], dim=-1)
         return su, sg
 
-    def _build_state_repr(self, depth, su, sg, use_grad=True, encoder_net=None,
-                          sg_adapter=None, su_adapter=None):
-        """Build full state representation S = [so_repr, sg_repr, su_repr]."""
-        if encoder_net is None:
-            encoder_net = self.sub1
-        if sg_adapter is None:
-            sg_adapter = self.sg_adapter
-        if su_adapter is None:
-            su_adapter = self.su_adapter
-
-        if use_grad:
-            _, so_repr = encoder_net(depth)
-        else:
-            with torch.no_grad():
-                _, so_repr = encoder_net(depth)
-        sg_repr = sg_adapter(sg)
-        su_repr = su_adapter(su)
-        return torch.cat([so_repr, sg_repr, su_repr], dim=-1)
-
     # ------------------------------------------------------------------ #
     # Action selection
     # ------------------------------------------------------------------ #
@@ -270,9 +227,10 @@ class SDDPGAgent:
 
         with torch.no_grad():
             su, sg = self._decompose_base(base_tensor)
-            ao, _ = self.sub1(depth_tensor)
+            ao, so_repr = self.sub1(depth_tensor)          # 一次性获取 ao 和 so_repr
             ag = self.sub2(sg)
-            state_repr = self._build_state_repr(depth_tensor, su, sg, use_grad=False)
+            # sg/su 原始维度直接送入，不经过 adapter 投影
+            state_repr = torch.cat([so_repr, sg, su], dim=-1)
             action = self.global_actor(ao, ag, state_repr).cpu().numpy().flatten()
 
         if noise:
@@ -314,22 +272,16 @@ class SDDPGAgent:
         next_su, next_sg = self._decompose_base(next_base_states)
 
         # ----- Critic update -----
-        state_repr = self._build_state_repr(depths, su, sg, use_grad=True)
-        current_Q, _ = self.critic(state_repr, actions_norm)
+        # Critic 内部有独立 CNN 编码 depth，sg/su 直接传入
+        current_Q, _ = self.critic(depths, sg, su, actions_norm)
 
         with torch.no_grad():
-            # Target subnetworks
-            next_ao, _ = self.sub1_target(next_depths)
+            next_ao, next_so_repr = self.sub1_target(next_depths)
             next_ag = self.sub2_target(next_sg)
-            next_state_repr = self._build_state_repr(
-                next_depths, next_su, next_sg, use_grad=False,
-                encoder_net=self.sub1_target,
-                sg_adapter=self.sg_adapter_target,
-                su_adapter=self.su_adapter_target,
-            )
+            next_state_repr = torch.cat([next_so_repr, next_sg, next_su], dim=-1)
             next_action = self.global_actor_target(next_ao, next_ag, next_state_repr).clamp(-1.0, 1.0)
 
-            target_Q, _ = self.critic_target(next_state_repr, next_action)
+            target_Q, _ = self.critic_target(next_depths, next_sg, next_su, next_action)
             target_Q = rewards + (1 - dones) * self.gamma * target_Q
 
         if self.use_smooth_l1:
@@ -346,16 +298,14 @@ class SDDPGAgent:
         for p in self.critic_params:
             p.requires_grad = False
 
-        # Single forward pass through sub1 — reuse both outputs
+        # Actor 前向: 子网络 → GlobalActor → 动作
         ao, so_repr = self.sub1(depths)
         ag = self.sub2(sg)
-        sg_repr = self.sg_adapter(sg)
-        su_repr = self.su_adapter(su)
-        state_repr = torch.cat([so_repr, sg_repr, su_repr], dim=-1)
+        state_repr = torch.cat([so_repr, sg, su], dim=-1)
         pred_action = self.global_actor(ao, ag, state_repr)
 
-        # Detach state_repr for critic input (standard DDPG: only ∇_a Q needed)
-        q1, _ = self.critic(state_repr.detach(), pred_action)
+        # ∇_aQ · ∇_θμ: DDPG 策略梯度，冻结 critic 的 CNN 和 sg/su 梯度
+        q1, _ = self.critic(depths.detach(), sg.detach(), su.detach(), pred_action)
         actor_loss = -q1.mean()
 
         self.actor_optimizer.zero_grad()
@@ -369,8 +319,6 @@ class SDDPGAgent:
         # ----- Soft update targets -----
         self._soft_update(self.sub1, self.sub1_target)
         self._soft_update(self.sub2, self.sub2_target)
-        self._soft_update(self.sg_adapter, self.sg_adapter_target)
-        self._soft_update(self.su_adapter, self.su_adapter_target)
         self._soft_update(self.global_actor, self.global_actor_target)
         self._soft_update(self.critic, self.critic_target)
 
@@ -392,14 +340,10 @@ class SDDPGAgent:
             {
                 "sub1": self.sub1.state_dict(),
                 "sub2": self.sub2.state_dict(),
-                "sg_adapter": self.sg_adapter.state_dict(),
-                "su_adapter": self.su_adapter.state_dict(),
                 "global_actor": self.global_actor.state_dict(),
                 "critic": self.critic.state_dict(),
                 "sub1_target": self.sub1_target.state_dict(),
                 "sub2_target": self.sub2_target.state_dict(),
-                "sg_adapter_target": self.sg_adapter_target.state_dict(),
-                "su_adapter_target": self.su_adapter_target.state_dict(),
                 "global_actor_target": self.global_actor_target.state_dict(),
                 "critic_target": self.critic_target.state_dict(),
                 "actor_optimizer": self.actor_optimizer.state_dict(),
@@ -414,15 +358,11 @@ class SDDPGAgent:
         checkpoint = torch.load(filename, map_location=self.device)
         self.sub1.load_state_dict(checkpoint["sub1"])
         self.sub2.load_state_dict(checkpoint["sub2"])
-        self.sg_adapter.load_state_dict(checkpoint["sg_adapter"])
-        self.su_adapter.load_state_dict(checkpoint["su_adapter"])
         self.global_actor.load_state_dict(checkpoint["global_actor"])
         self.critic.load_state_dict(checkpoint["critic"])
 
         self.sub1_target.load_state_dict(checkpoint.get("sub1_target", self.sub1.state_dict()))
         self.sub2_target.load_state_dict(checkpoint.get("sub2_target", self.sub2.state_dict()))
-        self.sg_adapter_target.load_state_dict(checkpoint.get("sg_adapter_target", self.sg_adapter.state_dict()))
-        self.su_adapter_target.load_state_dict(checkpoint.get("su_adapter_target", self.su_adapter.state_dict()))
         self.global_actor_target.load_state_dict(checkpoint.get("global_actor_target", self.global_actor.state_dict()))
         self.critic_target.load_state_dict(checkpoint.get("critic_target", self.critic.state_dict()))
 

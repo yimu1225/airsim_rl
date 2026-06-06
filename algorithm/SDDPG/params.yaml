@@ -11,11 +11,7 @@ params:
   # Global actor & critic hidden dimensions (paper Fig. 4a: [400, 300])
   global_actor_hidden: [400, 300]
   critic_hidden: [400, 300]
-  
-  # Feature projection dimensions for sg/su when feeding into global/critic
-  sg_feature_dim: 16
-  su_feature_dim: 16
-  
+
   # Visual encoder output dimension per frame
   encoder_output_dim: 64
   
