@@ -21,7 +21,7 @@ params:
   ou_mu: 0.0
   
   # Decayed exploration (epsilon decay per episode)
-  noise_decay: 0.002
+  noise_decay: 0.0002
   noise_min: 0.001
   initial_noise_scale: 1.0
   

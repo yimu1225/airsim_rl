@@ -95,9 +95,9 @@ class SDDPGAgent:
         self.use_smooth_l1 = bool(getattr(args, "use_smooth_l1", True))
 
         # ---- Dimensions ----
-        self.sg_raw_dim = len(self.SG_RAW_INDICES)   # 4 raw -> converted to [dh, dv, ph, pv]
+        self.sg_raw_dim = len(self.SG_RAW_INDICES)   # 4: x_dist, y_dist, z_dist, r_yaw
         self.su_dim = len(self.SU_INDICES)           # 7
-        self.sg_dim = 4                              # [dh, dv, ph, pv]
+        self.sg_dim = 4                              # x_dist, y_dist, z_dist, r_yaw
 
         # ---- Networks ----
         # SubNetwork1 (perception / so): shared for actor & critic
@@ -189,31 +189,11 @@ class SDDPGAgent:
     # State decomposition helpers
     # ------------------------------------------------------------------ #
     def _decompose_base(self, base: torch.Tensor):
-        """
-        Decompose base state vector into su and sg.
-
-        Args:
-            base: (B, 11) or (11,)
-        Returns:
-            su: (B, 7)
-            sg: (B, 4)  [dh, dv, phi_h, phi_v]
-        """
         if base.dim() == 1:
             base = base.unsqueeze(0)
 
-        su = base[:, self.SU_INDICES]
-
-        x_dist = base[:, 0]
-        y_dist = base[:, 1]
-        z_dist = base[:, 2]
-        r_yaw = base[:, 10]
-
-        dh = torch.sqrt(x_dist ** 2 + y_dist ** 2 + 1e-8)
-        dv = z_dist
-        phi_h = r_yaw
-        phi_v = torch.atan2(z_dist, dh + 1e-8)
-
-        sg = torch.stack([dh, dv, phi_h, phi_v], dim=-1)
+        su = base[:, self.SU_INDICES]        # (B, 7)
+        sg = base[:, self.SG_RAW_INDICES]    # (B, 4): x_dist, y_dist, z_dist, r_yaw
         return su, sg
 
     # ------------------------------------------------------------------ #
