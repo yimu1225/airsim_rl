@@ -126,7 +126,7 @@ class VimFrameEncoder(nn.Module):
         self.patch_size = int(_param(params, "st_mamba_patch_size", 16))
         self.d_state = int(_param(params, "st_mamba_d_state", 32))
         self.seq_len = int(shape.seq_len)
-        self.flatten_all_tokens = bool(_param(params, "st_vim_flatten_all_tokens", True))
+        self.flatten_all_tokens = bool(_param(params, "vmflatten_all_tokens", True))
         self.repr_dim = self.embed_dim * self.seq_len if self.flatten_all_tokens else self.embed_dim
         self.vim = vim_cls(
             img_size=(shape.height, shape.width),
@@ -162,7 +162,7 @@ class VimFrameEncoder(nn.Module):
 
 
 class STVimEncoder(VimFrameEncoder):
-    """Frame-wise VisionMamba followed by temporal Mamba, matching ST_Vim_* algorithms."""
+    """Frame-wise VisionMamba followed by temporal Mamba, matching VM* algorithms."""
 
     def __init__(self, shape: SequenceShape, params: dict[str, Any], pre_norm: bool = True) -> None:
         super().__init__(shape, params)
@@ -170,7 +170,7 @@ class STVimEncoder(VimFrameEncoder):
         self.d_conv = int(_param(params, "st_mamba_d_conv", 4))
         self.expand = int(_param(params, "st_mamba_expand", 2))
         self.temporal_layers = int(_param(params, "st_mamba_temporal_depth", 2))
-        self.concat_cls_before_temporal_mamba = bool(_param(params, "st_vim_concat_cls_before_temporal_mamba", False))
+        self.concat_cls_before_temporal_mamba = bool(_param(params, "vmconcat_cls_before_temporal_mamba", False))
         if self.concat_cls_before_temporal_mamba:
             self.repr_dim = self.embed_dim * self.seq_len if self.flatten_all_tokens else 1
         else:
@@ -199,7 +199,7 @@ class STVimEncoder(VimFrameEncoder):
 
 
 class STSeqVimEncoder(STVimEncoder):
-    """ST_Vim with base-state sequence fusion before temporal Mamba."""
+    """VM with base-state sequence fusion before temporal Mamba."""
 
     def __init__(self, shape: SequenceShape, params: dict[str, Any], base_dim: int) -> None:
         super().__init__(shape, params)

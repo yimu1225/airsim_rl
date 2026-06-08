@@ -26,7 +26,7 @@ class VimStateSeqEncoder(nn.Module):
         self.state_proj_dim = int(get_algo_param(args, "st_state_proj_dim", self.embed_dim))
 
         self.seq_len = int(args.n_frames)
-        self.flatten_all_tokens = bool(get_algo_param(args, "st_vim_flatten_all_tokens", True))
+        self.flatten_all_tokens = bool(get_algo_param(args, "vmflatten_all_tokens", True))
         self.repr_dim = self.embed_dim * self.seq_len if self.flatten_all_tokens else self.embed_dim
 
         depth_shape = args.depth_shape

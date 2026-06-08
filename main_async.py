@@ -46,26 +46,26 @@ from algorithm.TD3.td3 import TD3Agent
 from algorithm.DDPG.ddpg import DDPGAgent
 from algorithm.DPER_TD3.agent import DPERTD3Agent
 
-from algorithm.ST_Vim_TD3.agent import STVimTD3Agent
+from algorithm.VMTD3.agent import STVimTD3Agent
 from algorithm.STV_Patch_TD3.agent import VimPatchTD3Agent
 from algorithm.Vim_TD3.agent import VimTD3Agent
 from algorithm.ST_Seq_Vim_TD3.agent import StateSeqVimTD3Agent
 from algorithm.STV_Seq_Vim_TD3.agent import VimStateSeqTD3Agent
-from algorithm.DPER_ST_Vim_TD3.agent import DPERVimTD3Agent
-from algorithm.ST_SVim_TD3.agent import STSVimTD3Agent
+from algorithm.DPER_VMTD3.agent import DPERVimTD3Agent
+from algorithm.SVMTD3.agent import STSVimTD3Agent
 from algorithm.Mamba_TD3.agent import MambaTD3Agent
 from algorithm.ST_DualVim_TD3.agent import DualBranchVideoMambaTD3Agent
 from algorithm.SAC.agent import SACAgent
 from algorithm.PL_SAC.agent import PLSACAgent
-from algorithm.PL_ST_Vim_SAC.agent import PLSTVimSACAgent
-from algorithm.PL_PER_ST_Vim_SAC.agent import PLPERSTVimSACAgent
-from algorithm.PL_DPER_ST_Vim_SAC.agent import PLDPERSTVimSACAgent
-from algorithm.PL_DPER_ST_Vim_TD3.agent import PLDPERSTVimTD3Agent
-from algorithm.ST_Vim_SAC.agent import STVimSACAgent
-from algorithm.MM_ST_Vim_SAC.agent import MMSTVimSACAgent
-from algorithm.PER_ST_Vim_SAC.agent import PERSTVimSACAgent
-from algorithm.ST_SVim_SAC.agent import STSVimSACAgent
-from algorithm.DPER_ST_Vim_SAC.agent import DPERSTVimSACAgent
+from algorithm.PL_VMSAC.agent import PLSTVimSACAgent
+from algorithm.PL_PER_VMSAC.agent import PLPERSTVimSACAgent
+from algorithm.PL_DPER_VMSAC.agent import PLDPERSTVimSACAgent
+from algorithm.PL_DPER_VMTD3.agent import PLDPERSTVimTD3Agent
+from algorithm.VMSAC.agent import STVimSACAgent
+from algorithm.MM_VMSAC.agent import MMSTVimSACAgent
+from algorithm.PER_VMSAC.agent import PERSTVimSACAgent
+from algorithm.SVMSAC.agent import STSVimSACAgent
+from algorithm.DPER_VMSAC.agent import DPERSTVimSACAgent
 from algorithm.MambaCSJA_SAC.agent import MambaCSJA_SACAgent
 from algorithm.DPER_MambaCSJA_SAC.agent import DPERMambaCSJASACAgent
 from algorithm.Mamba_SAC.agent import MambaSACAgent
@@ -79,7 +79,7 @@ from algorithm.beta_sac import (
 )
 from algorithm.PL_TD3.pl_td3 import PLTD3Agent
 from algorithm.PL_DPER_TD3.agent import PLDPERTD3Agent
-from algorithm.PL_ST_Vim_TD3.agent import PLSTVimTD3Agent
+from algorithm.PL_VMTD3.agent import PLSTVimTD3Agent
 from algorithm.AETD3.aetd3 import AETD3Agent
 from algorithm.SDDPG.sddpg import SDDPGAgent
 
@@ -182,15 +182,15 @@ def get_agent_class(algo_name):
         'DDPG': DDPGAgent,
         'DPER_TD3': DPERTD3Agent,
         'PL_DPER_TD3': PLDPERTD3Agent,
-        'PL_DPER_ST_Vim_TD3': PLDPERSTVimTD3Agent,
-        'ST_Vim_TD3': STVimTD3Agent,
+        'PL_DPER_VMTD3': PLDPERSTVimTD3Agent,
+        'VMTD3': STVimTD3Agent,
         'STV_Patch_TD3': VimPatchTD3Agent,
         'Vim_TD3': VimTD3Agent,
         'ST_Seq_Vim_TD3': StateSeqVimTD3Agent,
         'STV_Seq_Vim_TD3': VimStateSeqTD3Agent,
-        'DPER_ST_Vim_TD3': DPERVimTD3Agent,
-        'PL_ST_Vim_TD3': PLSTVimTD3Agent,
-        'ST_SVim_TD3': STSVimTD3Agent,
+        'DPER_VMTD3': DPERVimTD3Agent,
+        'PL_VMTD3': PLSTVimTD3Agent,
+        'SVMTD3': STSVimTD3Agent,
         'Mamba_TD3': MambaTD3Agent,
         'ST_DualVim_TD3': DualBranchVideoMambaTD3Agent,
         'AETD3': AETD3Agent,
@@ -198,17 +198,17 @@ def get_agent_class(algo_name):
         'SAC_Beta': SACBetaAgent,
         'PL_SAC': PLSACAgent,
         'PL_SAC_Beta': PLSACBetaAgent,
-        'PL_ST_Vim_SAC': PLSTVimSACAgent,
-        'PL_PER_ST_Vim_SAC': PLPERSTVimSACAgent,
-        'PL_DPER_ST_Vim_SAC': PLDPERSTVimSACAgent,
-        'PL_DPER_ST_Vim_SAC_Beta': PLDPERSTVimSACBetaAgent,
-        'ST_Vim_SAC': STVimSACAgent,
-        'MM_ST_Vim_SAC': MMSTVimSACAgent,
-        'PER_ST_Vim_SAC': PERSTVimSACAgent,
-        'ST_SVim_SAC': STSVimSACAgent,
-        'ST_Vim_SAC_Beta': STVimSACBetaAgent,
-        'DPER_ST_Vim_SAC': DPERSTVimSACAgent,
-        'DPER_ST_Vim_SAC_Beta': DPERSTVimSACBetaAgent,
+        'PL_VMSAC': PLSTVimSACAgent,
+        'PL_PER_VMSAC': PLPERSTVimSACAgent,
+        'PL_DPER_VMSAC': PLDPERSTVimSACAgent,
+        'PL_DPER_VMSAC_Beta': PLDPERSTVimSACBetaAgent,
+        'VMSAC': STVimSACAgent,
+        'MM_VMSAC': MMSTVimSACAgent,
+        'PER_VMSAC': PERSTVimSACAgent,
+        'SVMSAC': STSVimSACAgent,
+        'VMSAC_Beta': STVimSACBetaAgent,
+        'DPER_VMSAC': DPERSTVimSACAgent,
+        'DPER_VMSAC_Beta': DPERSTVimSACBetaAgent,
         'Mamba_SAC': MambaSACAgent,
         'MambaCSJA_SAC': MambaCSJA_SACAgent,
         'DPER_MambaCSJA_SAC': DPERMambaCSJASACAgent,
@@ -307,9 +307,9 @@ def _pause_env_simulation(env):
 def _is_pl_algorithm(algo_name: str) -> bool:
     core_name = to_internal_core_algorithm_name(algo_name)
     return core_name in {
-        "PL_TD3", "PL_DPER_TD3", "PL_ST_Vim_TD3", "PL_SAC", "PL_SAC_Beta",
-        "PL_ST_Vim_SAC", "PL_PER_ST_Vim_SAC", "PL_DPER_ST_Vim_SAC",
-        "PL_DPER_ST_Vim_SAC_Beta", "PL_DPER_ST_Vim_TD3", "PL_ST_Vim_PPO",
+        "PL_TD3", "PL_DPER_TD3", "PL_VMTD3", "PL_SAC", "PL_SAC_Beta",
+        "PL_VMSAC", "PL_PER_VMSAC", "PL_DPER_VMSAC",
+        "PL_DPER_VMSAC_Beta", "PL_DPER_VMTD3", "PL_VMPPO",
     }
 
 
@@ -514,27 +514,27 @@ def main():
             # Determine properties for this algorithm
             recurrent_algos = {
                 'Mamba_TD3',
-                'ST_Vim_TD3',
+                'VMTD3',
                 'STV_Patch_TD3',
                 'Vim_TD3',
                 'ST_Seq_Vim_TD3',
                 'STV_Seq_Vim_TD3',
-                'DPER_ST_Vim_TD3',
-                'PL_ST_Vim_TD3',
-                'PL_ST_Vim_SAC',
-                'PL_PER_ST_Vim_SAC',
-                'PL_DPER_ST_Vim_SAC',
-                'PL_DPER_ST_Vim_SAC_Beta',
-                'PL_DPER_ST_Vim_TD3',
-                'ST_SVim_TD3',
+                'DPER_VMTD3',
+                'PL_VMTD3',
+                'PL_VMSAC',
+                'PL_PER_VMSAC',
+                'PL_DPER_VMSAC',
+                'PL_DPER_VMSAC_Beta',
+                'PL_DPER_VMTD3',
+                'SVMTD3',
                 'ST_DualVim_TD3',
-                'ST_Vim_SAC',
-                'MM_ST_Vim_SAC',
-                'PER_ST_Vim_SAC',
-                'ST_SVim_SAC',
-                'ST_Vim_SAC_Beta',
-                'DPER_ST_Vim_SAC',
-                'DPER_ST_Vim_SAC_Beta',
+                'VMSAC',
+                'MM_VMSAC',
+                'PER_VMSAC',
+                'SVMSAC',
+                'VMSAC_Beta',
+                'DPER_VMSAC',
+                'DPER_VMSAC_Beta',
             }
             
             is_recurrent = actual_algo_name in recurrent_algos
@@ -658,7 +658,7 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, in
     obs = initial_obs
     state = obs['depth']
     base = obs['base']
-    base_seq_algos = {"ST_Seq_Vim_TD3", "STV_Seq_Vim_TD3", "MM_ST_Vim_SAC"}
+    base_seq_algos = {"ST_Seq_Vim_TD3", "STV_Seq_Vim_TD3", "MM_VMSAC"}
     use_base_sequence = bool(is_recurrent and core_algo_name in base_seq_algos)
     base_seq_deque = None
     base_seq = None
@@ -841,7 +841,7 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, in
                 critic_priv_next = _as_clean_critic_depth(next_obs.get("clean_depth", next_state))
             
             if is_recurrent:
-                if core_algo_name in {'ST_SVim_TD3', 'ST_SVim_SAC'}:
+                if core_algo_name in {'SVMTD3', 'SVMSAC'}:
                     has_collided = float(step_info.get("has_collided", False)) if isinstance(step_info, dict) else 0.0
                     agent.replay_buffer.add(
                         base_for_buffer,

@@ -20,7 +20,7 @@ class VimFeatureExtractor(AirSimSequenceExtractor):
 
 
 class STVimFeatureExtractor(AirSimSequenceExtractor):
-    """Frame-wise VisionMamba followed by temporal Mamba (`ST_Vim_*`)."""
+    """Frame-wise VisionMamba followed by temporal Mamba (`VM*`)."""
 
     encoder_cls = STVimEncoder
 
@@ -46,7 +46,7 @@ class VimPatchFeatureExtractor(AirSimSequenceExtractor):
 
 
 class STSVimFeatureExtractor(AirSimSequenceExtractor):
-    """Spatial Vim safety-layer encoder variant (`ST_SVim_TD3`)."""
+    """Spatial Vim safety-layer encoder variant (`SVMTD3`)."""
 
     encoder_cls = STVimEncoder
 

@@ -1,0 +1,26 @@
+# PL-ST-Vim-PPO algorithm-specific parameters
+rollout_buffer_size: 2048
+ppo_epochs: 10
+ppo_batch_size: 64
+clip_range: 0.2
+clip_range_vf: null
+normalize_advantage: true
+vf_coef: 0.5
+ent_coef: 0.0
+target_kl: null
+gae_lambda: 0.95
+lr: 0.0007
+max_grad_norm: 0.5
+
+# Vim + temporal Mamba visual encoder parameters, matching VMPPO.
+st_mamba_embed_dim: 64
+st_mamba_depth: 1
+st_mamba_patch_size: 32
+st_mamba_d_state: 32
+st_mamba_d_conv: 4
+st_mamba_expand: 2
+st_mamba_drop_rate: 0.05
+st_mamba_drop_path_rate: 0.05
+st_mamba_temporal_depth: 1
+vmconcat_cls_before_temporal_mamba: false
+vmflatten_all_tokens: true

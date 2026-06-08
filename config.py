@@ -30,7 +30,7 @@ def get_config(argv=None):
 
     # 算法选择 (Algorithm Selection)
     parser.add_argument("--algorithm_name", type=str, default='CL-SDDPG',
-                        help="要训练的算法。支持: TD3, DDPG, DPER_TD3, ST_Vim_TD3, STV_Patch_TD3, Vim_TD3, ST_Seq_Vim_TD3, STV_Seq_Vim_TD3, DPER_ST_Vim_TD3, ST_SVim_TD3, Mamba_TD3, ST_DualVim_TD3, AETD3, SAC, SAC_Beta, LSTM_SAC, ST_Vim_SAC, ST_SVim_SAC, ST_Vim_SAC_Beta, DPER_ST_Vim_SAC, DPER_ST_Vim_SAC_Beta, PPO, ST_Vim_PPO, PL_ST_Vim_PPO, PL_TD3, PL_DPER_TD3, PL_ST_Vim_TD3, PL_SAC, PL_SAC_Beta, PL_ST_Vim_SAC, PL_PER_ST_Vim_SAC, PL_DPER_ST_Vim_SAC, PL_DPER_ST_Vim_SAC_Beta, PL_DPER_ST_Vim_TD3,MM_ST_Vim_SAC,MambaCSJA_SAC")
+                        help="要训练的算法。支持: TD3, DDPG, DPER_TD3, VMTD3, STV_Patch_TD3, Vim_TD3, ST_Seq_Vim_TD3, STV_Seq_Vim_TD3, DPER_VMTD3, SVMTD3, Mamba_TD3, ST_DualVim_TD3, AETD3, SAC, SAC_Beta, LSTM_SAC, VMSAC, SVMSAC, VMSAC_Beta, DPER_VMSAC, DPER_VMSAC_Beta, PPO, VMPPO, PL_VMPPO, PL_TD3, PL_DPER_TD3, PL_VMTD3, PL_SAC, PL_SAC_Beta, PL_VMSAC, PL_PER_VMSAC, PL_DPER_VMSAC, PL_DPER_VMSAC_Beta, PL_DPER_VMTD3,MM_VMSAC,MambaCSJA_SAC")
     parser.add_argument("--plot_cl", action='store_true', default=True, help="绘图时是否检索带 CL- 前缀的算法 (默认: True)")
     parser.add_argument("--plot_non_cl", action='store_true', default=True, help="绘图时是否检索常规算法 (默认: True)")
     parser.add_argument("--use_percentile", action='store_true', default=False, help="使用四分位范围作为阴影带而不是均值加置信区间")

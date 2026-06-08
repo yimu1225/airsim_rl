@@ -1,0 +1,22 @@
+# PER-ST-VimTD3 algorithm-specific parameters
+# Shared/common parameters stay in config.py
+st_mamba_embed_dim: 64  # ST-Mamba/Vim token 嵌入维度
+st_mamba_depth: 1  # Vim 主干 block 层数
+st_mamba_patch_size: 32  # 2D patch 尺寸（像素）
+st_mamba_d_state: 32  # ST-Mamba 的状态维度 d_state
+st_mamba_d_conv: 4  # ST-Mamba 的局部卷积宽度 d_conv
+st_mamba_expand: 2  # ST-Mamba 的通道扩展倍数 expand
+st_mamba_drop_rate: 0.05  # ST-Mamba dropout 概率
+st_mamba_drop_path_rate: 0.05  # ST-Mamba drop-path 概率
+st_mamba_temporal_depth: 1  # ST-Mamba 时序堆叠层数
+vmflatten_all_tokens: true  # 是否展平所有时序 token 作为策略/价值输入
+per_td3_success_capacity_ratio: 0.3  # PER 双池中成功样本池容量占比
+per_td3_alpha: 0.6  # PER 优先级指数 alpha
+per_td3_priority_eps: 0.000001  # PER 优先级平滑项 eps
+per_td3_beta_start: 0.4  # PER 重要性采样 beta 起始值
+per_td3_beta_final: 1.0  # PER 重要性采样 beta 结束值
+per_td3_mu_low: 0.30  # 成功样本采样比例 mu 早期值
+per_td3_mu_mid: 0.45  # 成功样本采样比例 mu 中期值
+per_td3_mu_high: 0.60  # 成功样本采样比例 mu 后期值
+per_td3_mu_step1: 0.25  # mu 从 low 切到 mid 的训练进度阈值
+per_td3_mu_step2: 0.65  # mu 从 mid 切到 high 的训练进度阈值

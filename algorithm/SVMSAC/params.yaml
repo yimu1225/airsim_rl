@@ -1,0 +1,28 @@
+# ST-SVim-SAC algorithm-specific parameters
+# SAC parameters aligned with VMSAC.
+ent_coef: 'auto'
+target_entropy: auto
+target_update_interval: 1
+policy_freq: 1
+
+# Vim + temporal Mamba visual encoder parameters.
+st_mamba_embed_dim: 64
+st_mamba_depth: 1
+st_mamba_patch_size: 32
+st_mamba_d_state: 16
+st_mamba_d_conv: 4
+st_mamba_expand: 2
+st_mamba_drop_rate: 0.05
+st_mamba_drop_path_rate: 0.05
+st_mamba_temporal_depth: 1
+vmconcat_cls_before_temporal_mamba: false
+vmflatten_all_tokens: true
+
+# Safety-layer parameters.
+use_vim_safety_layer: true
+safety_lr: 0.0005
+safety_loss_coef: 1.0
+safety_actor_penalty_coef: 0.05
+safety_warmup_steps: 0
+safety_end_to_end: false
+safety_label_mode: collision

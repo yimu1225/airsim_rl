@@ -290,7 +290,7 @@ airsim_rl/
 ├── algorithm/                 # 算法实现
 │   ├── td3/                  # 基础TD3
 │   ├── vmamba-td3/           # VMamba TD3
-│   ├── ST_VimTD3/            # 时空Vision Mamba TD3
+│   ├── VMTD3/            # 时空Vision Mamba TD3
 │   ├── cfc-td3/              # CFC TD3
 │   └── ...
 ├── gym_airsim/              # AirSim环境包装
