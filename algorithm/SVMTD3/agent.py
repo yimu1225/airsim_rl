@@ -5,7 +5,6 @@ import torch.nn.functional as F
 from torch import nn
 from torch.optim import Adam
 
-from ..state_adapter import StateAdapter
 from ..config_loader import get_algo_param
 from .networks import STVimEncoder, Actor, Critic, SafetyConstraintHead, safety_project_actions
 from .buffer import ReplayBuffer
@@ -23,7 +22,6 @@ class STSVimTD3Agent:
 
         self.args = args
         self.base_dim = base_dim
-        self.base_feature_dim = getattr(args, "base_feature_dim", 32)
         self.depth_shape = depth_shape
         if not hasattr(self.args, "depth_shape"):
             self.args.depth_shape = depth_shape
@@ -39,9 +37,8 @@ class STSVimTD3Agent:
         self.action_bias = torch.from_numpy((self.max_action + self.min_action) / 2.0).float().to(self.device)
 
         self.actor_encoder = STVimEncoder(args).to(self.device)
-        self.actor_base_net = StateAdapter(self.base_dim, self.base_feature_dim).to(self.device)
         self.visual_feature_dim = self.actor_encoder.repr_dim
-        self.fused_feature_dim = self.visual_feature_dim + self.base_feature_dim
+        self.fused_feature_dim = self.visual_feature_dim + self.base_dim
         self.actor = Actor(
             feature_dim=self.fused_feature_dim,
             action_dim=self.action_dim,
@@ -49,7 +46,6 @@ class STSVimTD3Agent:
         ).to(self.device)
 
         self.critic_encoder = STVimEncoder(args).to(self.device)
-        self.critic_base_net = StateAdapter(self.base_dim, self.base_feature_dim).to(self.device)
         if self.critic_encoder.repr_dim != self.visual_feature_dim:
             raise ValueError(
                 f"Actor/Critic visual dims mismatch: {self.visual_feature_dim} vs {self.critic_encoder.repr_dim}"
@@ -67,21 +63,19 @@ class STSVimTD3Agent:
         ).to(self.device)
 
         self.actor_encoder_target = copy.deepcopy(self.actor_encoder)
-        self.actor_base_net_target = copy.deepcopy(self.actor_base_net)
         self.actor_target = copy.deepcopy(self.actor)
         self.critic_encoder_target = copy.deepcopy(self.critic_encoder)
-        self.critic_base_net_target = copy.deepcopy(self.critic_base_net)
         self.critic_target = copy.deepcopy(self.critic)
         self.safety_model_target = copy.deepcopy(self.safety_model)
 
         self.actor_optimizer = Adam(
-            list(self.actor_encoder.parameters()) + list(self.actor_base_net.parameters()) + list(self.actor.parameters()),
+            list(self.actor_encoder.parameters()) + list(self.actor.parameters()),
             lr=args.actor_lr
         )
         self.critic_optimizer = Adam(
             list(self.critic.parameters())
             + list(self.critic_encoder.parameters())
-            + list(self.critic_base_net.parameters()),
+           ,
             lr=args.critic_lr
         )
 
@@ -89,7 +83,6 @@ class STSVimTD3Agent:
         safety_params = list(self.safety_model.parameters())
         if self.safety_end_to_end:
             safety_params += list(self.actor_encoder.parameters())
-            safety_params += list(self.actor_base_net.parameters())
         self.safety_optimizer = Adam(safety_params, lr=get_algo_param(args, "safety_lr", args.actor_lr))
 
         self.gamma = args.gamma
@@ -165,13 +158,12 @@ class STSVimTD3Agent:
 
         with torch.no_grad():
             visual_feat = self.actor_encoder(depth_img)
-            base_feat = self.actor_base_net(current_state)
             self._assert_finite_tensor("select_action.visual_feat", visual_feat)
-            self._assert_finite_tensor("select_action.base_feat", base_feat)
+            self._assert_finite_tensor("select_action.base", base)
 
-            actor_input = torch.cat([visual_feat, base_feat], dim=-1)
+            actor_input = torch.cat([visual_feat, base], dim=-1)
             raw_action = self.actor(actor_input)
-            safe_action, _ = self._apply_safety_projection(raw_action, visual_feat, base_feat)
+            safe_action, _ = self._apply_safety_projection(raw_action, visual_feat, base)
             action = safe_action.cpu().numpy().flatten()
             self._assert_finite_array("select_action.actor_output", action)
 
@@ -213,7 +205,6 @@ class STSVimTD3Agent:
 
         with torch.no_grad():
             next_visual = self.actor_encoder_target(next_depth)
-            next_base_actor = self.actor_base_net_target(next_state)
             self._assert_finite_tensor("train.next_visual", next_visual)
             self._assert_finite_tensor("train.next_base_actor", next_base_actor)
             next_actor_input = torch.cat([next_visual, next_base_actor], dim=-1)
@@ -231,7 +222,6 @@ class STSVimTD3Agent:
             self._assert_finite_tensor("train.next_action_noisy", next_action)
 
             target_visual = self.critic_encoder_target(next_depth)
-            target_base = self.critic_base_net_target(next_state)
             self._assert_finite_tensor("train.target_visual", target_visual)
             self._assert_finite_tensor("train.target_base", target_base)
             target_input = torch.cat([target_visual, target_base], dim=-1)
@@ -243,7 +233,6 @@ class STSVimTD3Agent:
             self._assert_finite_tensor("train.target_Q", target_Q)
 
         current_visual = self.critic_encoder(depth)
-        current_base = self.critic_base_net(state)
         self._assert_finite_tensor("train.current_visual", current_visual)
         self._assert_finite_tensor("train.current_base", current_base)
         critic_input = torch.cat([current_visual, current_base], dim=-1)
@@ -259,7 +248,7 @@ class STSVimTD3Agent:
         nn.utils.clip_grad_norm_(
             list(self.critic.parameters())
             + list(self.critic_encoder.parameters())
-            + list(self.critic_base_net.parameters()),
+           ,
             self.grad_clip
         )
         self.critic_optimizer.step()
@@ -268,7 +257,6 @@ class STSVimTD3Agent:
         safety_violation_rate = 0.0
         if self.use_safety_layer and self.total_it >= self.safety_warmup_steps:
             safety_visual = self.actor_encoder(depth)
-            safety_base = self.actor_base_net(state)
             safety_input = torch.cat([safety_visual, safety_base], dim=-1)
             safety_input = safety_input if self.safety_end_to_end else safety_input.detach()
             g, h = self.safety_model(safety_input)
@@ -294,7 +282,6 @@ class STSVimTD3Agent:
         actor_loss_value = None
         if self.total_it % self.policy_freq == 0:
             actor_visual = self.actor_encoder(depth)
-            actor_base = self.actor_base_net(state)
             self._assert_finite_tensor("train.actor_visual", actor_visual)
             self._assert_finite_tensor("train.actor_base", actor_base)
             actor_input = torch.cat([actor_visual, actor_base], dim=-1)
@@ -317,7 +304,6 @@ class STSVimTD3Agent:
 
             with torch.no_grad():
                 q_visual = self.critic_encoder(depth)
-                q_base = self.critic_base_net(state)
             self._assert_finite_tensor("train.q_visual", q_visual)
             self._assert_finite_tensor("train.q_base", q_base)
             q_input = torch.cat([q_visual, q_base], dim=-1)
@@ -328,16 +314,14 @@ class STSVimTD3Agent:
             self.actor_optimizer.zero_grad()
             actor_loss.backward()
             nn.utils.clip_grad_norm_(
-                list(self.actor_encoder.parameters()) + list(self.actor_base_net.parameters()) + list(self.actor.parameters()),
+                list(self.actor_encoder.parameters()) + list(self.actor.parameters()),
                 self.grad_clip
             )
             self.actor_optimizer.step()
 
             self.soft_update(self.actor_encoder, self.actor_encoder_target, self.tau)
-            self.soft_update(self.actor_base_net, self.actor_base_net_target, self.tau)
             self.soft_update(self.actor, self.actor_target, self.tau)
             self.soft_update(self.critic_encoder, self.critic_encoder_target, self.tau)
-            self.soft_update(self.critic_base_net, self.critic_base_net_target, self.tau)
             self.soft_update(self.critic, self.critic_target, self.tau)
             self.soft_update(self.safety_model, self.safety_model_target, self.tau)
 
@@ -360,17 +344,13 @@ class STSVimTD3Agent:
         torch.save(
             {
                 "actor_encoder": self.actor_encoder.state_dict(),
-                "actor_base_net": self.actor_base_net.state_dict(),
                 "actor": self.actor.state_dict(),
                 "critic_encoder": self.critic_encoder.state_dict(),
-                "critic_base_net": self.critic_base_net.state_dict(),
                 "critic": self.critic.state_dict(),
                 "safety_model": self.safety_model.state_dict(),
                 "actor_encoder_target": self.actor_encoder_target.state_dict(),
-                "actor_base_net_target": self.actor_base_net_target.state_dict(),
                 "actor_target": self.actor_target.state_dict(),
                 "critic_encoder_target": self.critic_encoder_target.state_dict(),
-                "critic_base_net_target": self.critic_base_net_target.state_dict(),
                 "critic_target": self.critic_target.state_dict(),
                 "actor_optimizer": self.actor_optimizer.state_dict(),
                 "critic_optimizer": self.critic_optimizer.state_dict(),
@@ -383,12 +363,8 @@ class STSVimTD3Agent:
     def load(self, filename):
         checkpoint = torch.load(filename, map_location=self.device)
         self.actor_encoder.load_state_dict(checkpoint["actor_encoder"])
-        if "actor_base_net" in checkpoint:
-            self.actor_base_net.load_state_dict(checkpoint["actor_base_net"])
         self.actor.load_state_dict(checkpoint["actor"])
         self.critic_encoder.load_state_dict(checkpoint["critic_encoder"])
-        if "critic_base_net" in checkpoint:
-            self.critic_base_net.load_state_dict(checkpoint["critic_base_net"])
         
         # Handle loading old models with critic_1 and critic_2
         if "critic" in checkpoint:
@@ -404,14 +380,10 @@ class STSVimTD3Agent:
             self.safety_model.load_state_dict(checkpoint["safety_model"])
         if "actor_encoder_target" in checkpoint:
             self.actor_encoder_target.load_state_dict(checkpoint["actor_encoder_target"])
-        if "actor_base_net_target" in checkpoint:
-            self.actor_base_net_target.load_state_dict(checkpoint["actor_base_net_target"])
         if "actor_target" in checkpoint:
             self.actor_target.load_state_dict(checkpoint["actor_target"])
         if "critic_encoder_target" in checkpoint:
             self.critic_encoder_target.load_state_dict(checkpoint["critic_encoder_target"])
-        if "critic_base_net_target" in checkpoint:
-            self.critic_base_net_target.load_state_dict(checkpoint["critic_base_net_target"])
         if "critic_target" in checkpoint:
             self.critic_target.load_state_dict(checkpoint["critic_target"])
         elif "critic_1_target" in checkpoint:

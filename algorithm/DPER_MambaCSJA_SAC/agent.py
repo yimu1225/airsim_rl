@@ -4,7 +4,6 @@ import torch.nn.functional as F
 from torch import nn
 from torch.optim import Adam
 
-from ..state_adapter import StateAdapter
 from ..config_loader import get_algo_param
 from .networks import Actor, Critic, Encoder
 from .buffer import DualPrioritizedReplayBuffer
@@ -33,7 +32,6 @@ class DPERMambaCSJASACAgent:
 
         self.args = args
         self.base_dim = base_dim
-        self.base_feature_dim = getattr(args, "base_feature_dim", 32)
         self.depth_shape = depth_shape  # (C, H, W)
         if not hasattr(self.args, "depth_shape"):
             self.args.depth_shape = depth_shape
@@ -100,13 +98,9 @@ class DPERMambaCSJASACAgent:
         self.critic_encoder_target.load_state_dict(self.critic_encoder.state_dict())
         
         # State adapters
-        self.actor_base_adapter = StateAdapter(self.base_dim, self.base_feature_dim).to(self.device)
-        self.critic_base_adapter = StateAdapter(self.base_dim, self.base_feature_dim).to(self.device)
-        self.critic_base_adapter_target = StateAdapter(self.base_dim, self.base_feature_dim).to(self.device)
-        self.critic_base_adapter_target.load_state_dict(self.critic_base_adapter.state_dict())
         
         # State dimension
-        self.state_dim = self.base_feature_dim + self._encoded_visual_dim()
+        self.state_dim = self.base_dim + self._encoded_visual_dim()
         
         # Actor and Critic
         self.actor = Actor(self.state_dim, action_space.shape, args.hidden_dim).to(self.device)
@@ -117,10 +111,10 @@ class DPERMambaCSJASACAgent:
         self.critic_target.load_state_dict(self.critic.state_dict())
 
         # Optimizers
-        self.actor_params = list(self.actor.parameters()) + list(self.actor_encoder.parameters()) + list(self.actor_base_adapter.parameters())
+        self.actor_params = list(self.actor.parameters()) + list(self.actor_encoder.parameters())
         self.actor_optimizer = Adam(self.actor_params, lr=args.actor_lr)
         
-        self.critic_params = list(self.critic.parameters()) + list(self.critic_encoder.parameters()) + list(self.critic_base_adapter.parameters())
+        self.critic_params = list(self.critic.parameters()) + list(self.critic_encoder.parameters())
         self.critic_optimizer = Adam(self.critic_params, lr=args.critic_lr)
 
         self.replay_buffer = self._make_replay_buffer(args, seed)
@@ -205,13 +199,12 @@ class DPERMambaCSJASACAgent:
         """Encode depth image. MambaAttentionCNN natively handles stacked frame inputs."""
         return encoder_net(depth_batch)
 
-    def _concat_state(self, base: torch.Tensor, depth: torch.Tensor, encoder_net, base_adapter, detach_encoder: bool = False) -> torch.Tensor:
-        """Concatenate base features and encoded depth features."""
-        base_features = base_adapter(base)
+    def _concat_state(self, base: torch.Tensor, depth: torch.Tensor, encoder_net) -> torch.Tensor:
+        """Concatenate raw base state and encoded depth features."""
         depth_features = self._encode(depth, encoder_net)
         if detach_encoder:
             depth_features = depth_features.detach()
-        return torch.cat([base_features, depth_features], dim=1)
+        return torch.cat([base_states, depth_features], dim=1)
 
     def select_action(self, base_state, depth, deterministic=False, with_log_prob=False, progress_ratio=0.0):
         """Select action using the current policy.
@@ -226,7 +219,7 @@ class DPERMambaCSJASACAgent:
         depth_tensor = torch.as_tensor(depth, dtype=torch.float32, device=self.device)
         
         with torch.no_grad():
-            state = self._concat_state(base_tensor, depth_tensor, self.actor_encoder, self.actor_base_adapter)
+            state = self._concat_state(base_tensor, depth_tensor, self.actor_encoder)
             
             if with_log_prob and not deterministic:
                 action, log_prob, _, _ = self.actor(state, with_log_prob=True)
@@ -275,13 +268,11 @@ class DPERMambaCSJASACAgent:
                 next_base_states,
                 next_depths,
                 self.actor_encoder,
-                self.actor_base_adapter,
             )
             next_target_states = self._concat_state(
                 next_base_states,
                 next_depths,
                 self.critic_encoder_target,
-                self.critic_base_adapter_target,
             )
             
             # Sample next actions from current policy
@@ -303,8 +294,7 @@ class DPERMambaCSJASACAgent:
 
         # Encode current observations (Critic)
         encoded_depths = self._encode(depths, self.critic_encoder)
-        base_features = self.critic_base_adapter(base_states)
-        states = torch.cat([base_features, encoded_depths], dim=1)
+        states = torch.cat([base_states, encoded_depths], dim=1)
         
         # Compute current Q-values
         current_q1, current_q2 = self.critic(states, actions)
@@ -339,8 +329,7 @@ class DPERMambaCSJASACAgent:
         if self.total_it % self.policy_freq == 0:
             # Encode current observations (Actor)
             encoded_depths_actor = self._encode(depths, self.actor_encoder)
-            base_features_actor = self.actor_base_adapter(base_states)
-            states_actor = torch.cat([base_features_actor, encoded_depths_actor], dim=1)
+            states_actor = torch.cat([base_states, encoded_depths_actor], dim=1)
             
             # Sample actions from policy
             sampled_actions, log_probs, _, _ = self.actor(states_actor, with_log_prob=True)
@@ -350,7 +339,6 @@ class DPERMambaCSJASACAgent:
                     base_states,
                     depths,
                     self.critic_encoder,
-                    self.critic_base_adapter,
                 )
 
             # Compute Q-values for sampled actions.
@@ -418,8 +406,6 @@ class DPERMambaCSJASACAgent:
         for param, target_param in zip(self.critic_encoder.parameters(), self.critic_encoder_target.parameters()):
             target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
             
-        for param, target_param in zip(self.critic_base_adapter.parameters(), self.critic_base_adapter_target.parameters()):
-            target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
 
     def save(self, path):
         """Save model checkpoint."""
@@ -428,8 +414,6 @@ class DPERMambaCSJASACAgent:
             'critic': self.critic.state_dict(),
             'actor_encoder': self.actor_encoder.state_dict(),
             'critic_encoder': self.critic_encoder.state_dict(),
-            'actor_base_adapter': self.actor_base_adapter.state_dict(),
-            'critic_base_adapter': self.critic_base_adapter.state_dict(),
             'log_alpha': self.log_alpha if self.auto_entropy_tuning else None,
         }, path)
 
@@ -440,13 +424,10 @@ class DPERMambaCSJASACAgent:
         self.critic.load_state_dict(checkpoint['critic'])
         self.actor_encoder.load_state_dict(checkpoint['actor_encoder'])
         self.critic_encoder.load_state_dict(checkpoint['critic_encoder'])
-        self.actor_base_adapter.load_state_dict(checkpoint['actor_base_adapter'])
-        self.critic_base_adapter.load_state_dict(checkpoint['critic_base_adapter'])
         
         # Copy to target networks
         self.critic_target.load_state_dict(self.critic.state_dict())
         self.critic_encoder_target.load_state_dict(self.critic_encoder.state_dict())
-        self.critic_base_adapter_target.load_state_dict(self.critic_base_adapter.state_dict())
         
         if self.auto_entropy_tuning and checkpoint.get('log_alpha') is not None:
             self.log_alpha.data.copy_(checkpoint['log_alpha'])

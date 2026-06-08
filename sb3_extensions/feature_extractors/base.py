@@ -31,7 +31,6 @@ class AirSimBaseExtractor(BaseFeaturesExtractor):
         self,
         observation_space: spaces.Dict,
         features_dim: int = 256,
-        base_feature_dim: int = 32,
         vision_output_dim: int | None = None,
         normalize_depth: bool = True,
         depth_scale: float | None = None,
@@ -45,15 +44,6 @@ class AirSimBaseExtractor(BaseFeaturesExtractor):
             raise KeyError("AirSim observation space must contain 'depth' and 'base' keys.")
         if features_dim <= 0:
             raise ValueError("features_dim must be positive.")
-        if base_feature_dim <= 0:
-            raise ValueError("base_feature_dim must be positive.")
-
-        if vision_output_dim is None:
-            vision_output_dim = features_dim - base_feature_dim
-        if vision_output_dim <= 0:
-            raise ValueError("features_dim must be greater than base_feature_dim.")
-        if vision_output_dim + base_feature_dim != features_dim:
-            raise ValueError("vision_output_dim + base_feature_dim must equal features_dim.")
 
         super().__init__(observation_space, features_dim=features_dim)
 
@@ -74,6 +64,13 @@ class AirSimBaseExtractor(BaseFeaturesExtractor):
         self.depth_scale = float(depth_scale) if depth_scale is not None else self._infer_depth_scale(self.depth_space)
         self.vision_input_shape = self._make_vision_input_shape(self.depth_shape)
 
+        if vision_output_dim is None:
+            vision_output_dim = features_dim - self.base_dim
+        if vision_output_dim <= 0:
+            raise ValueError("features_dim must be greater than base_dim.")
+        if vision_output_dim + self.base_dim != features_dim:
+            raise ValueError("vision_output_dim + base_dim must equal features_dim.")
+
         vision_space = spaces.Box(
             low=0.0,
             high=1.0 if self.normalize_depth else self.depth_scale,
@@ -81,10 +78,7 @@ class AirSimBaseExtractor(BaseFeaturesExtractor):
             dtype=np.float32,
         )
         self.vision_net = self._build_vision_backbone(vision_space, vision_output_dim)
-        self.base_net = nn.Sequential(
-            nn.Linear(self.base_dim, base_feature_dim),
-            nn.ReLU(),
-        )
+        self.base_net = nn.Identity()
 
     def _build_vision_backbone(self, depth_space: spaces.Box, output_dim: int) -> nn.Module:
         raise NotImplementedError
@@ -131,5 +125,4 @@ class AirSimBaseExtractor(BaseFeaturesExtractor):
             base = base.unsqueeze(0)
 
         vision_features = self.vision_net(depth)
-        base_features = self.base_net(base)
-        return th.cat((vision_features, base_features), dim=1)
+        return th.cat((vision_features, base), dim=1)

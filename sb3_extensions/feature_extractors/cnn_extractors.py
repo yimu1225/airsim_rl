@@ -23,7 +23,6 @@ class AirSimCNNExtractor(AirSimBaseExtractor):
         self,
         observation_space: spaces.Dict,
         features_dim: int = 256,
-        base_feature_dim: int = 32,
         vision_output_dim: int | None = None,
         cnn_feature_dim: int = 256,
         cnn_type: str = "nature",
@@ -39,12 +38,12 @@ class AirSimCNNExtractor(AirSimBaseExtractor):
 
         if vision_output_dim is None:
             vision_output_dim = int(algorithm_params.get("cnn_feature_dim", cnn_feature_dim))
-        total_features_dim = int(vision_output_dim) + int(base_feature_dim)
+        base_dim = int(observation_space.spaces["base"].shape[0])
+        total_features_dim = int(vision_output_dim) + base_dim
 
         super().__init__(
             observation_space=observation_space,
             features_dim=total_features_dim,
-            base_feature_dim=base_feature_dim,
             vision_output_dim=vision_output_dim,
             normalize_depth=normalize_depth,
             depth_scale=depth_scale,

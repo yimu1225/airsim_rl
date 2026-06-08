@@ -259,7 +259,6 @@ def _policy_kwargs(algo_name: str, args) -> dict:
     extractor_cls = FEATURE_EXTRACTORS[algo_name]
     extractor_kwargs = dict(
         features_dim=int(args.hidden_dim),
-        base_feature_dim=int(args.base_feature_dim),
         algorithm_params=dict(getattr(args, "algorithm_params", {}) or {}),
     )
     if extractor_cls is AirSimCNNExtractor:

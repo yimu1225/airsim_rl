@@ -70,10 +70,10 @@ class PERMambaSACAgent(MambaSACAgent):
         # ============ Critic Update ============
         with torch.no_grad():
             next_actor_states = self._concat_state(
-                next_base_states, next_depths, self.actor_encoder, self.actor_base_adapter
+                next_base_states, next_depths, self.actor_encoder, base_states
             )
             next_target_states = self._concat_state(
-                next_base_states, next_depths, self.critic_encoder_target, self.critic_base_adapter_target
+                next_base_states, next_depths, self.critic_encoder_target, base_states
             )
 
             next_actions, next_log_probs, _, _ = self.actor(next_actor_states, with_log_prob=True)
@@ -90,8 +90,7 @@ class PERMambaSACAgent(MambaSACAgent):
             target_q = rewards + (1 - dones) * self.gamma * target_q
 
         encoded_depths = self.critic_encoder(depths)
-        base_features = self.critic_base_adapter(base_states)
-        states = torch.cat([base_features, encoded_depths], dim=1)
+        states = torch.cat([base_states, encoded_depths], dim=1)
 
         current_q1, current_q2 = self.critic(states, actions)
 
@@ -122,14 +121,13 @@ class PERMambaSACAgent(MambaSACAgent):
 
         if self.total_it % self.policy_freq == 0:
             encoded_depths_actor = self.actor_encoder(depths)
-            base_features_actor = self.actor_base_adapter(base_states)
-            states_actor = torch.cat([base_features_actor, encoded_depths_actor], dim=1)
+            states_actor = torch.cat([base_states, encoded_depths_actor], dim=1)
 
             sampled_actions, log_probs, _, _ = self.actor(states_actor, with_log_prob=True)
 
             with torch.no_grad():
                 critic_states_for_pi = self._concat_state(
-                    base_states, depths, self.critic_encoder, self.critic_base_adapter
+                    base_states, depths, self.critic_encoder, base_states
                 )
 
             q1_new, q2_new = self.critic(critic_states_for_pi, sampled_actions)

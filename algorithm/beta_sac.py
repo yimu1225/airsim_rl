@@ -115,7 +115,7 @@ def _replace_base_actor(agent, action_shape, state_dim_attr="state_dim"):
     agent.actor_params = (
         list(agent.actor.parameters())
         + list(agent.actor_encoder.parameters())
-        + list(agent.actor_base_adapter.parameters())
+       
     )
     agent.actor_optimizer = Adam(agent.actor_params, lr=agent.args.actor_lr)
 

@@ -5,7 +5,6 @@ from torch import nn
 from torch.optim import Adam
 
 from ..config_loader import get_algo_param
-from ..state_adapter import StateAdapter
 from .buffer import DualPrioritizedReplayBuffer
 from .networks import Actor, Critic, STVimEncoder
 
@@ -22,7 +21,6 @@ class DPERSTVimSACAgent:
         self.args = args
         self.args.depth_shape = depth_shape
         self.base_dim = base_dim
-        self.base_feature_dim = getattr(args, "base_feature_dim", 32)
         self.depth_shape = depth_shape
         self.action_dim = action_space.shape[0]
 
@@ -36,12 +34,8 @@ class DPERSTVimSACAgent:
         self.critic_encoder_target = STVimEncoder(args).to(self.device)
         self.critic_encoder_target.load_state_dict(self.critic_encoder.state_dict())
 
-        self.actor_base_adapter = StateAdapter(base_dim, self.base_feature_dim).to(self.device)
-        self.critic_base_adapter = StateAdapter(base_dim, self.base_feature_dim).to(self.device)
-        self.critic_base_adapter_target = StateAdapter(base_dim, self.base_feature_dim).to(self.device)
-        self.critic_base_adapter_target.load_state_dict(self.critic_base_adapter.state_dict())
 
-        self.state_dim = self.base_feature_dim + self.actor_encoder.repr_dim
+        self.state_dim = self.base_dim + self.actor_encoder.repr_dim
         self.actor = Actor(self.state_dim, action_space.shape, args.hidden_dim).to(self.device)
         self.critic = Critic(self.state_dim, action_space.shape, args.hidden_dim).to(self.device)
         self.critic_target = Critic(self.state_dim, action_space.shape, args.hidden_dim).to(self.device)
@@ -50,12 +44,12 @@ class DPERSTVimSACAgent:
         self.actor_params = (
             list(self.actor.parameters())
             + list(self.actor_encoder.parameters())
-            + list(self.actor_base_adapter.parameters())
+           
         )
         self.critic_params = (
             list(self.critic.parameters())
             + list(self.critic_encoder.parameters())
-            + list(self.critic_base_adapter.parameters())
+           
         )
         self.actor_optimizer = Adam(self.actor_params, lr=args.actor_lr)
         self.critic_optimizer = Adam(self.critic_params, lr=args.critic_lr)
@@ -112,11 +106,10 @@ class DPERSTVimSACAgent:
             raise ValueError(f"Expected single-channel sequence frames, got {tuple(depth_batch.shape)}")
         return depth_batch
 
-    def _encode_state(self, base, depth, encoder, base_adapter):
+    def _encode_state(self, base, depth, encoder):
         depth = self._format_depth_sequence(depth)
-        base_features = base_adapter(base)
         depth_features = encoder(depth)
-        return torch.cat([base_features, depth_features], dim=1)
+        return torch.cat([base_states, depth_features], dim=1)
 
     def _to_float_tensor(self, data):
         tensor = torch.as_tensor(data, device=self.device)
@@ -173,7 +166,7 @@ class DPERSTVimSACAgent:
         depth_tensor = torch.as_tensor(depth, dtype=torch.float32, device=self.device)
 
         with torch.no_grad():
-            state = self._encode_state(base, depth_tensor, self.actor_encoder, self.actor_base_adapter)
+            state = self._encode_state(base, depth_tensor, self.actor_encoder)
             if with_log_prob and not deterministic:
                 action, log_prob = self.actor.action_log_prob(state)
                 real_action = self.action_scale * action + self.action_bias
@@ -204,11 +197,11 @@ class DPERSTVimSACAgent:
 
         with torch.no_grad():
             next_actor_state = self._encode_state(
-                next_base_states, next_depths, self.actor_encoder, self.actor_base_adapter
+                next_base_states, next_depths, self.actor_encoder
             )
             next_actions, next_log_prob = self.actor.action_log_prob(next_actor_state)
             next_target_state = self._encode_state(
-                next_base_states, next_depths, self.critic_encoder_target, self.critic_base_adapter_target
+                next_base_states, next_depths, self.critic_encoder_target
             )
             next_q1, next_q2 = self.critic_target(next_target_state, next_actions)
             next_q = torch.min(next_q1, next_q2)
@@ -217,7 +210,7 @@ class DPERSTVimSACAgent:
             )
             target_q = rewards + (1.0 - dones) * self.gamma * (next_q - alpha * next_log_prob)
 
-        critic_state = self._encode_state(base_states, depths, self.critic_encoder, self.critic_base_adapter)
+        critic_state = self._encode_state(base_states, depths, self.critic_encoder)
         current_q1, current_q2 = self.critic(critic_state, actions)
         critic_loss_elements = 0.5 * (
             F.mse_loss(current_q1, target_q, reduction="none")
@@ -239,11 +232,11 @@ class DPERSTVimSACAgent:
         mean_log_prob_value = None
         q_pi_mean_value = None
         if self.total_it % self.policy_freq == 0:
-            actor_state = self._encode_state(base_states, depths, self.actor_encoder, self.actor_base_adapter)
+            actor_state = self._encode_state(base_states, depths, self.actor_encoder)
             actions_pi, log_prob = self.actor.action_log_prob(actor_state)
             with torch.no_grad():
                 critic_state_for_pi = self._encode_state(
-                    base_states, depths, self.critic_encoder, self.critic_base_adapter
+                    base_states, depths, self.critic_encoder
                 )
             q1_pi, q2_pi = self.critic(critic_state_for_pi, actions_pi)
             min_q_pi = torch.min(q1_pi, q2_pi)
@@ -293,17 +286,11 @@ class DPERSTVimSACAgent:
             target_param.data.copy_(self.tau * param.data + (1.0 - self.tau) * target_param.data)
         for param, target_param in zip(self.critic_encoder.parameters(), self.critic_encoder_target.parameters()):
             target_param.data.copy_(self.tau * param.data + (1.0 - self.tau) * target_param.data)
-        for param, target_param in zip(self.critic_base_adapter.parameters(), self.critic_base_adapter_target.parameters()):
-            target_param.data.copy_(self.tau * param.data + (1.0 - self.tau) * target_param.data)
-
     def save(self, path):
         checkpoint = {
             "actor_encoder": self.actor_encoder.state_dict(),
             "critic_encoder": self.critic_encoder.state_dict(),
             "critic_encoder_target": self.critic_encoder_target.state_dict(),
-            "actor_base_adapter": self.actor_base_adapter.state_dict(),
-            "critic_base_adapter": self.critic_base_adapter.state_dict(),
-            "critic_base_adapter_target": self.critic_base_adapter_target.state_dict(),
             "actor": self.actor.state_dict(),
             "critic": self.critic.state_dict(),
             "critic_target": self.critic_target.state_dict(),
@@ -322,11 +309,6 @@ class DPERSTVimSACAgent:
         self.actor_encoder.load_state_dict(checkpoint["actor_encoder"])
         self.critic_encoder.load_state_dict(checkpoint["critic_encoder"])
         self.critic_encoder_target.load_state_dict(checkpoint.get("critic_encoder_target", checkpoint["critic_encoder"]))
-        self.actor_base_adapter.load_state_dict(checkpoint["actor_base_adapter"])
-        self.critic_base_adapter.load_state_dict(checkpoint["critic_base_adapter"])
-        self.critic_base_adapter_target.load_state_dict(
-            checkpoint.get("critic_base_adapter_target", checkpoint["critic_base_adapter"])
-        )
         self.actor.load_state_dict(checkpoint["actor"])
         self.critic.load_state_dict(checkpoint["critic"])
         self.critic_target.load_state_dict(checkpoint.get("critic_target", checkpoint["critic"]))

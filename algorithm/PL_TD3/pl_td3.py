@@ -3,7 +3,6 @@ import torch
 import torch.nn.functional as F
 from torch.optim import Adam
 
-from ..state_adapter import StateAdapter
 from .networks import Actor, Critic, Encoder
 from .buffer import ReplayBuffer
 
@@ -17,7 +16,6 @@ class PLTD3Agent:
             torch.manual_seed(seed)
 
         self.base_dim = base_dim
-        self.base_feature_dim = getattr(args, "base_feature_dim", 32)
         self.depth_shape = depth_shape  # (C, H, W)
         self.action_dim = action_space.shape[0]
         self.max_action = np.array(action_space.high, dtype=np.float32)
@@ -43,17 +41,11 @@ class PLTD3Agent:
         self.critic_encoder_target = Encoder(input_height=depth_h, input_width=depth_w, input_channels=C).to(self.device)
         self.critic_encoder_target.load_state_dict(self.critic_encoder.state_dict())
 
-        self.actor_base_adapter = StateAdapter(self.base_dim, self.base_feature_dim).to(self.device)
-        self.critic_base_adapter = StateAdapter(self.base_dim, self.base_feature_dim).to(self.device)
 
-        self.actor_base_adapter_target = StateAdapter(self.base_dim, self.base_feature_dim).to(self.device)
-        self.actor_base_adapter_target.load_state_dict(self.actor_base_adapter.state_dict())
 
-        self.critic_base_adapter_target = StateAdapter(self.base_dim, self.base_feature_dim).to(self.device)
-        self.critic_base_adapter_target.load_state_dict(self.critic_base_adapter.state_dict())
 
-        self.actor_state_dim = self.base_feature_dim + self.actor_encoder.repr_dim
-        self.critic_state_dim = self.base_feature_dim + self.critic_encoder.repr_dim
+        self.actor_state_dim = self.base_dim + self.actor_encoder.repr_dim
+        self.critic_state_dim = self.base_dim + self.critic_encoder.repr_dim
 
         self.actor = Actor(self.actor_state_dim, action_space.shape, args.hidden_dim).to(self.device)
         self.actor_target = Actor(self.actor_state_dim, action_space.shape, args.hidden_dim).to(self.device)
@@ -66,14 +58,14 @@ class PLTD3Agent:
         self.actor_params = (
             list(self.actor.parameters())
             + list(self.actor_encoder.parameters())
-            + list(self.actor_base_adapter.parameters())
+           
         )
         self.actor_optimizer = Adam(self.actor_params, lr=args.actor_lr)
 
         self.critic_params = (
             list(self.critic.parameters())
             + list(self.critic_encoder.parameters())
-            + list(self.critic_base_adapter.parameters())
+           
         )
         self.critic_optimizer = Adam(self.critic_params, lr=args.critic_lr)
 
@@ -95,12 +87,11 @@ class PLTD3Agent:
             depth_batch = depth_batch.unsqueeze(0)
         return encoder_net(depth_batch)
 
-    def _concat_actor_state(self, base: torch.Tensor, depth: torch.Tensor, encoder_net, base_adapter, detach_encoder: bool = False) -> torch.Tensor:
-        base_features = base_adapter(base)
+    def _concat_actor_state(self, base: torch.Tensor, depth: torch.Tensor, encoder_net, detach_encoder: bool = False) -> torch.Tensor:
         depth_features = self._encode(depth, encoder_net)
         if detach_encoder:
             depth_features = depth_features.detach()
-        return torch.cat([base_features, depth_features], dim=1)
+        return torch.cat([base_states, depth_features], dim=1)
 
     def _concat_critic_state(
         self,
@@ -108,14 +99,12 @@ class PLTD3Agent:
         depth: torch.Tensor,
         critic_depth: torch.Tensor,
         encoder_net,
-        base_adapter,
         detach_encoder: bool = False,
     ) -> torch.Tensor:
-        base_features = base_adapter(base)
         depth_features = self._encode(critic_depth, encoder_net)
         if detach_encoder:
             depth_features = depth_features.detach()
-        return torch.cat([base_features, depth_features], dim=1)
+        return torch.cat([base_states, depth_features], dim=1)
 
     def _get_current_noise(self, progress_ratio: float) -> float:
         return max(float(self.exploration_noise), 1e-8)
@@ -123,7 +112,7 @@ class PLTD3Agent:
         base_tensor = torch.as_tensor(base_state, dtype=torch.float32, device=self.device).view(1, -1)
         depth_tensor = torch.as_tensor(depth, dtype=torch.float32, device=self.device)
         with torch.no_grad():
-            state = self._concat_actor_state(base_tensor, depth_tensor, self.actor_encoder, self.actor_base_adapter)
+            state = self._concat_actor_state(base_tensor, depth_tensor, self.actor_encoder)
             action = self.actor(state).cpu().numpy().flatten()
 
         if noise:
@@ -171,7 +160,6 @@ class PLTD3Agent:
             depths,
             critic_privs,
             self.critic_encoder,
-            self.critic_base_adapter,
         )
 
         with torch.no_grad():
@@ -180,14 +168,12 @@ class PLTD3Agent:
                 next_depths,
                 next_critic_privs,
                 self.critic_encoder_target,
-                self.critic_base_adapter_target,
             )
 
             next_states_actor = self._concat_actor_state(
                 next_base_states,
                 next_depths,
                 self.actor_encoder_target,
-                self.actor_base_adapter_target,
             )
 
             noise = (torch.randn_like(actions) * self.policy_noise).clamp(-self.noise_clip, self.noise_clip)
@@ -211,7 +197,6 @@ class PLTD3Agent:
                 base_states,
                 depths,
                 self.actor_encoder,
-                self.actor_base_adapter,
             )
 
             with torch.no_grad():
@@ -220,7 +205,6 @@ class PLTD3Agent:
                     depths,
                     critic_privs,
                     self.critic_encoder,
-                    self.critic_base_adapter,
                 )
 
             q1, _ = self.critic(states_critic_fixed, self.actor(states_actor))
@@ -237,16 +221,10 @@ class PLTD3Agent:
                 target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
             for param, target_param in zip(self.actor_encoder.parameters(), self.actor_encoder_target.parameters()):
                 target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
-            for param, target_param in zip(self.actor_base_adapter.parameters(), self.actor_base_adapter_target.parameters()):
-                target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
-
             for param, target_param in zip(self.critic.parameters(), self.critic_target.parameters()):
                 target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
             for param, target_param in zip(self.critic_encoder.parameters(), self.critic_encoder_target.parameters()):
                 target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
-            for param, target_param in zip(self.critic_base_adapter.parameters(), self.critic_base_adapter_target.parameters()):
-                target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
-
         result = {
             "critic_loss": float(critic_loss.item()),
         }
@@ -264,13 +242,9 @@ class PLTD3Agent:
                 "actor_optimizer": self.actor_optimizer.state_dict(),
                 "critic_optimizer": self.critic_optimizer.state_dict(),
                 "actor_encoder": self.actor_encoder.state_dict(),
-                "actor_base_adapter": self.actor_base_adapter.state_dict(),
                 "critic_encoder": self.critic_encoder.state_dict(),
-                "critic_base_adapter": self.critic_base_adapter.state_dict(),
                 "actor_encoder_target": self.actor_encoder_target.state_dict(),
-                "actor_base_adapter_target": self.actor_base_adapter_target.state_dict(),
                 "critic_encoder_target": self.critic_encoder_target.state_dict(),
-                "critic_base_adapter_target": self.critic_base_adapter_target.state_dict(),
                 "total_it": self.total_it,
             },
             filename,
@@ -294,14 +268,6 @@ class PLTD3Agent:
             self.critic_encoder.load_state_dict(checkpoint["critic_encoder"])
             self.actor_encoder_target.load_state_dict(checkpoint["actor_encoder_target"])
             self.critic_encoder_target.load_state_dict(checkpoint["critic_encoder_target"])
-            if "actor_base_adapter" in checkpoint:
-                self.actor_base_adapter.load_state_dict(checkpoint["actor_base_adapter"])
-            if "critic_base_adapter" in checkpoint:
-                self.critic_base_adapter.load_state_dict(checkpoint["critic_base_adapter"])
-            if "actor_base_adapter_target" in checkpoint:
-                self.actor_base_adapter_target.load_state_dict(checkpoint["actor_base_adapter_target"])
-            if "critic_base_adapter_target" in checkpoint:
-                self.critic_base_adapter_target.load_state_dict(checkpoint["critic_base_adapter_target"])
         elif "encoder" in checkpoint:
             self.actor_encoder.load_state_dict(checkpoint["encoder"])
             self.critic_encoder.load_state_dict(checkpoint["encoder"])
