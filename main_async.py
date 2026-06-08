@@ -52,7 +52,7 @@ from algorithm.Vim_TD3.agent import VimTD3Agent
 from algorithm.ST_Seq_Vim_TD3.agent import StateSeqVimTD3Agent
 from algorithm.STV_Seq_Vim_TD3.agent import VimStateSeqTD3Agent
 from algorithm.DPER_VMTD3.agent import DPERVimTD3Agent
-from algorithm.SVMTD3.agent import STSVimTD3Agent
+from algorithm.safe.SVMTD3.agent import STSVimTD3Agent
 from algorithm.Mamba_TD3.agent import MambaTD3Agent
 from algorithm.ST_DualVim_TD3.agent import DualBranchVideoMambaTD3Agent
 from algorithm.SAC.agent import SACAgent
@@ -64,7 +64,7 @@ from algorithm.PL_DPER_VMTD3.agent import PLDPERSTVimTD3Agent
 from algorithm.VMSAC.agent import STVimSACAgent
 from algorithm.MM_VMSAC.agent import MMSTVimSACAgent
 from algorithm.PER_VMSAC.agent import PERSTVimSACAgent
-from algorithm.SVMSAC.agent import STSVimSACAgent
+from algorithm.safe.SVMSAC.agent import STSVimSACAgent
 from algorithm.DPER_VMSAC.agent import DPERSTVimSACAgent
 from algorithm.MambaCSJA_SAC.agent import MambaCSJA_SACAgent
 from algorithm.DPER_MambaCSJA_SAC.agent import DPERMambaCSJASACAgent

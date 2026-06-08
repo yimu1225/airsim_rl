@@ -144,7 +144,7 @@ class DPERVimTD3Agent:
 
         with torch.no_grad():
             visual_feat = self.actor_encoder(depth_img)
-            actor_input = torch.cat([visual_feat, base], dim=-1)
+            actor_input = torch.cat([visual_feat, current_state], dim=-1)
             action = self.actor(actor_input).cpu().numpy().flatten()
 
         if noise:
@@ -186,19 +186,19 @@ class DPERVimTD3Agent:
 
         with torch.no_grad():
             next_visual = self.actor_encoder_target(next_depth)
-            next_actor_input = torch.cat([next_visual, next_base_actor], dim=-1)
+            next_actor_input = torch.cat([next_visual, next_state], dim=-1)
             next_action = self.actor_target(next_actor_input)
             noise = (torch.randn_like(next_action) * self.policy_noise).clamp(-self.noise_clip, self.noise_clip)
             next_action = (next_action + noise).clamp(-1.0, 1.0)
 
             target_visual = self.critic_encoder_target(next_depth)
-            target_input = torch.cat([target_visual, target_base], dim=-1)
+            target_input = torch.cat([target_visual, next_state], dim=-1)
             target_q1 = self.critic_1_target(target_input, next_action)
             target_q2 = self.critic_2_target(target_input, next_action)
             target_q = reward + (1.0 - dones) * self.gamma * torch.min(target_q1, target_q2)
 
         current_visual = self.critic_encoder(depth)
-        critic_input = torch.cat([current_visual, current_base], dim=-1)
+        critic_input = torch.cat([current_visual, state], dim=-1)
         current_q1 = self.critic_1(critic_input, action)
         current_q2 = self.critic_2(critic_input, action)
 
@@ -224,12 +224,12 @@ class DPERVimTD3Agent:
             for param in self.critic_params:
                 param.requires_grad_(False)
             actor_visual = self.actor_encoder(depth)
-            actor_input = torch.cat([actor_visual, actor_base], dim=-1)
+            actor_input = torch.cat([actor_visual, state], dim=-1)
             actor_action = self.actor(actor_input)
 
             with torch.no_grad():
                 q_visual = self.critic_encoder(depth)
-            q_input = torch.cat([q_visual, q_base], dim=-1)
+            q_input = torch.cat([q_visual, state], dim=-1)
             actor_loss = -self.critic_1(q_input, actor_action).mean()
             actor_loss_value = float(actor_loss.item())
 

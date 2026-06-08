@@ -116,17 +116,17 @@ class PLSTVimSACAgent:
     def _encode_actor_state(self, base, depth):
         depth = self._format_depth_sequence(depth)
         depth_features = self.actor_encoder(depth)
-        return torch.cat([base_states, depth_features], dim=1)
+        return torch.cat([base, depth_features], dim=1)
 
     def _encode_critic_state(self, base, depth, critic_depth):
         depth = self._format_depth_sequence(critic_depth)
         depth_features = self.critic_encoder(depth)
-        return torch.cat([base_states, depth_features], dim=1)
+        return torch.cat([base, depth_features], dim=1)
 
     def _encode_critic_state_target(self, base, depth, critic_depth):
         depth = self._format_depth_sequence(critic_depth)
         depth_features = self.critic_encoder_target(depth)
-        return torch.cat([base_states, depth_features], dim=1)
+        return torch.cat([base, depth_features], dim=1)
 
     # ------------------------------------------------------------------
     #  Replay sampling (non-prioritized)
@@ -167,7 +167,6 @@ class PLSTVimSACAgent:
         if sample is None:
             return {}
         (
-            base_states,
             depths,
             actions,
             rewards,

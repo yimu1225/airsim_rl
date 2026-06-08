@@ -5,7 +5,7 @@ import torch.nn.functional as F
 from torch import nn
 from torch.optim import Adam
 
-from ..config_loader import get_algo_param
+from ...config_loader import get_algo_param
 from .networks import STVimEncoder, Actor, Critic, SafetyConstraintHead, safety_project_actions
 from .buffer import ReplayBuffer
 
@@ -159,11 +159,11 @@ class STSVimTD3Agent:
         with torch.no_grad():
             visual_feat = self.actor_encoder(depth_img)
             self._assert_finite_tensor("select_action.visual_feat", visual_feat)
-            self._assert_finite_tensor("select_action.base", base)
+            self._assert_finite_tensor("select_action.base", current_state)
 
-            actor_input = torch.cat([visual_feat, base], dim=-1)
+            actor_input = torch.cat([visual_feat, current_state], dim=-1)
             raw_action = self.actor(actor_input)
-            safe_action, _ = self._apply_safety_projection(raw_action, visual_feat, base)
+            safe_action, _ = self._apply_safety_projection(raw_action, visual_feat, current_state)
             action = safe_action.cpu().numpy().flatten()
             self._assert_finite_array("select_action.actor_output", action)
 
@@ -206,12 +206,12 @@ class STSVimTD3Agent:
         with torch.no_grad():
             next_visual = self.actor_encoder_target(next_depth)
             self._assert_finite_tensor("train.next_visual", next_visual)
-            self._assert_finite_tensor("train.next_base_actor", next_base_actor)
-            next_actor_input = torch.cat([next_visual, next_base_actor], dim=-1)
+            self._assert_finite_tensor("train.next_state", next_state)
+            next_actor_input = torch.cat([next_visual, next_state], dim=-1)
             next_action_raw = self.actor_target(next_actor_input)
 
             if self.use_safety_layer:
-                next_safety_input = torch.cat([next_visual, next_base_actor], dim=-1)
+                next_safety_input = torch.cat([next_visual, next_state], dim=-1)
                 next_g, next_h = self.safety_model_target(next_safety_input)
                 next_action_raw, _ = safety_project_actions(next_action_raw, next_g, next_h)
                 next_action_raw = next_action_raw.clamp(-1.0, 1.0)
@@ -223,8 +223,8 @@ class STSVimTD3Agent:
 
             target_visual = self.critic_encoder_target(next_depth)
             self._assert_finite_tensor("train.target_visual", target_visual)
-            self._assert_finite_tensor("train.target_base", target_base)
-            target_input = torch.cat([target_visual, target_base], dim=-1)
+            self._assert_finite_tensor("train.next_state", next_state)
+            target_input = torch.cat([target_visual, next_state], dim=-1)
             target_Q1, target_Q2 = self.critic_target(target_input, next_action)
             self._assert_finite_tensor("train.target_Q1", target_Q1)
             self._assert_finite_tensor("train.target_Q2", target_Q2)
@@ -234,8 +234,8 @@ class STSVimTD3Agent:
 
         current_visual = self.critic_encoder(depth)
         self._assert_finite_tensor("train.current_visual", current_visual)
-        self._assert_finite_tensor("train.current_base", current_base)
-        critic_input = torch.cat([current_visual, current_base], dim=-1)
+        self._assert_finite_tensor("train.state", state)
+        critic_input = torch.cat([current_visual, state], dim=-1)
         current_Q1, current_Q2 = self.critic(critic_input, action)
         self._assert_finite_tensor("train.current_Q1", current_Q1)
         self._assert_finite_tensor("train.current_Q2", current_Q2)
@@ -257,7 +257,7 @@ class STSVimTD3Agent:
         safety_violation_rate = 0.0
         if self.use_safety_layer and self.total_it >= self.safety_warmup_steps:
             safety_visual = self.actor_encoder(depth)
-            safety_input = torch.cat([safety_visual, safety_base], dim=-1)
+            safety_input = torch.cat([safety_visual, state], dim=-1)
             safety_input = safety_input if self.safety_end_to_end else safety_input.detach()
             g, h = self.safety_model(safety_input)
 
@@ -283,15 +283,15 @@ class STSVimTD3Agent:
         if self.total_it % self.policy_freq == 0:
             actor_visual = self.actor_encoder(depth)
             self._assert_finite_tensor("train.actor_visual", actor_visual)
-            self._assert_finite_tensor("train.actor_base", actor_base)
-            actor_input = torch.cat([actor_visual, actor_base], dim=-1)
+            self._assert_finite_tensor("train.state", state)
+            actor_input = torch.cat([actor_visual, state], dim=-1)
             actor_action_raw = self.actor(actor_input)
             self._assert_finite_tensor("train.actor_action_raw", actor_action_raw)
 
             safety_penalty = torch.tensor(0.0, device=self.device)
             if self.use_safety_layer:
                 with torch.no_grad():
-                    safety_input_actor = torch.cat([actor_visual, actor_base], dim=-1)
+                    safety_input_actor = torch.cat([actor_visual, state], dim=-1)
                     g_actor, h_actor = self.safety_model(safety_input_actor)
                 actor_action_safe, actor_violation = safety_project_actions(actor_action_raw, g_actor, h_actor)
                 actor_action_safe = actor_action_safe.clamp(-1.0, 1.0)
@@ -305,8 +305,8 @@ class STSVimTD3Agent:
             with torch.no_grad():
                 q_visual = self.critic_encoder(depth)
             self._assert_finite_tensor("train.q_visual", q_visual)
-            self._assert_finite_tensor("train.q_base", q_base)
-            q_input = torch.cat([q_visual, q_base], dim=-1)
+            self._assert_finite_tensor("train.state", state)
+            q_input = torch.cat([q_visual, state], dim=-1)
             actor_q_loss = -self.critic(q_input, actor_action)[0].mean()
             actor_loss = actor_q_loss + self.safety_actor_penalty_coef * safety_penalty
             self._assert_finite_tensor("train.actor_loss", actor_loss)

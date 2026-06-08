@@ -199,12 +199,12 @@ class DPERMambaCSJASACAgent:
         """Encode depth image. MambaAttentionCNN natively handles stacked frame inputs."""
         return encoder_net(depth_batch)
 
-    def _concat_state(self, base: torch.Tensor, depth: torch.Tensor, encoder_net) -> torch.Tensor:
+    def _concat_state(self, base: torch.Tensor, depth: torch.Tensor, encoder_net, detach_encoder: bool = False) -> torch.Tensor:
         """Concatenate raw base state and encoded depth features."""
         depth_features = self._encode(depth, encoder_net)
         if detach_encoder:
             depth_features = depth_features.detach()
-        return torch.cat([base_states, depth_features], dim=1)
+        return torch.cat([base, depth_features], dim=1)
 
     def select_action(self, base_state, depth, deterministic=False, with_log_prob=False, progress_ratio=0.0):
         """Select action using the current policy.
@@ -336,7 +336,6 @@ class DPERMambaCSJASACAgent:
             
             with torch.no_grad():
                 critic_states_for_pi = self._concat_state(
-                    base_states,
                     depths,
                     self.critic_encoder,
                 )

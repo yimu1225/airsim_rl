@@ -110,7 +110,7 @@ class PLDPERSTVimSACAgent:
     def _encode_state(self, base, depth, encoder):
         depth = self._format_depth_sequence(depth)
         depth_features = encoder(depth)
-        return torch.cat([base_states, depth_features], dim=1)
+        return torch.cat([base, depth_features], dim=1)
 
     def _to_float_tensor(self, data):
         tensor = torch.as_tensor(data, device=self.device)
@@ -188,7 +188,6 @@ class PLDPERSTVimSACAgent:
         if sample is None:
             return {}
         (
-            base_states,
             depths,
             actions,
             rewards,
@@ -230,7 +229,6 @@ class PLDPERSTVimSACAgent:
             target_q = rewards + (1.0 - dones) * self.gamma * (next_q - alpha * next_log_prob)
 
         critic_state = self._encode_critic_state(
-            base_states,
             depths,
             critic_privs,
             self.critic_encoder,
@@ -260,7 +258,6 @@ class PLDPERSTVimSACAgent:
             actions_pi, log_prob = self.actor.action_log_prob(actor_state)
             with torch.no_grad():
                 critic_state_for_pi = self._encode_critic_state(
-                    base_states,
                     depths,
                     critic_privs,
                     self.critic_encoder,

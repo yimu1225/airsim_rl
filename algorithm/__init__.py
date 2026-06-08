@@ -6,7 +6,7 @@ from .VMTD3.agent import STVimTD3Agent
 from .STV_Seq_Vim_TD3.agent import VimStateSeqTD3Agent
 from .Vim_TD3.agent import VimTD3Agent
 from .DPER_VMTD3.agent import DPERVimTD3Agent
-from .SVMTD3.agent import STSVimTD3Agent
+from .safe.SVMTD3.agent import STSVimTD3Agent
 from .Mamba_TD3.agent import MambaTD3Agent
 from .ST_DualVim_TD3.agent import DualBranchVideoMambaTD3Agent
 from .PPO import PPOAgent

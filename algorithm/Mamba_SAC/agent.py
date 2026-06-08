@@ -97,11 +97,11 @@ class MambaSACAgent:
         self.policy_freq = getattr(args, "policy_freq", 2)
         self.target_update_interval = get_algo_param(args, "target_update_interval", 1)
 
-    def _concat_state(self, base, depth, encoder_net):
+    def _concat_state(self, base, depth, encoder_net, detach_encoder=False):
         depth_features = encoder_net(depth)
         if detach_encoder:
             depth_features = depth_features.detach()
-        return torch.cat([base_states, depth_features], dim=1)
+        return torch.cat([base, depth_features], dim=1)
 
     def select_action(self, base_state, depth, deterministic=False, with_log_prob=False, progress_ratio=0.0):
         base_tensor = torch.as_tensor(base_state, dtype=torch.float32, device=self.device).view(1, -1)

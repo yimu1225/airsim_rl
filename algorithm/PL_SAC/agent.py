@@ -187,12 +187,12 @@ class PLSACAgent:
         frame_features = encoder_net(frames).view(batch_size, seq_len, -1)
         return frame_features.reshape(batch_size, seq_len * frame_features.size(-1))
 
-    def _concat_state(self, base: torch.Tensor, depth: torch.Tensor, encoder_net) -> torch.Tensor:
+    def _concat_state(self, base: torch.Tensor, depth: torch.Tensor, encoder_net, detach_encoder: bool = False) -> torch.Tensor:
         """Concatenate raw base state and encoded depth features."""
         depth_features = self._encode(depth, encoder_net)
         if detach_encoder:
             depth_features = depth_features.detach()
-        return torch.cat([base_states, depth_features], dim=1)
+        return torch.cat([base, depth_features], dim=1)
 
     def _concat_critic_state(
         self,
@@ -205,7 +205,7 @@ class PLSACAgent:
         depth_features = self._encode(critic_depth, encoder_net)
         if detach_encoder:
             depth_features = depth_features.detach()
-        return torch.cat([base_states, depth_features], dim=1)
+        return torch.cat([base, depth_features], dim=1)
 
     def select_action(self, base_state, depth, deterministic=False, with_log_prob=False, progress_ratio=0.0):
         """Select action using the current policy.
@@ -245,7 +245,6 @@ class PLSACAgent:
         if sample is None:
             return {}
         (
-            base_states,
             depths,
             actions,
             rewards,
@@ -307,7 +306,6 @@ class PLSACAgent:
 
         # Encode current observations (Critic)
         states = self._concat_critic_state(
-            base_states,
             depths,
             critic_privs,
             self.critic_encoder,
@@ -352,7 +350,6 @@ class PLSACAgent:
 
             with torch.no_grad():
                 critic_states_for_pi = self._concat_critic_state(
-                    base_states,
                     depths,
                     critic_privs,
                     self.critic_encoder,

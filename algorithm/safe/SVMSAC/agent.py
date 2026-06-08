@@ -7,7 +7,7 @@ from torch import nn
 from torch.optim import Adam
 
 from algorithm.VMSAC.agent import STVimSACAgent
-from ..config_loader import get_algo_param
+from ...config_loader import get_algo_param
 from .buffer import ReplayBuffer
 from .networks import SafetyConstraintHead, safety_project_actions
 
@@ -31,7 +31,6 @@ class STSVimSACAgent(STVimSACAgent):
         self.safety_params = list(self.safety_model.parameters())
         if self.safety_end_to_end:
             self.safety_params += list(self.actor_encoder.parameters())
-            self.safety_params += list(base_states.parameters())
         self.safety_optimizer = Adam(
             self.safety_params,
             lr=get_algo_param(args, "safety_lr", args.actor_lr),
@@ -55,7 +54,7 @@ class STSVimSACAgent(STVimSACAgent):
         depth_tensor = torch.as_tensor(depth, dtype=torch.float32, device=self.device)
 
         with torch.no_grad():
-            state = self._encode_state(base, depth_tensor, self.actor_encoder, base_states)
+            state = self._encode_state(base, depth_tensor, self.actor_encoder)
             log_prob = None
             if with_log_prob and not deterministic:
                 action, log_prob = self.actor.action_log_prob(state)
@@ -101,7 +100,7 @@ class STSVimSACAgent(STVimSACAgent):
 
         with torch.no_grad():
             next_actor_state = self._encode_state(
-                next_base_states, next_depths, self.actor_encoder, base_states
+                next_base_states, next_depths, self.actor_encoder
             )
             next_actions, next_log_prob = self.actor.action_log_prob(next_actor_state)
             next_actions, _ = self._apply_safety_projection(
@@ -110,7 +109,7 @@ class STSVimSACAgent(STVimSACAgent):
                 safety_model=self.safety_model_target,
             )
             next_target_state = self._encode_state(
-                next_base_states, next_depths, self.critic_encoder_target, base_states
+                next_base_states, next_depths, self.critic_encoder_target
             )
             next_q1, next_q2 = self.critic_target(next_target_state, next_actions)
             next_q = torch.min(next_q1, next_q2)
@@ -119,7 +118,7 @@ class STSVimSACAgent(STVimSACAgent):
             )
             target_q = rewards + (1.0 - dones) * self.gamma * (next_q - alpha * next_log_prob)
 
-        critic_state = self._encode_state(base_states, depths, self.critic_encoder, base_states)
+        critic_state = self._encode_state(base_states, depths, self.critic_encoder)
         current_q1, current_q2 = self.critic(critic_state, actions)
         critic_loss_elements = 0.5 * (
             F.mse_loss(current_q1, target_q, reduction="none")
@@ -140,7 +139,7 @@ class STSVimSACAgent(STVimSACAgent):
         safety_loss_value = 0.0
         safety_violation_rate = 0.0
         if self.use_safety_layer and self.total_it >= self.safety_warmup_steps:
-            safety_state = self._encode_state(base_states, depths, self.actor_encoder, base_states)
+            safety_state = self._encode_state(base_states, depths, self.actor_encoder)
             safety_state = safety_state if self.safety_end_to_end else safety_state.detach()
             g, h = self.safety_model(safety_state)
             logits = (g * actions).sum(dim=-1, keepdim=True) + h
@@ -161,7 +160,7 @@ class STSVimSACAgent(STVimSACAgent):
         q_pi_mean_value = None
         safety_penalty_value = None
         if self.total_it % self.policy_freq == 0:
-            actor_state = self._encode_state(base_states, depths, self.actor_encoder, base_states)
+            actor_state = self._encode_state(base_states, depths, self.actor_encoder)
             actions_pi_raw, log_prob = self.actor.action_log_prob(actor_state)
             safety_penalty = torch.tensor(0.0, dtype=torch.float32, device=self.device)
             if self.use_safety_layer:
@@ -175,7 +174,7 @@ class STSVimSACAgent(STVimSACAgent):
 
             with torch.no_grad():
                 critic_state_for_pi = self._encode_state(
-                    base_states, depths, self.critic_encoder, base_states
+                    base_states, depths, self.critic_encoder
                 )
             q1_pi, q2_pi = self.critic(critic_state_for_pi, actions_pi)
             min_q_pi = torch.min(q1_pi, q2_pi)

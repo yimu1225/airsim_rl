@@ -60,7 +60,6 @@ class PLMambaRSACAgent(MambaRSACAgent):
                 next_depth,
                 action_norm,
                 self.actor_encoder,
-                base_states,
                 self.actor_history,
             )
             next_action_pi, next_log_prob = self.actor.action_log_prob(next_actor_seq.reshape(-1, next_actor_seq.size(-1)))
@@ -71,7 +70,6 @@ class PLMambaRSACAgent(MambaRSACAgent):
                 next_critic_priv,
                 action_norm,
                 self.critic_encoder_target,
-                base_states,
                 self.critic_history_target,
             )
             target_q1, target_q2 = self.critic_target(
@@ -90,7 +88,6 @@ class PLMambaRSACAgent(MambaRSACAgent):
             critic_priv,
             prev_action_norm,
             self.critic_encoder,
-            base_states,
             self.critic_history,
         )
         current_q1, current_q2 = self.critic(
@@ -116,7 +113,6 @@ class PLMambaRSACAgent(MambaRSACAgent):
                 depth,
                 prev_action_norm,
                 self.actor_encoder,
-                base_states,
                 self.actor_history,
             )
             actor_flat = self._select_learning(actor_seq, learn_mask)

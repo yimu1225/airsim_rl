@@ -97,11 +97,11 @@ class AETD3Agent:
             depth_batch = depth_batch.unsqueeze(0)
         return encoder_net(depth_batch)
 
-    def _concat_state(self, base: torch.Tensor, depth: torch.Tensor, encoder_net) -> torch.Tensor:
+    def _concat_state(self, base: torch.Tensor, depth: torch.Tensor, encoder_net, detach_encoder: bool = False) -> torch.Tensor:
         depth_features = self._encode(depth, encoder_net)
         if detach_encoder:
             depth_features = depth_features.detach()
-        return torch.cat([base_states, depth_features], dim=1)
+        return torch.cat([base, depth_features], dim=1)
 
     def _get_current_noise(self, progress_ratio: float) -> float:
         return max(float(self.exploration_noise), 1e-8)

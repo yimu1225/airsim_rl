@@ -3,7 +3,7 @@ import torch.nn as nn
 
 from Vim.vim.models_mamba import VisionMamba
 from mamba_ssm import Mamba
-from ..config_loader import get_algo_param
+from ...config_loader import get_algo_param
 
 
 class MambaBlock(nn.Module):

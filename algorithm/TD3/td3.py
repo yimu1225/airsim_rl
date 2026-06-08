@@ -130,11 +130,11 @@ class TD3Agent:
         frame_features = encoder_net(frames).view(batch_size, seq_len, -1)
         return frame_features.reshape(batch_size, seq_len * frame_features.size(-1))
 
-    def _concat_state(self, base: torch.Tensor, depth: torch.Tensor, encoder_net) -> torch.Tensor:
+    def _concat_state(self, base: torch.Tensor, depth: torch.Tensor, encoder_net, detach_encoder: bool = False) -> torch.Tensor:
         depth_features = self._encode(depth, encoder_net)
         if detach_encoder:
             depth_features = depth_features.detach()
-        return torch.cat([base_states, depth_features], dim=1)
+        return torch.cat([base, depth_features], dim=1)
 
     def _get_current_noise(self, progress_ratio: float) -> float:
         return max(float(self.exploration_noise), 1e-8)
