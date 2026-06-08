@@ -8,8 +8,8 @@ policy_freq: 1
 
 # State decomposition subnetwork hidden dimensions
 sub_visual_hidden: [256, 128]
-sub_base_hidden: [256, 128]
-sub_out_dim: 2
+sub_base_hidden: [64, 32]
+sub_out_dim: 3
 
 # Prioritized replay parameters
 dper_alpha: 0.6
@@ -26,9 +26,9 @@ dper_mu_step2: 0.70
 
 # Vim + temporal Mamba visual encoder parameters
 st_mamba_embed_dim: 64
-st_mamba_depth: 1
+st_mamba_depth: 2
 st_mamba_patch_size: 32
-st_mamba_d_state: 32
+st_mamba_d_state: 16
 st_mamba_d_conv: 4
 st_mamba_expand: 2
 st_mamba_drop_rate: 0.05
