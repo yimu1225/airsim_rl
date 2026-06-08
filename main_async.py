@@ -848,7 +848,7 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, in
             
             if is_recurrent:
                 if core_algo_name in {'SVMTD3', 'SVMSAC'}:
-                    has_collided = float(step_info.get("has_collided", False)) if isinstance(step_info, dict) else 0.0
+                    add_kwargs = {}
                     agent.replay_buffer.add(
                         base_for_buffer,
                         depth_seq,
@@ -857,7 +857,7 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, in
                         next_base_for_buffer,
                         next_depth_seq,
                         done_bool,
-                        has_collided
+                        **add_kwargs,
                     )
                 elif is_pl_algo:
                     add_kwargs = dict(

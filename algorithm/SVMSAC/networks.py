@@ -126,7 +126,7 @@ class STVimEncoder(nn.Module):
 # ================================================================
 #  VisualSubNetwork - 视觉分支
 #  深度序列 → STVimEncoder → so_repr (视觉特征)
-#  MLP(so_repr) → ao_visual (视觉子动作, 无激活函数)
+#  MLP(so_repr) → Tanh → ao_visual (视觉子动作)
 # ================================================================
 
 class VisualSubNetwork(nn.Module):
@@ -144,6 +144,7 @@ class VisualSubNetwork(nn.Module):
             nn.Linear(h1, h2),
             nn.ReLU(inplace=True),
             nn.Linear(h2, out_dim),
+            nn.Tanh(),
         )
         self.apply(self._init_weights)
 
@@ -162,7 +163,7 @@ class VisualSubNetwork(nn.Module):
 
 # ================================================================
 #  BaseSubNetwork - 基础状态分支
-#  基础状态 (11维) → MLP → ao_base (基础子动作, 无激活函数)
+#  基础状态 (11维) → MLP → Tanh → ao_base (基础子动作)
 # ================================================================
 
 class BaseSubNetwork(nn.Module):
@@ -177,6 +178,7 @@ class BaseSubNetwork(nn.Module):
             nn.Linear(h1, h2),
             nn.ReLU(inplace=True),
             nn.Linear(h2, out_dim),
+            nn.Tanh(),
         )
         self.apply(self._init_weights)
 
@@ -290,8 +292,11 @@ class Critic(nn.Module):
             if module.bias is not None:
                 nn.init.constant_(module.bias, 0)
 
-    def forward(self, depth_seq, base_state, action):
-        so_repr = self.encoder(depth_seq)
+    def q_from_repr(self, so_repr, base_state, action):
         x = torch.cat([so_repr, base_state, action], dim=-1)
         x = self.input_norm(x)
         return self.q1(x), self.q2(x)
+
+    def forward(self, depth_seq, base_state, action):
+        so_repr = self.encoder(depth_seq)
+        return self.q_from_repr(so_repr, base_state, action)

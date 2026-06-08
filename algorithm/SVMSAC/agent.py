@@ -34,20 +34,14 @@ class SVMSACAgent:
         self.sub_base_hidden = get_algo_param(args, "sub_base_hidden", [256, 128])
         self.sub_out_dim = get_algo_param(args, "sub_out_dim", 2)
 
-        # ---- Sub-networks (online + target) ----
+        # ---- Sub-networks ----
         self.visual_sub = VisualSubNetwork(args, self.sub_visual_hidden, self.sub_out_dim).to(self.device)
-        self.visual_sub_target = VisualSubNetwork(args, self.sub_visual_hidden, self.sub_out_dim).to(self.device)
-        self.visual_sub_target.load_state_dict(self.visual_sub.state_dict())
 
         self.base_sub = BaseSubNetwork(self.base_dim, self.sub_base_hidden, self.sub_out_dim).to(self.device)
-        self.base_sub_target = BaseSubNetwork(self.base_dim, self.sub_base_hidden, self.sub_out_dim).to(self.device)
-        self.base_sub_target.load_state_dict(self.base_sub.state_dict())
 
-        # ---- GlobalActor (online + target) ----
+        # ---- GlobalActor ----
         global_actor_input_dim = self.sub_out_dim * 2 + self.visual_sub.repr_dim + self.base_dim
         self.global_actor = GlobalActor(global_actor_input_dim, args.hidden_dim, self.action_dim).to(self.device)
-        self.global_actor_target = GlobalActor(global_actor_input_dim, args.hidden_dim, self.action_dim).to(self.device)
-        self.global_actor_target.load_state_dict(self.global_actor.state_dict())
 
         # ---- Critic (online + target, independent encoder) ----
         self.critic = Critic(args, self.base_dim, self.action_dim).to(self.device)
@@ -123,6 +117,10 @@ class SVMSACAgent:
     def _update_replay_priorities(self, refs, td_errors):
         return None
 
+    def _set_critic_requires_grad(self, requires_grad: bool):
+        for param in self.critic.parameters():
+            param.requires_grad_(requires_grad)
+
     def select_action(self, base_state, depth, deterministic=False, with_log_prob=False, progress_ratio=0.0):
         base = torch.as_tensor(base_state, dtype=torch.float32, device=self.device).view(1, -1)
         depth_tensor = torch.as_tensor(depth, dtype=torch.float32, device=self.device)
@@ -166,9 +164,9 @@ class SVMSACAgent:
 
         # ----- Critic update -----
         with torch.no_grad():
-            next_ao_visual, next_so_repr = self.visual_sub_target(next_depths_seq)
-            next_ao_base = self.base_sub_target(next_base_states)
-            next_actions, next_log_prob = self.global_actor_target.action_log_prob(
+            next_ao_visual, next_so_repr = self.visual_sub(next_depths_seq)
+            next_ao_base = self.base_sub(next_base_states)
+            next_actions, next_log_prob = self.global_actor.action_log_prob(
                 next_ao_visual, next_ao_base, next_so_repr, next_base_states
             )
             next_q1, next_q2 = self.critic_target(next_depths_seq, next_base_states, next_actions)
@@ -206,7 +204,10 @@ class SVMSACAgent:
             actions_pi, log_prob = self.global_actor.action_log_prob(ao_visual, ao_base, so_repr, base_states)
 
             with torch.no_grad():
-                q1_pi, q2_pi = self.critic(depths_seq, base_states, actions_pi)
+                critic_so_repr = self.critic.encoder(depths_seq)
+
+            self._set_critic_requires_grad(False)
+            q1_pi, q2_pi = self.critic.q_from_repr(critic_so_repr, base_states, actions_pi)
             min_q_pi = torch.min(q1_pi, q2_pi)
             alpha = self.log_alpha.exp().detach() if self.auto_entropy_tuning else torch.tensor(
                 self.alpha, dtype=torch.float32, device=self.device
@@ -219,6 +220,7 @@ class SVMSACAgent:
             actor_loss.backward()
             nn.utils.clip_grad_norm_(self.actor_params, self.grad_clip)
             self.actor_optimizer.step()
+            self._set_critic_requires_grad(True)
             actor_loss_value = float(actor_loss.item())
 
             if self.auto_entropy_tuning:
@@ -252,23 +254,14 @@ class SVMSACAgent:
         return result
 
     def _soft_update(self):
-        for target, source in [
-            (self.visual_sub_target, self.visual_sub),
-            (self.base_sub_target, self.base_sub),
-            (self.global_actor_target, self.global_actor),
-            (self.critic_target, self.critic),
-        ]:
-            for param, source_param in zip(target.parameters(), source.parameters()):
-                param.data.copy_(self.tau * source_param.data + (1.0 - self.tau) * param.data)
+        for param, target_param in zip(self.critic.parameters(), self.critic_target.parameters()):
+            target_param.data.copy_(self.tau * param.data + (1.0 - self.tau) * target_param.data)
 
     def save(self, path):
         checkpoint = {
             "visual_sub": self.visual_sub.state_dict(),
-            "visual_sub_target": self.visual_sub_target.state_dict(),
             "base_sub": self.base_sub.state_dict(),
-            "base_sub_target": self.base_sub_target.state_dict(),
             "global_actor": self.global_actor.state_dict(),
-            "global_actor_target": self.global_actor_target.state_dict(),
             "critic": self.critic.state_dict(),
             "critic_target": self.critic_target.state_dict(),
             "actor_optimizer": self.actor_optimizer.state_dict(),
@@ -284,11 +277,8 @@ class SVMSACAgent:
     def load(self, path):
         checkpoint = torch.load(path, map_location=self.device)
         self.visual_sub.load_state_dict(checkpoint["visual_sub"])
-        self.visual_sub_target.load_state_dict(checkpoint.get("visual_sub_target", checkpoint["visual_sub"]))
         self.base_sub.load_state_dict(checkpoint["base_sub"])
-        self.base_sub_target.load_state_dict(checkpoint.get("base_sub_target", checkpoint["base_sub"]))
         self.global_actor.load_state_dict(checkpoint["global_actor"])
-        self.global_actor_target.load_state_dict(checkpoint.get("global_actor_target", checkpoint["global_actor"]))
         self.critic.load_state_dict(checkpoint["critic"])
         self.critic_target.load_state_dict(checkpoint.get("critic_target", checkpoint["critic"]))
         if "actor_optimizer" in checkpoint:
