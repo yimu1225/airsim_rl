@@ -109,7 +109,7 @@ class DPERSTVimSACAgent:
     def _encode_state(self, base, depth, encoder):
         depth = self._format_depth_sequence(depth)
         depth_features = encoder(depth)
-        return torch.cat([base_states, depth_features], dim=1)
+        return torch.cat([base, depth_features], dim=1)
 
     def _to_float_tensor(self, data):
         tensor = torch.as_tensor(data, device=self.device)

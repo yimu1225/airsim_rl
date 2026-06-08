@@ -138,7 +138,7 @@ class PLDPERTD3Agent:
         depth_features = self._encode(depth, encoder_net)
         if detach_encoder:
             depth_features = depth_features.detach()
-        return torch.cat([base_states, depth_features], dim=1)
+        return torch.cat([base, depth_features], dim=1)
 
     def _concat_critic_state(
         self,
@@ -151,7 +151,7 @@ class PLDPERTD3Agent:
         depth_features = self._encode(critic_depth, encoder_net)
         if detach_encoder:
             depth_features = depth_features.detach()
-        return torch.cat([base_states, depth_features], dim=1)
+        return torch.cat([base, depth_features], dim=1)
 
     def _get_current_noise(self, progress_ratio: float) -> float:
         return max(float(self.exploration_noise), 1e-8)
@@ -202,7 +202,6 @@ class PLDPERTD3Agent:
         samples, refs, importance_weights, mix_info = sampled
         if isinstance(samples, tuple):
             (
-                base_states,
                 depths,
                 actions,
                 rewards,
@@ -214,7 +213,6 @@ class PLDPERTD3Agent:
             ) = samples
         else:
             (
-                base_states,
                 depths,
                 actions,
                 rewards,
@@ -240,7 +238,6 @@ class PLDPERTD3Agent:
         weights = self._to_float_tensor(importance_weights).unsqueeze(1)
 
         states_critic = self._concat_critic_state(
-            base_states,
             depths,
             critic_privs,
             self.critic_encoder,
@@ -296,14 +293,12 @@ class PLDPERTD3Agent:
         actor_loss_value = None
         if self.total_it % self.policy_freq == 0:
             states_actor = self._concat_actor_state(
-                base_states,
                 depths,
                 self.actor_encoder,
             )
 
             with torch.no_grad():
                 states_critic_fixed = self._concat_critic_state(
-                    base_states,
                     depths,
                     critic_privs,
                     self.critic_encoder,

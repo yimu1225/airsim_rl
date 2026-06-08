@@ -201,12 +201,12 @@ class DualBranchVideoMambaTD3Agent:
         with torch.no_grad():
             # Encode next observations (Critic Target Encoder)
             next_encoded_depths_critic = self._encode(next_depths, self.critic_encoder_target)
-            next_base_states = base_states
+            
             next_states_critic = torch.cat([next_base_states, next_encoded_depths_critic], dim=1)
             
             # Encode next observations (Actor Target Encoder) for Action Selection
             next_encoded_depths_actor = self._encode(next_depths, self.actor_encoder_target)
-            next_base_states = base_states
+            
             next_states_actor = torch.cat([next_base_states, next_encoded_depths_actor], dim=1)
             
             noise = (torch.randn_like(actions) * self.policy_noise).clamp(-self.noise_clip, self.noise_clip)
