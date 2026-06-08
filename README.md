@@ -1,354 +1,474 @@
-# AirSim 强化学习无人机导航项目
+# AirSim 强化学习无人机导航框架
 
-[![Python](https://img.shields.io/badge/Python-3.8%2B-blue.svg)](https://www.python.org/)
-[![PyTorch](https://img.shields.io/badge/PyTorch-1.9%2B-orange.svg)](https://pytorch.org/)
-[![AirSim](https://img.shields.io/badge/AirSim-Latest-green.svg)](https://microsoft.github.io/AirSim/)
+[![Python](https://img.shields.io/badge/Python-3.9%2B-blue.svg)](https://www.python.org/)
+[![PyTorch](https://img.shields.io/badge/PyTorch-2.7%2B-orange.svg)](https://pytorch.org/)
+[![CUDA](https://img.shields.io/badge/CUDA-12.8-green.svg)](https://developer.nvidia.com/cuda-toolkit)
+[![AirSim](https://img.shields.io/badge/AirSim-1.8.1-lightgrey.svg)](https://microsoft.github.io/AirSim/)
+[![Gymnasium](https://img.shields.io/badge/Gymnasium-1.1-red.svg)](https://gymnasium.farama.org/)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-本项目实现了一个基于AirSim模拟器的无人机导航强化学习框架，支持多种先进的深度强化学习算法，特别是针对视觉导航任务的TD3变体。
+一个基于 Microsoft AirSim 的无人机自主导航深度强化学习框架，实现并统一了 **45+ 种** DRL 算法变体，覆盖 DDPG / TD3 / SAC / PPO 四大算法家族，支持注意力机制视觉编码、序列建模、优先经验回放、课程学习等前沿技术。
 
 ## ⚠️ 免责声明
 
 **本仓库为作者的个人学习项目，主要用于强化学习算法研究和技术积累。代码和实现仅供参考学习，不保证生产环境适用性。欢迎交流学习，但请尊重作者劳动成果。**
 
+---
+
 ## 🚁 项目概述
 
-本项目提供了一个完整的无人机强化学习训练和评估框架，主要特点包括：
+- **高保真物理模拟** — 基于 Microsoft AirSim + Unreal Engine 的无人机物理仿真
+- **多模态观测** — 融合深度图像、状态向量、距离传感器阵列的 Dict 观测空间
+- **四大算法家族** — 统一实现 DDPG / TD3 / SAC / PPO 及其大量变体
+- **视觉编码器** — 支持 CNN、Vision Mamba (Vim)、VideoMamba、Dual-Branch Mamba 等架构
+- **时序建模** — 支持 LSTM、Temporal Mamba、状态空间模型 (SSM) 等序列处理方法
+- **优先经验回放** — 内置 PER (Prioritized) 与 DPER (Demonstration + Prioritized) 机制
+- **课程学习** — 通过 `CL-` 前缀一键启用，支持 progress / success 两种模式
+- **特权学习 (Privileged Learning)** — `PL_` 前缀算法支持干净深度图作为特权信息
+- **环境随机化** — 四档难度等级，动态障碍物，确定性可复现采样
+- **健壮的游戏管理** — 自动 UE4 进程重启、健康检测、窗口状态监控
 
-- **真实物理模拟**: 基于Microsoft AirSim的高保真无人机物理模拟
-- **多模态输入**: 支持深度图像、灰度图像和状态信息的融合输入
-- **先进算法**: 实现了多种TD3变体，包括基于Mamba和Vision Transformer的最新算法
-- **时序建模**: 支持状态空间模型(SSM)等时序建模方法
-- **环境随机化**: 内置环境参数随机化，提高策略泛化能力
+---
 
-## 🧠 算法架构
+## 🧠 算法全景
 
-### 核心算法分类
+### 算法命名规则
 
-#### 1. 基础TD3算法
-- **TD3**: 标准双延迟深度确定性策略梯度算法
-- **AETD3**: 自适应集成TD3，使用多个Critic网络提高稳定性
-- **PER TD3**: 优先经验回放TD3，智能采样重要经验
+| 前缀/后缀 | 含义 |
+|-----------|------|
+| `CL-` | 课程学习 (Curriculum Learning) |
+| `PL_` | 特权学习 (Privileged Learning)，Actor 可访问干净深度图 |
+| `DPER_` | 示范数据 + 优先经验回放 (Demonstration PER) |
+| `PER_` | 优先经验回放 (Prioritized Experience Replay) |
+| `VM` | Vision Mamba 视觉编码器 |
+| `SVM` | 状态分解 + Vision Mamba (State-Decomposed VM) |
+| `SAFE_` | 带安全约束的变体 |
+| `MM_` | 多模态变体 |
+| `_Beta` | Beta 分布策略变体 |
+| `Mamba_` / `MambaCSJA_` | Mamba / CSJA-Mamba 序列编码器 |
 
-#### 2. 时序建模变体
-- **CFC TD3**: 闭式连续时间TD3，高效时序处理
+> 示例：`CL-DPER_SVMSAC` = 课程学习 + 示范优先回放 + 状态分解 Vision Mamba + SAC
 
-#### 3. 先进的视觉架构
-- **mamba-td3**: CNN + Temporal Mamba（无 Vim）时空建模
-- **VMamba TD3**: 基于状态空间模型的视觉架构
-- **VMamba TD3 No Cross**: 无交叉注意力的VMamba变体
-- **ST-VMamba TD3**: 时空VMamba，结合空间和时间建模
+### 算法家族
 
-#### 4. 基于Mamba的最新架构 ⭐
-- **ST-VimTD3**: 时空Vision Mamba，最新的视觉状态空间模型
-- **stv-patch-td3**: ST-VimTD3流程 + Video-style Patch Embedding（仅替换Patch Embedding）
-- **Vim-TD3**: 纯 Vim 特征提取（无 Temporal Mamba）
-- **PER-ST-VimTD3**: ST-VimTD3 + 优先经验回放（PER）
+#### 1. DDPG 家族
+| 算法 | 特点 |
+|------|------|
+| **DDPG** | 深度确定性策略梯度，基准算法 |
+| **SDDPG** | 状态分解 DDPG (State-Decomposition)，解耦位置/速度子空间 |
 
-### 算法架构对比
+#### 2. TD3 家族
+| 算法 | 视觉编码 | 时序处理 | 亮点 |
+|------|----------|----------|------|
+| **TD3** | CNN | 帧堆叠 | 标准 Twin Delayed DDPG |
+| **DPER_TD3** | CNN | 帧堆叠 | TD3 + 示范优先回放 |
+| **AETD3** | CNN | 帧堆叠 | 自适应集成 Critic |
+| **VMTD3** | Vision Mamba | Temporal Mamba | 纯 Mamba 时空建模 |
+| **Vim_TD3** | Vision Mamba | 无 | 纯 Vim 特征提取 |
+| **ST_Seq_Vim_TD3** | Vision Mamba | Temporal Mamba | 状态-视觉双流时空 |
+| **STV_Seq_Vim_TD3** | Vision Mamba | Temporal Mamba | 视觉-状态-视觉三流融合 |
+| **STV_Patch_TD3** | Vision Mamba | Temporal Mamba | Video-style Patch Embedding |
+| **ST_DualVim_TD3** | Dual-Branch VM | Temporal Mamba | 双分支视频 Mamba |
+| **Mamba_TD3** | CNN | Temporal Mamba | CNN + Mamba 混合 |
+| **DPER_VMTD3** | Vision Mamba | Temporal Mamba | VMTD3 + 示范优先回放 |
+| **SAFE_VMTD3** | Vision Mamba | Temporal Mamba | 带安全约束的 VMTD3 |
 
-| 算法 | 时序处理 | 视觉编码器 | 特点 |
-|------|----------|------------|------|
-| TD3 | 无 | CNN | 基础算法，帧堆叠 |
-| VMamba TD3 | Mamba | VMamba | 状态空间模型 |
-| ST-VimTD3 | TemporalMamba | VisionMamba | 分层时空处理 |
+#### 3. SAC 家族（最大）
+| 算法 | 视觉编码 | 时序处理 | 亮点 |
+|------|----------|----------|------|
+| **SAC** | CNN | 帧堆叠 | 标准 Soft Actor-Critic |
+| **SAC_Beta** | CNN | 帧堆叠 | Beta 分布替代高斯 |
+| **LSTM_SAC** | CNN | LSTM | 循环神经网络时序建模 |
+| **VMSAC** | Vision Mamba | Temporal Mamba | Mamba 时空 + SAC |
+| **VMSAC_Beta** | Vision Mamba | Temporal Mamba | VMSAC + Beta 分布 |
+| **SVMSAC** | Vision Mamba | Temporal Mamba | **状态分解** VMSAC |
+| **PER_VMSAC** | Vision Mamba | Temporal Mamba | VMSAC + 优先回放 |
+| **DPER_VMSAC** | Vision Mamba | Temporal Mamba | VMSAC + 示范优先回放 |
+| **DPER_VMSAC_Beta** | Vision Mamba | Temporal Mamba | DPER_VMSAC + Beta 分布 |
+| **DPER_SVMSAC** | Vision Mamba | Temporal Mamba | 状态分解 + 示范优先回放 |
+| **MM_VMSAC** | Vision Mamba | Temporal Mamba | 多模态 VMSAC |
+| **SAFE_VMSAC** | Vision Mamba | Temporal Mamba | 带安全约束的 VMSAC |
+| **Mamba_SAC** | CNN | Temporal Mamba | CNN + Mamba 混合 SAC |
+| **PER_Mamba_SAC** | CNN | Temporal Mamba | Mamba_SAC + 优先回放 |
+| **MambaCSJA_SAC** | CNN | CSJA-Mamba | Mamba + 通道-空间联合注意力 |
+| **DPER_MambaCSJA_SAC** | CNN | CSJA-Mamba | MambaCSJA + 示范优先回放 |
+| **Mamba_RSAC** | CNN | Temporal Mamba | Mamba + 循环 SAC |
+
+#### 4. PPO 家族
+| 算法 | 视觉编码 | 时序处理 | 亮点 |
+|------|----------|----------|------|
+| **PPO** | CNN | 帧堆叠 | 标准 Proximal Policy Optimization |
+| **VMPPO** | Vision Mamba | Temporal Mamba | PPO + Mamba 时空编码 |
+| **PL_VMPPO** | Vision Mamba | Temporal Mamba | 特权学习 VMPPO |
+
+#### 5. 特权学习 (PL) 变体
+所有 PL 前缀算法允许 Actor 访问无噪声的"干净"深度图作为特权观测，Critic 仍使用带噪声的常规观测：
+
+`PL_TD3` · `PL_DPER_TD3` · `PL_VMTD3` · `PL_DPER_VMTD3` · `PL_SAC` · `PL_SAC_Beta` · `PL_VMSAC` · `PL_PER_VMSAC` · `PL_DPER_VMSAC` · `PL_DPER_VMSAC_Beta` · `PL_Mamba_RSAC`
+
+---
 
 ## 🎯 环境设计
 
-### 观测空间
+### 观测空间 (Dict)
+
 ```python
 observation_space = {
-    "depth": (seq_len, 128, 128),    # 深度图像序列
-    "gray": (seq_len, 128, 128),     # 灰度图像序列  
-    "base": (8,)                     # 状态向量
+    "depth":       (n_frames, H, W),        # 深度图像序列 (带噪声)
+    "base":        (11,),                   # 状态向量 (见下方说明)
+    "distance_sensor": (108,),              # 3层距离传感器阵列 (每层36个)
+    # ↓ 仅 PL_ 前缀算法额外提供
+    "clean_depth": (n_frames, H, W),        # 干净深度图 (特权信息)
 }
 ```
 
-**状态向量组成**:
-- `[dx, dy]`: 相对目标位置
-- `[altitude]`: 当前高度
-- `[body_x_velocity, z_velocity, yaw_rate]`: 速度信息
-- `[yaw]`: 偏航角
-- `[relative_angle_to_target]`: 朝向目标角度
+**状态向量 (11维)**：
+- `[dx, dy, dz]` — 相对目标位置
+- `[body_x_velocity, body_y_velocity, z_velocity]` — 机体速度
+- `[yaw_rate]` — 偏航角速度
+- `[yaw]` — 当前偏航角
+- `[relative_angle_to_target]` — 朝向目标的相对角度
+- `[altitude]` — 当前高度
+- `[collision]` — 碰撞标志
 
-### 动作空间
+### 动作空间 (Continuous)
+
 ```python
 action_space = Box(
-    low=[min_forward_speed, -max_yaw_rate, -max_vertical_speed],
-    high=[max_forward_speed, max_yaw_rate, max_vertical_speed],
-    dtype=np.float32
+    low  = [-2.0, -π/3, -0.3],
+    high = [2.0,  π/3,  0.3],
 )
 ```
 
-**动作含义**:
-- `body_x_velocity`: 无人机机体系x轴速度 [0.0, 2.0] m/s
-- `yaw_rate`: 偏航角速度 [-π/12, π/12] rad/s
-- `z_velocity`: 垂直速度 [-0.5, 0.5] m/s  
+| 维度 | 含义 | 范围 |
+|------|------|------|
+| `body_x_velocity` | 机体系 x 轴速度 | [-2.0, 2.0] m/s |
+| `yaw_rate` | 偏航角速度 | [-π/3, π/3] rad/s |
+| `z_velocity` | 垂直速度 | [-0.3, 0.3] m/s |
 
-### 奖励函数设计
+### 奖励函数
 
-奖励函数综合考虑多个因素：
+| 奖励项 | 设计 | 目的 |
+|--------|------|------|
+| **距离奖励** | `-distance × 0.02` | 鼓励接近目标 |
+| **朝向奖励** | `speed × cos(yaw_error)` | 鼓励朝向目标飞行 |
+| **成功奖励** | `+20` | 到达目标点 |
+| **碰撞惩罚** | `-20` | 避免碰撞 |
+| **超时惩罚** | `-30` | 惩罚超时未到达 |
+| **步数惩罚** | `-0.1` | 鼓励尽快完成 |
+| **急动惩罚** | 动作变化量 | 提高飞行平稳性 |
+| **曲率惩罚** | 偏航率变化 | 优化轨迹平滑度 |
+| **高度惩罚** | 超出 [0, 2.5]m 时 | 保持安全飞行高度 |
+| **停滞惩罚** | 滑动窗口位移过小 | 防止悬停不动 |
+| **距离传感器惩罚** | 对数距离惩罚 | 近距障碍物避障 |
 
-1. **距离奖励**: `-distance × 0.02` (鼓励接近目标)
-2. **朝向奖励**: `speed × cos(yaw_error)` (鼓励朝向目标飞行)
-3. **成功奖励**: `+20` (到达目标)
-4. **碰撞惩罚**: `-20` (发生碰撞)
-5. **超时惩罚**: `-30` (超过最大步数)
-6. **步数惩罚**: `-0.01` (鼓励效率)
-7. **急动惩罚**: 惩罚动作突变，提高飞行平稳性
-8. **曲率惩罚**: 惩罚急转弯，优化轨迹
-9. **高度惩罚**: 超出安全高度范围时施加惩罚
+### 难度等级
 
-## � 快速开始
+| Level | 名称 | 描述 |
+|-------|------|------|
+| 0 | Easy | 简单环境，稀疏静态障碍物 |
+| 1 | Medium | 中等难度，较多静态障碍物 |
+| 2 | Hard | 困难环境，密集静态障碍物 |
+| 3 | Dynamic | 动态障碍物，最高难度 |
 
-### 环境搭建
-
-1. **系统要求**: Ubuntu 22.04, Python 3.8+, CUDA 11.0+
-2. **安装依赖**: 详见 [Ubuntu 22.04 构建方法](Ubuntu%2022.04%20构建方法.md)
-3. **Python环境**: 详见 [环境安装指南](INSTALL_GUIDE.md)
-
-### 训练示例
-
-```bash
-# 安装Python依赖
-pip install -r requirements.txt
-
-# 训练ST-VimTD3算法
-python main_async.py --algorithm_name ST-VimTD3 --max_timesteps 1000000
-```
-
-## �🛠️ 安装指南
-
-### 环境要求
-- Python 3.8+
-- PyTorch 1.9+
-- CUDA 11.0+ (GPU训练推荐)
-- Unreal Engine 4.27+ (AirSim依赖)
-- AirSim Binary
-
-### 安装步骤
-
-1. **克隆项目**
-```bash
-git clone https://github.com/yimu1225/airsim_rl.git
-cd airsim_rl
-```
-
-2. **安装AirSim**
-```bash
-# 按照官方指南安装AirSim
-# https://microsoft.github.io/AirSim/build_linux/
-```
-
-3. **安装Python依赖**
-```bash
-pip install -r requirements.txt
-```
-
-4. **编译Mamba组件** (可选，用于Mamba算法)
-```bash
-cd Vim/mamba-1p1p1
-pip install -e .
-```
+---
 
 ## 🚀 快速开始
 
-### 基础训练
+### 环境要求
+
+- Ubuntu 22.04 / Windows 10+
+- Python 3.9+
+- CUDA 12.8 (GPU 训练推荐)
+- PyTorch 2.7.0
+- Unreal Engine 4.27+ (AirSim 依赖)
+- AirSim 1.8.1
+
+### 安装
 
 ```bash
-# 训练标准TD3算法
-python main_async.py --algorithm_name td3 --max_timesteps 1000000
+# 1. 克隆项目
+git clone https://github.com/yimu1225/airsim_rl.git
+cd airsim_rl
 
-# 训练ST-VimTD3算法
-python main_async.py --algorithm_name ST-VimTD3 --max_timesteps 1000000
+# 2. 创建 Conda 环境
+conda create -n AirSim python=3.9 -y
+conda activate AirSim
+
+# 3. 安装 CUDA 工具链
+conda install -c "nvidia/label/cuda-12.8.0" cuda-toolkit=12.8 cuda-nvcc=12.8 -y
+
+# 4. 安装 PyTorch
+pip install torch==2.7.0 torchvision==0.22.0 torchaudio==2.7.0 --index-url https://download.pytorch.org/whl/cu128
+
+# 5. 安装项目依赖
+pip install -r requirements.txt
+
+# 6. 编译 Mamba 组件 (可选 — 仅 Mamba 系列算法需要)
+cd Vim/mamba-1p1p1
+pip install -e .
+cd ../..
 ```
 
-### 批量训练
+> 详细安装指南参见 [INSTALL_GUIDE.md](INSTALL_GUIDE.md) 和 [Ubuntu 22.04 构建方法](Ubuntu%2022.04%20构建方法.md)
+
+### 训练
 
 ```bash
-# 训练所有基础算法
-python main_async.py --algorithm_name "td3,per-td3" --max_timesteps 500000
+# 单算法训练 (推荐使用算法组名)
+python main_async.py --algorithm_name VMSAC --max_timesteps 1000000
 
-# 训练所有时序算法
-python main_async.py --algorithm_name "cfc-td3" --max_timesteps 500000
+# 训练带课程学习的版本
+python main_async.py --algorithm_name CL-VMSAC --max_timesteps 1000000
 
-# 训练常用视觉时序算法
-python main_async.py --algorithm_name "ST-VimTD3,stv-patch-td3,Vim-TD3,mamba-td3" --max_timesteps 500000
+# 训练状态分解版本
+python main_async.py --algorithm_name SVMSAC --max_timesteps 1000000
+
+# 批量训练 — 使用算法组
+python main_async.py --algorithm_name base --max_timesteps 500000   # 基础算法组
+python main_async.py --algorithm_name seq  --max_timesteps 500000   # 时序算法组
+python main_async.py --algorithm_name all  --max_timesteps 500000   # 全部算法
+
+# 手动指定多个算法
+python main_async.py --algorithm_name "VMSAC,SVMSAC,VMTD3" --max_timesteps 500000
+
+# 多种子训练
+python main_async.py --algorithm_name VMSAC --seed "1,2,3" --max_timesteps 1000000
 ```
 
-### 评估模型
+### 评估
 
 ```bash
 # 评估训练好的模型
-python eval_SAC.py --model_dir path/to/model --algorithm_name ST-VimTD3
+python eval_SAC.py --model_dir results/AirSimEnv-v42/VMSAC/run1/models --algorithm_name VMSAC
+
+# 指定评估回合数
+python eval_SAC.py --model_dir path/to/model --algorithm_name VMSAC --eval_episodes 100
 ```
 
-## ⚙️ 配置参数
+---
 
-### 关键配置项
+## ⚙️ 核心配置
 
-```python
-# 算法参数
-parser.add_argument("--algorithm_name", type=str, default='ST-VimTD3')
-parser.add_argument("--hidden_dim", type=int, default=256)
-parser.add_argument("--buffer_size", type=int, default=20000)
-parser.add_argument("--batch_size", type=int, default=256)
-parser.add_argument("--gamma", type=float, default=0.98)
-parser.add_argument("--tau", type=float, default=0.005)
+### 关键参数
 
-# 环境参数
-parser.add_argument("--episode_length", type=int, default=200)
-parser.add_argument("--min_forward_speed", type=float, default=0.0)  # 机体系x轴速度下限
-parser.add_argument("--max_forward_speed", type=float, default=2.0)  # 机体系x轴速度上限
-parser.add_argument("--max_vertical_speed", type=float, default=0.5)
-parser.add_argument("--max_yaw_rate", type=float, default=np.pi/12)
+| 参数 | 默认值 | 说明 |
+|------|--------|------|
+| `--algorithm_name` | `CL-DPER_SVMSAC` | 算法名称，支持逗号分隔多算法、算法组名 |
+| `--seed` | `1,2,3` | 随机种子，逗号分隔多种子 |
+| `--max_timesteps` | `120000` | 总训练步数 |
+| `--hidden_dim` | `128` | 隐藏层维度 |
+| `--base_feature_dim` | `32` | 状态向量映射维度 |
+| `--batch_size` | `256` | 批次大小 |
+| `--buffer_size` | `30000` | 经验回放池大小 |
+| `--gamma` | `0.95` | 折扣因子 |
+| `--tau` | `0.003` | 目标网络软更新系数 |
+| `--actor_lr` / `--critic_lr` | `4e-4` | Actor/Critic 学习率 |
+| `--n_frames` | `4` | 输入帧数 (堆叠帧数 / 序列长度) |
+| `--episode_length` | `300` | 每回合最大步数 |
+| `--action_duration` | `0.15` | 动作执行时间 (秒) |
 
-# ST-VimTD3特定参数
-parser.add_argument("--st_mamba_embed_dim", type=int, default=192)
-parser.add_argument("--st_mamba_depth", type=int, default=6)
-parser.add_argument("--st_mamba_patch_size", type=int, default=16)
-parser.add_argument("--st_mamba_temporal_depth", type=int, default=2)
+### 算法专属参数
+
+每个算法在 `algorithm/<算法名>/params.yaml` 中定义专属参数，由 `config_loader` 自动加载。例如 `algorithm/VMSAC/params.yaml` 定义 Vision Mamba 编码器的嵌入维度、深度、patch 大小等。
+
+### 课程学习配置
+
+```bash
+# progress 模式 — 随训练进度连续增加难度
+python main_async.py --algorithm_name CL-VMSAC --curriculum_mode progress --curriculum_progress_max_ratio 0.9
+
+# success 模式 — 按成功率离散切换难度
+python main_async.py --algorithm_name CL-VMSAC --curriculum_mode success
+
+# 指定起始难度
+python main_async.py --algorithm_name CL-VMSAC --curriculum_start_level 1
+
+# 非课程学习的固定难度
+python main_async.py --algorithm_name VMSAC --non_curriculum_level 2
 ```
 
-### 算法特定配置
-
-#### ST-VimTD3配置
-```python
-# 视觉编码器参数
-st_mamba_embed_dim=192        # 嵌入维度
-st_mamba_depth=6               # VisionMamba层数
-st_mamba_patch_size=16         # 图像块大小
-st_mamba_d_state=16           # SSM状态维度
-
-# 时序处理参数
-st_mamba_temporal_depth=2      # 时序Mamba层数
-seq_len=4                     # 序列长度
-```
-
-#### 网络架构
-```mermaid
-graph TD
-    A[深度图像序列] --> B[VisionMamba编码器]
-    C[状态向量] --> D[时序Mamba]
-    B --> D
-    D --> E[时空特征融合]
-    E --> F[Actor网络]
-    E --> G[Critic网络]
-    F --> H[动作输出]
-    G --> I[Q值输出]
-```
-
-## 📊 性能分析
-
-### 算法对比
-
-| 算法 | 收敛速度 | 稳定性 | 计算效率 | 内存占用 |
-|------|----------|--------|----------|----------|
-| TD3 | 中等 | 中等 | 高 | 低 |
-| VMamba TD3 | 快 | 高 | 中等 | 中等 |
-| ST-VimTD3 | 快 | 很高 | 低 | 高 |
-
-### 训练曲线
-
-
-
-## 🧪 实验设置
-
-### 环境配置
-- **模拟器**: AirSim with Unreal Engine
-- **无人机**: Quadrotor模型
-- **传感器**: 深度相机 (128×128)
-- **训练频率**: 20Hz
-- **最大episode长度**: 200步
-
-### 随机化策略
-- **目标位置**: 随机采样
-- **环境参数**: 动态调整难度
-- **初始条件**: 随机起始位置和姿态
-
-## 🔧 开发指南
-
-### 添加新算法
-
-1. 在`algorithm/`目录下创建新文件夹
-2. 实现`networks.py`定义网络架构
-3. 实现`agent.py`定义算法逻辑
-4. 在`__init__.py`中注册算法
-5. 在`config.py`中添加参数
-
-### 自定义环境
-
-1. 修改`gym_airsim/envs/AirGym.py`
-2. 调整观测空间和动作空间
-3. 自定义奖励函数
-4. 配置环境参数
+---
 
 ## 📁 项目结构
 
 ```
 airsim_rl/
-├── algorithm/                 # 算法实现
-│   ├── td3/                  # 基础TD3
-│   ├── vmamba-td3/           # VMamba TD3
-│   ├── VMTD3/            # 时空Vision Mamba TD3
-│   ├── cfc-td3/              # CFC TD3
-│   └── ...
-├── gym_airsim/              # AirSim环境包装
-├── Vim/                     # Vision Mamba实现
-├── vmamba/                  # VMamba实现
-├── config.py                # 配置参数
-├── main_async.py             # 主训练脚本
-├── eval_SAC.py              # 评估脚本
-└── requirements.txt          # 依赖列表
+├── algorithm/                     # 算法实现 (45+ 变体)
+│   ├── config_loader.py           # 算法参数自动加载
+│   ├── DDPG/                      #   DDPG
+│   ├── SDDPG/                     #   状态分解 DDPG
+│   ├── TD3/                       #   TD3 基准
+│   ├── AETD3/                     #   自适应集成 TD3
+│   ├── DPER_TD3/                  #   示范优先回放 TD3
+│   ├── VMTD3/                     #   Vision Mamba TD3
+│   ├── Vim_TD3/                   #   纯 Vim TD3
+│   ├── ST_Seq_Vim_TD3/            #   状态-视觉双流 TD3
+│   ├── STV_Seq_Vim_TD3/           #   视觉-状态-视觉三流 TD3
+│   ├── STV_Patch_TD3/             #   Video Patch TD3
+│   ├── ST_DualVim_TD3/            #   双分支 Mamba TD3
+│   ├── Mamba_TD3/                 #   CNN + Mamba TD3
+│   ├── DPER_VMTD3/                #   示范优先回放 VMTD3
+│   ├── SAFEVMTD3/                 #   安全约束 VMTD3
+│   ├── SAC/                       #   SAC 基准
+│   ├── SAC_Beta/                  #   Beta 分布 SAC
+│   ├── LSTM_SAC/                  #   LSTM 时序 SAC
+│   ├── VMSAC/ / VMSAC_Beta/       #   Vision Mamba SAC
+│   ├── SVMSAC/                    #   状态分解 VMSAC
+│   ├── PER_VMSAC/                 #   优先回放 VMSAC
+│   ├── DPER_VMSAC/                #   示范优先回放 VMSAC
+│   ├── DPER_VMSAC_Beta/           #   示范优先回放 VMSAC Beta
+│   ├── DPER_SVMSAC/               #   状态分解 + 示范优先回放
+│   ├── MM_VMSAC/                  #   多模态 VMSAC
+│   ├── SAFEVMSAC/                 #   安全约束 VMSAC
+│   ├── Mamba_SAC/ / PER_Mamba_SAC/ # Mamba SAC 系列
+│   ├── Mamba_RSAC/                #   Mamba 循环 SAC
+│   ├── MambaCSJA_SAC/             #   Mamba + 通道空间注意力 SAC
+│   ├── DPER_MambaCSJA_SAC/        #   示范优先回放 MambaCSJA SAC
+│   ├── PPO/                       #   PPO 基准
+│   ├── VMPPO/                     #   Vision Mamba PPO
+│   ├── PL_TD3/ ... PL_DPER_VMTD3/ # 特权学习 TD3 系列
+│   ├── PL_SAC/ ... PL_Mamba_RSAC/ # 特权学习 SAC 系列
+│   └── PL_VMPPO/                  #   特权学习 PPO
+│
+├── gym_airsim/                    # AirSim Gymnasium 环境
+│   └── envs/
+│       └── AirGym.py              # 环境主实现
+│
+├── Vim/                           # Vision Mamba 核心库
+│   └── mamba-1p1p1/               # Mamba 编译包
+├── vmamba/                        # VMamba 实现
+├── VideoMamba/                    # VideoMamba 实现
+│
+├── common/                        # 通用工具
+│   ├── utils.py                   # 工具函数
+│   └── file_handling.py           # 文件处理
+│
+├── sb3_algorithms/                # Stable-Baselines3 包装器
+│   ├── config_loader.py           # SB3 参数加载
+│   ├── params/                    # SB3 算法参数
+│   ├── td3_wrappers.py            # TD3/DDPG 包装
+│   ├── sac_wrappers.py            # SAC 包装
+│   └── ppo_wrappers.py            # PPO 包装
+│
+├── sb3_extensions/                # SB3 扩展组件
+│   ├── buffers/                   # 自定义经验池
+│   ├── feature_extractors/        # 特征提取器
+│   ├── policies/                  # 自定义策略
+│   └── callbacks/                 # 训练回调
+│
+├── environment_randomization/     # 环境参数随机化
+├── game_handling/                 # UE4 游戏进程管理
+├── scripts/                       # 辅助脚本
+├── models/                        # 预训练模型
+├── results/                       # 训练结果 & TensorBoard 日志
+│
+├── main_async.py                  # 主训练入口 (异步架构)
+├── main_sb3.py                    # SB3 风格训练入口
+├── main_ppo.py                    # PPO 专用训练入口
+├── main_mamba_rsac.py             # Mamba RSAC 训练入口
+├── train_lstm_sac.py              # LSTM-SAC 专用训练脚本
+├── train_ppo.py                   # PPO 训练脚本
+├── eval_SAC.py                    # 模型评估脚本
+├── plot_curves.py                 # 训练曲线绘制
+│
+├── config.py                      # 全局配置 & 命令行参数
+├── algo_name_utils.py             # 算法名解析 & 分组管理
+├── requirements.txt               # Python 依赖列表
+│
+├── INSTALL_GUIDE.md               # 详细安装指南
+└── Ubuntu 22.04 构建方法.md        # Ubuntu 构建文档
 ```
 
-## 🐛 故障排除
+---
 
-### 常见问题
+## 🔧 开发指南
 
-1. **AirSim连接失败**
-   ```bash
-   # 检查AirSim是否正确启动
-   # 确认IP和端口配置
-   python main_async.py --airsim_ip 127.0.0.1 --airsim_port 41451
-   ```
+### 添加新算法
 
-2. **CUDA内存不足**
-   ```bash
-   # 减小batch size
-   python main_async.py --batch_size 64
-   ```
+1. 在 `algorithm/` 下创建算法目录 (如 `algorithm/MyAlgo/`)
+2. 编写 `network.py` — 定义 Actor / Critic 网络
+3. 编写 `agent.py` — 实现 `select_action`、`update`、`save` / `load` 等接口
+4. 添加 `params.yaml` — 算法专属超参数
+5. 在 `algo_name_utils.py` 的 `_CANONICAL_ALGORITHMS` 中注册算法名
+6. 在 `main_async.py` 中 import agent 类并注册到 agent 分发表
 
-3. **Mamba编译错误**
-   ```bash
-   # 确保安装了正确的CUDA版本
-   cd Vim/mamba-1p1p1
-   pip install -e . --verbose
-   ```
+### 修改环境
 
-### 性能优化
+1. 编辑 `gym_airsim/envs/AirGym.py` — 调整观测/动作空间、奖励函数
+2. 修改 `environment_randomization/` 中的配置 — 调整环境随机化参数
+3. 更新 `settings_folder/` — 调整 AirSim settings
 
-- 使用GPU训练加速
-- 调整序列长度平衡性能和效果
-- 使用混合精度训练减少内存占用
+---
+
+## 📊 训练监控
+
+```bash
+# 启动 TensorBoard
+tensorboard --logdir=./results --port=6007
+
+# 绘制训练曲线
+python plot_curves.py --algorithm_name VMSAC
+```
+
+---
+
+## 🐛 常见问题
+
+<details>
+<summary><b>AirSim 连接失败</b></summary>
+
+```bash
+# 检查 AirSim 是否正确启动
+# 确认 IP 和端口配置
+python main_async.py --airsim_ip 127.0.0.1 --airsim_port 41451
+
+# 尝试禁用游戏重启，仅重连
+python main_async.py --disable_game_restart
+```
+</details>
+
+<details>
+<summary><b>CUDA 内存不足 (OOM)</b></summary>
+
+```bash
+# 减小 batch size
+python main_async.py --batch_size 64
+
+# 减小经验池
+python main_async.py --buffer_size 10000
+```
+</details>
+
+<details>
+<summary><b>Mamba 编译错误</b></summary>
+
+```bash
+# 确保安装了正确的 CUDA 版本
+conda install -c "nvidia/label/cuda-12.8.0" cuda-toolkit=12.8 cuda-nvcc=12.8 -y
+cd Vim/mamba-1p1p1
+pip install -e . --verbose
+```
+</details>
+
+---
 
 ## 📄 许可证
 
-本项目采用MIT许可证 - 详见[LICENSE](LICENSE)文件
+本项目采用 MIT 许可证 — 详见 [LICENSE](LICENSE) 文件。
 
-## 🤝 贡献
-
-欢迎提交Issue和Pull Request！
-
-1. Fork项目
-2. 创建特性分支 (`git checkout -b feature/AmazingFeature`)
-3. 提交更改 (`git commit -m 'Add some AmazingFeature'`)
-4. 推送到分支 (`git push origin feature/AmazingFeature`)
-5. 开启Pull Request
+---
 
 ## 📚 参考文献
 
 - **TD3**: [Addressing Function Approximation Error in Actor-Critic Methods](https://arxiv.org/abs/1802.09477)
+- **SAC**: [Soft Actor-Critic: Off-Policy Maximum Entropy Deep RL](https://arxiv.org/abs/1801.01290)
+- **DDPG**: [Continuous Control with Deep Reinforcement Learning](https://arxiv.org/abs/1509.02971)
+- **PPO**: [Proximal Policy Optimization Algorithms](https://arxiv.org/abs/1707.06347)
+- **PER**: [Prioritized Experience Replay](https://arxiv.org/abs/1511.05952)
+- **DPER**: [Deep RL with a Small Amount of Expert Demonstrations](https://arxiv.org/abs/1910.09457)
 - **Mamba**: [Mamba: Linear-Time Sequence Modeling with Selective State Spaces](https://arxiv.org/abs/2312.00752)
-- **Vision Mamba**: [Vision Mamba: Efficient Visual Representation Learning with Bidirectional State Space Model](https://arxiv.org/abs/2401.13666)
-- **AirSim**: [AirSim: High-Fidelity Visual and Physical Simulation for Unmanned Aerial Vehicles](https://arxiv.org/abs/1705.09530)
+- **Vision Mamba**: [Vision Mamba: Efficient Visual Representation Learning with Bidirectional SSM](https://arxiv.org/abs/2401.13666)
+- **VideoMamba**: [VideoMamba: State Space Model for Efficient Video Understanding](https://arxiv.org/abs/2403.06977)
+- **State Decomposition DDPG**: [A State-Decomposition DDPG Algorithm for UAV Autonomous Navigation](https://ieeexplore.ieee.org/)
+- **AirSim**: [AirSim: High-Fidelity Visual and Physical Simulation for UAVs](https://arxiv.org/abs/1705.09530)
