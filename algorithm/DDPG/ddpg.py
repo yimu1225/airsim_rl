@@ -4,7 +4,6 @@ import torch.nn.functional as F
 from torch import nn
 from torch.optim import Adam
 
-from ..state_adapter import StateAdapter
 from .networks import Actor, Critic, Encoder
 from .buffer import ReplayBuffer
 
@@ -20,7 +19,6 @@ class DDPGAgent:
             torch.manual_seed(seed)
 
         self.base_dim = base_dim
-        self.base_feature_dim = getattr(args, "base_feature_dim", 32)
         self.depth_shape = depth_shape  # (C, H, W)
         self.action_dim = action_space.shape[0]
         self.max_action = np.array(action_space.high, dtype=np.float32)
@@ -51,15 +49,9 @@ class DDPGAgent:
         self.critic_encoder_target = Encoder(input_height=depth_h, input_width=depth_w, input_channels=visual_channels).to(self.device)
         self.critic_encoder_target.load_state_dict(self.critic_encoder.state_dict())
 
-        self.actor_base_adapter = StateAdapter(self.base_dim, self.base_feature_dim).to(self.device)
-        self.critic_base_adapter = StateAdapter(self.base_dim, self.base_feature_dim).to(self.device)
-        self.actor_base_adapter_target = StateAdapter(self.base_dim, self.base_feature_dim).to(self.device)
-        self.actor_base_adapter_target.load_state_dict(self.actor_base_adapter.state_dict())
-        self.critic_base_adapter_target = StateAdapter(self.base_dim, self.base_feature_dim).to(self.device)
-        self.critic_base_adapter_target.load_state_dict(self.critic_base_adapter.state_dict())
         
         # State dim = adapted base features + visual features.
-        self.state_dim = self.base_feature_dim + self._encoded_visual_dim()
+        self.state_dim = self.base_dim + self._encoded_visual_dim()
         
         # Actor & Critic
         self.actor = Actor(self.state_dim, action_space.shape, args.hidden_dim).to(self.device)
@@ -72,11 +64,11 @@ class DDPGAgent:
 
         # Optimizers
         # Combine Actor + Actor Encoder parameters
-        self.actor_params = list(self.actor.parameters()) + list(self.actor_encoder.parameters()) + list(self.actor_base_adapter.parameters())
+        self.actor_params = list(self.actor.parameters()) + list(self.actor_encoder.parameters())
         self.actor_optimizer = Adam(self.actor_params, lr=args.actor_lr)
         
         # Combine Critic + Critic Encoder parameters
-        self.critic_params = list(self.critic.parameters()) + list(self.critic_encoder.parameters()) + list(self.critic_base_adapter.parameters())
+        self.critic_params = list(self.critic.parameters()) + list(self.critic_encoder.parameters())
         self.critic_optimizer = Adam(self.critic_params, lr=args.critic_lr)
 
         self.replay_buffer = ReplayBuffer(args.buffer_size, seed=seed)
@@ -137,12 +129,12 @@ class DDPGAgent:
         frame_features = encoder_net(frames).view(batch_size, seq_len, -1)
         return frame_features.reshape(batch_size, seq_len * frame_features.size(-1))
 
-    def _concat_state(self, base: torch.Tensor, depth: torch.Tensor, encoder_net, base_adapter, detach_encoder: bool = False) -> torch.Tensor:
-        base_features = base_adapter(base)
+    def _concat_state(self, base: torch.Tensor, depth: torch.Tensor, encoder_net, detach_encoder: bool = False) -> torch.Tensor:
+        # base used directly
         depth_features = self._encode(depth, encoder_net)
         if detach_encoder:
             depth_features = depth_features.detach()
-        return torch.cat([base_features, depth_features], dim=1)
+        return torch.cat([base, depth_features], dim=1)
 
     def _get_current_noise(self, progress_ratio: float) -> float:
         return max(float(self.exploration_noise), 1e-8)
@@ -151,7 +143,7 @@ class DDPGAgent:
         depth_tensor = torch.as_tensor(depth, dtype=torch.float32, device=self.device)
         with torch.no_grad():
             # Use Actor Encoder
-            state = self._concat_state(base_tensor, depth_tensor, self.actor_encoder, self.actor_base_adapter)
+            state = self._concat_state(base_tensor, depth_tensor, self.actor_encoder)
             # Actor returns normalized action (-1, 1)
             action = self.actor(state).cpu().numpy().flatten()
 
@@ -189,19 +181,19 @@ class DDPGAgent:
 
         # Encode current observations (Critic Encoder)
         encoded_depths_critic = self._encode(depths, self.critic_encoder)
-        base_features_critic = self.critic_base_adapter(base_states)
-        states_critic = torch.cat([base_features_critic, encoded_depths_critic], dim=1)
+        base_states = base_states
+        states_critic = torch.cat([base_states, encoded_depths_critic], dim=1)
 
         with torch.no_grad():
             # Encode next observations (Critic Target Encoder)
             next_encoded_depths_critic = self._encode(next_depths, self.critic_encoder_target)
-            next_base_features_critic = self.critic_base_adapter_target(next_base_states)
-            next_states_critic = torch.cat([next_base_features_critic, next_encoded_depths_critic], dim=1)
+            next_base_states = base_states
+            next_states_critic = torch.cat([next_base_states, next_encoded_depths_critic], dim=1)
             
             # Encode next observations (Actor Target Encoder) for Action Selection
             next_encoded_depths_actor = self._encode(next_depths, self.actor_encoder_target)
-            next_base_features_actor = self.actor_base_adapter_target(next_base_states)
-            next_states_actor = torch.cat([next_base_features_actor, next_encoded_depths_actor], dim=1)
+            next_base_states = base_states
+            next_states_actor = torch.cat([next_base_states, next_encoded_depths_actor], dim=1)
             
             # DDPG: No target policy smoothing
             # Target actor returns normalized action (-1, 1)
@@ -227,15 +219,15 @@ class DDPGAgent:
 
         # Encode current observations (Actor Encoder)
         encoded_depths_actor = self._encode(depths, self.actor_encoder)
-        base_features_actor = self.actor_base_adapter(base_states)
-        states_actor = torch.cat([base_features_actor, encoded_depths_actor], dim=1)
+        base_states = base_states
+        states_actor = torch.cat([base_states, encoded_depths_actor], dim=1)
         
         # Use fixed critic features while still letting dQ/da flow through the
         # critic to the actor action.
         with torch.no_grad():
             encoded_depths_critic_fixed = self._encode(depths, self.critic_encoder)
-            base_features_critic_fixed = self.critic_base_adapter(base_states)
-            states_critic_fixed = torch.cat([base_features_critic_fixed, encoded_depths_critic_fixed], dim=1)
+            base_states = base_states
+            states_critic_fixed = torch.cat([base_states, encoded_depths_critic_fixed], dim=1)
 
         q1, _ = self.critic(states_critic_fixed, self.actor(states_actor))
         actor_loss = -q1.mean()
@@ -253,14 +245,10 @@ class DDPGAgent:
             target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
         for param, target_param in zip(self.actor_encoder.parameters(), self.actor_encoder_target.parameters()):
             target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
-        for param, target_param in zip(self.actor_base_adapter.parameters(), self.actor_base_adapter_target.parameters()):
-            target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
 
         for param, target_param in zip(self.critic.parameters(), self.critic_target.parameters()):
             target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
         for param, target_param in zip(self.critic_encoder.parameters(), self.critic_encoder_target.parameters()):
-            target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
-        for param, target_param in zip(self.critic_base_adapter.parameters(), self.critic_base_adapter_target.parameters()):
             target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
 
         return {
@@ -278,13 +266,9 @@ class DDPGAgent:
                 "actor_optimizer": self.actor_optimizer.state_dict(),
                 "critic_optimizer": self.critic_optimizer.state_dict(),
                 "actor_encoder": self.actor_encoder.state_dict(),
-                "actor_base_adapter": self.actor_base_adapter.state_dict(),
                 "critic_encoder": self.critic_encoder.state_dict(),
-                "critic_base_adapter": self.critic_base_adapter.state_dict(),
                 "actor_encoder_target": self.actor_encoder_target.state_dict(),
-                "actor_base_adapter_target": self.actor_base_adapter_target.state_dict(),
                 "critic_encoder_target": self.critic_encoder_target.state_dict(),
-                "critic_base_adapter_target": self.critic_base_adapter_target.state_dict(),
                 "total_it": self.total_it,
             },
             filename,
@@ -318,26 +302,12 @@ class DDPGAgent:
                 self.critic_encoder_target.load_state_dict(checkpoint["critic_encoder_target"])
             else:
                 self.critic_encoder_target.load_state_dict(self.critic_encoder.state_dict())
-            if "actor_base_adapter" in checkpoint:
-                self.actor_base_adapter.load_state_dict(checkpoint["actor_base_adapter"])
-            if "critic_base_adapter" in checkpoint:
-                self.critic_base_adapter.load_state_dict(checkpoint["critic_base_adapter"])
-            if "actor_base_adapter_target" in checkpoint:
-                self.actor_base_adapter_target.load_state_dict(checkpoint["actor_base_adapter_target"])
-            else:
-                self.actor_base_adapter_target.load_state_dict(self.actor_base_adapter.state_dict())
-            if "critic_base_adapter_target" in checkpoint:
-                self.critic_base_adapter_target.load_state_dict(checkpoint["critic_base_adapter_target"])
-            else:
-                self.critic_base_adapter_target.load_state_dict(self.critic_base_adapter.state_dict())
         elif "encoder" in checkpoint:
              # If loading old model with shared encoder, load key 'encoder' to both
              self.actor_encoder.load_state_dict(checkpoint["encoder"])
              self.critic_encoder.load_state_dict(checkpoint["encoder"])
              self.actor_encoder_target.load_state_dict(checkpoint["encoder"])
              self.critic_encoder_target.load_state_dict(checkpoint["encoder"])
-             self.actor_base_adapter_target.load_state_dict(self.actor_base_adapter.state_dict())
-             self.critic_base_adapter_target.load_state_dict(self.critic_base_adapter.state_dict())
         self.total_it = checkpoint.get("total_it", 0)
 
 

@@ -8,7 +8,6 @@ from torch import nn
 from torch.optim import Adam
 
 from ..config_loader import get_algo_param
-from ..state_adapter import StateAdapter
 from .buffer import EpisodeReplayBuffer
 from .networks import Actor, Critic, DepthCNNEncoder, MambaHistoryEncoder
 
@@ -26,7 +25,6 @@ class MambaRSACAgent:
         self.depth_shape = tuple(depth_shape)
         self.args.depth_shape = self.depth_shape
         self.action_dim = int(action_space.shape[0])
-        self.base_feature_dim = int(getattr(self.args, "base_feature_dim", 32))
         self.visual_feature_dim = int(get_algo_param(self.args, "visual_feature_dim", 64))
         self.sequence_length = int(get_algo_param(self.args, "sequence_length", getattr(self.args, "n_frames", 16)))
         self.burn_in = max(0, int(get_algo_param(self.args, "burn_in", 0)))
@@ -43,18 +41,14 @@ class MambaRSACAgent:
         self.critic_encoder_target = DepthCNNEncoder(depth_h, depth_w, output_dim=self.visual_feature_dim).to(self.device)
         self.critic_encoder_target.load_state_dict(self.critic_encoder.state_dict())
 
-        self.actor_base_adapter = StateAdapter(self.base_dim, self.base_feature_dim).to(self.device)
-        self.critic_base_adapter = StateAdapter(self.base_dim, self.base_feature_dim).to(self.device)
-        self.critic_base_adapter_target = StateAdapter(self.base_dim, self.base_feature_dim).to(self.device)
-        self.critic_base_adapter_target.load_state_dict(self.critic_base_adapter.state_dict())
 
-        token_dim = self.visual_feature_dim + self.base_feature_dim + self.action_dim
+        token_dim = self.visual_feature_dim + self.base_dim + self.action_dim
         self.actor_history = self._make_history_encoder(token_dim).to(self.device)
         self.critic_history = self._make_history_encoder(token_dim).to(self.device)
         self.critic_history_target = self._make_history_encoder(token_dim).to(self.device)
         self.critic_history_target.load_state_dict(self.critic_history.state_dict())
 
-        repr_dim = self.visual_feature_dim + self.base_feature_dim + self.history_dim
+        repr_dim = self.visual_feature_dim + self.base_dim + self.history_dim
         self.actor = Actor(repr_dim, action_space.shape, self.args.hidden_dim).to(self.device)
         self.critic = Critic(repr_dim, action_space.shape, self.args.hidden_dim).to(self.device)
         self.critic_target = Critic(repr_dim, action_space.shape, self.args.hidden_dim).to(self.device)
@@ -63,13 +57,13 @@ class MambaRSACAgent:
         self.actor_params = (
             list(self.actor.parameters())
             + list(self.actor_encoder.parameters())
-            + list(self.actor_base_adapter.parameters())
+           
             + list(self.actor_history.parameters())
         )
         self.critic_params = (
             list(self.critic.parameters())
             + list(self.critic_encoder.parameters())
-            + list(self.critic_base_adapter.parameters())
+           
             + list(self.critic_history.parameters())
         )
         self.actor_optimizer = Adam(self.actor_params, lr=self.args.actor_lr)
@@ -168,12 +162,11 @@ class MambaRSACAgent:
         visual = encoder(frames).view(batch_size, seq_len, -1)
         return visual
 
-    def _encode_state_sequence(self, base, depth, prev_actions, visual_encoder, base_adapter, history_encoder):
+    def _encode_state_sequence(self, base, depth, prev_actions, visual_encoder, history_encoder):
         visual = self._encode_visual_sequence(depth, visual_encoder)
-        base_features = base_adapter(base)
-        tokens = torch.cat([visual, base_features, prev_actions], dim=-1)
+        tokens = torch.cat([visual, base, prev_actions], dim=-1)
         history = history_encoder(tokens)
-        return torch.cat([visual, base_features, history], dim=-1)
+        return torch.cat([visual, base, history], dim=-1)
 
     def _learning_mask(self, replay_mask: torch.Tensor) -> torch.Tensor:
         mask = replay_mask.clone()
@@ -215,7 +208,6 @@ class MambaRSACAgent:
                 depth_seq,
                 prev_seq,
                 self.actor_encoder,
-                self.actor_base_adapter,
                 self.actor_history,
             )
             actor_state = actor_seq[:, -1, :]
@@ -257,7 +249,6 @@ class MambaRSACAgent:
                 next_depth,
                 action_norm,
                 self.actor_encoder,
-                self.actor_base_adapter,
                 self.actor_history,
             )
             next_action_pi, next_log_prob = self.actor.action_log_prob(next_actor_seq.reshape(-1, next_actor_seq.size(-1)))
@@ -268,7 +259,6 @@ class MambaRSACAgent:
                 next_depth,
                 action_norm,
                 self.critic_encoder_target,
-                self.critic_base_adapter_target,
                 self.critic_history_target,
             )
             target_q1, target_q2 = self.critic_target(
@@ -287,7 +277,6 @@ class MambaRSACAgent:
             depth,
             prev_action_norm,
             self.critic_encoder,
-            self.critic_base_adapter,
             self.critic_history,
         )
         current_q1, current_q2 = self.critic(
@@ -313,7 +302,6 @@ class MambaRSACAgent:
                 depth,
                 prev_action_norm,
                 self.actor_encoder,
-                self.actor_base_adapter,
                 self.actor_history,
             )
             actor_flat = self._select_learning(actor_seq, learn_mask)
@@ -368,8 +356,6 @@ class MambaRSACAgent:
             target_param.data.copy_(self.tau * param.data + (1.0 - self.tau) * target_param.data)
         for param, target_param in zip(self.critic_encoder.parameters(), self.critic_encoder_target.parameters()):
             target_param.data.copy_(self.tau * param.data + (1.0 - self.tau) * target_param.data)
-        for param, target_param in zip(self.critic_base_adapter.parameters(), self.critic_base_adapter_target.parameters()):
-            target_param.data.copy_(self.tau * param.data + (1.0 - self.tau) * target_param.data)
         for param, target_param in zip(self.critic_history.parameters(), self.critic_history_target.parameters()):
             target_param.data.copy_(self.tau * param.data + (1.0 - self.tau) * target_param.data)
 
@@ -378,9 +364,6 @@ class MambaRSACAgent:
             "actor_encoder": self.actor_encoder.state_dict(),
             "critic_encoder": self.critic_encoder.state_dict(),
             "critic_encoder_target": self.critic_encoder_target.state_dict(),
-            "actor_base_adapter": self.actor_base_adapter.state_dict(),
-            "critic_base_adapter": self.critic_base_adapter.state_dict(),
-            "critic_base_adapter_target": self.critic_base_adapter_target.state_dict(),
             "actor_history": self.actor_history.state_dict(),
             "critic_history": self.critic_history.state_dict(),
             "critic_history_target": self.critic_history_target.state_dict(),
@@ -402,11 +385,6 @@ class MambaRSACAgent:
         self.actor_encoder.load_state_dict(checkpoint["actor_encoder"])
         self.critic_encoder.load_state_dict(checkpoint["critic_encoder"])
         self.critic_encoder_target.load_state_dict(checkpoint.get("critic_encoder_target", checkpoint["critic_encoder"]))
-        self.actor_base_adapter.load_state_dict(checkpoint["actor_base_adapter"])
-        self.critic_base_adapter.load_state_dict(checkpoint["critic_base_adapter"])
-        self.critic_base_adapter_target.load_state_dict(
-            checkpoint.get("critic_base_adapter_target", checkpoint["critic_base_adapter"])
-        )
         self.actor_history.load_state_dict(checkpoint["actor_history"])
         self.critic_history.load_state_dict(checkpoint["critic_history"])
         self.critic_history_target.load_state_dict(checkpoint.get("critic_history_target", checkpoint["critic_history"]))

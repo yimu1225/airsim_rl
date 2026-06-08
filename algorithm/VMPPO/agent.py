@@ -5,7 +5,6 @@ from torch import nn
 from torch.optim import Adam
 
 from ..config_loader import get_algo_param
-from ..state_adapter import StateAdapter
 from .buffer import RolloutBuffer
 from .networks import Actor, Critic, STVimEncoder
 
@@ -22,7 +21,6 @@ class STVimPPOAgent:
         self.args = args
         self.args.depth_shape = depth_shape
         self.base_dim = base_dim
-        self.base_feature_dim = getattr(args, "base_feature_dim", 32)
         self.depth_shape = depth_shape
         self.action_dim = action_space.shape[0]
 
@@ -32,8 +30,7 @@ class STVimPPOAgent:
         self.action_bias = torch.as_tensor((self.max_action + self.min_action) / 2.0, dtype=torch.float32, device=self.device)
 
         self.encoder = STVimEncoder(args).to(self.device)
-        self.base_encoder = StateAdapter(base_dim, self.base_feature_dim).to(self.device)
-        self.state_dim = self.base_feature_dim + self.encoder.repr_dim
+        self.state_dim = base_dim + self.encoder.repr_dim
 
         hidden_dim = getattr(args, "hidden_dim", 256)
         self.actor = Actor(self.state_dim, self.action_dim, hidden_dim).to(self.device)
@@ -41,7 +38,6 @@ class STVimPPOAgent:
 
         lr = get_algo_param(args, "lr", getattr(args, "actor_lr", 3e-4))
         self.encoder_optimizer = Adam(self.encoder.parameters(), lr=lr)
-        self.base_encoder_optimizer = Adam(self.base_encoder.parameters(), lr=lr)
         self.actor_optimizer = Adam(self.actor.parameters(), lr=lr)
         self.critic_optimizer = Adam(self.critic.parameters(), lr=lr)
 
@@ -94,9 +90,8 @@ class STVimPPOAgent:
         return self.encoder(self._format_depth_sequence(depth))
 
     def _concat_state(self, base, depth):
-        base_features = self.base_encoder(base)
         depth_features = self._encode_depth(depth)
-        return torch.cat([base_features, depth_features], dim=1)
+        return torch.cat([base, depth_features], dim=1)
 
     def get_state_representation(self, base, depth):
         return self._concat_state(base, depth)
@@ -221,16 +216,13 @@ class STVimPPOAgent:
                     break
 
                 self.encoder_optimizer.zero_grad()
-                self.base_encoder_optimizer.zero_grad()
                 self.actor_optimizer.zero_grad()
                 self.critic_optimizer.zero_grad()
                 loss.backward()
                 nn.utils.clip_grad_norm_(self.encoder.parameters(), self.max_grad_norm)
-                nn.utils.clip_grad_norm_(self.base_encoder.parameters(), self.max_grad_norm)
                 nn.utils.clip_grad_norm_(self.actor.parameters(), self.max_grad_norm)
                 nn.utils.clip_grad_norm_(self.critic.parameters(), self.max_grad_norm)
                 self.encoder_optimizer.step()
-                self.base_encoder_optimizer.step()
                 self.actor_optimizer.step()
                 self.critic_optimizer.step()
 
@@ -258,11 +250,9 @@ class STVimPPOAgent:
     def save(self, filename: str):
         torch.save({
             "encoder": self.encoder.state_dict(),
-            "base_encoder": self.base_encoder.state_dict(),
             "actor": self.actor.state_dict(),
             "critic": self.critic.state_dict(),
             "encoder_optimizer": self.encoder_optimizer.state_dict(),
-            "base_encoder_optimizer": self.base_encoder_optimizer.state_dict(),
             "actor_optimizer": self.actor_optimizer.state_dict(),
             "critic_optimizer": self.critic_optimizer.state_dict(),
             "total_it": self.total_it,
@@ -272,13 +262,10 @@ class STVimPPOAgent:
     def load(self, filename: str):
         checkpoint = torch.load(filename, map_location=self.device)
         self.encoder.load_state_dict(checkpoint["encoder"])
-        self.base_encoder.load_state_dict(checkpoint["base_encoder"])
         self.actor.load_state_dict(checkpoint["actor"])
         self.critic.load_state_dict(checkpoint["critic"])
         if "encoder_optimizer" in checkpoint:
             self.encoder_optimizer.load_state_dict(checkpoint["encoder_optimizer"])
-        if "base_encoder_optimizer" in checkpoint:
-            self.base_encoder_optimizer.load_state_dict(checkpoint["base_encoder_optimizer"])
         if "actor_optimizer" in checkpoint:
             self.actor_optimizer.load_state_dict(checkpoint["actor_optimizer"])
         if "critic_optimizer" in checkpoint:

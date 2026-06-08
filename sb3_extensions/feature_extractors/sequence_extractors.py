@@ -649,7 +649,6 @@ class AirSimSequenceExtractor(BaseFeaturesExtractor):
         self,
         observation_space: spaces.Dict,
         features_dim: int = 256,
-        base_feature_dim: int = 32,
         algorithm_params: dict[str, Any] | None = None,
         append_base: bool = True,
         **encoder_kwargs,
@@ -677,11 +676,11 @@ class AirSimSequenceExtractor(BaseFeaturesExtractor):
             self.encoder = self.encoder_cls(self.shape, self.params)
 
         if self.append_base:
-            vision_output_dim = int(features_dim) - int(base_feature_dim)
+            vision_output_dim = int(features_dim) - self.base_dim
             if vision_output_dim <= 0:
-                raise ValueError("features_dim must be greater than base_feature_dim when appending base features.")
+                raise ValueError("features_dim must be greater than base_dim when appending base features.")
             self.vision_proj = nn.Sequential(nn.Linear(self.encoder.repr_dim, vision_output_dim), nn.ReLU())
-            self.base_net = nn.Sequential(nn.Linear(self.base_dim, int(base_feature_dim)), nn.ReLU())
+            self.base_net = nn.Identity()
         else:
             self.vision_proj = nn.Sequential(nn.Linear(self.encoder.repr_dim, int(features_dim)), nn.ReLU())
             self.base_net = nn.Identity()

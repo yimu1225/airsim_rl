@@ -183,16 +183,13 @@ class PLSTVimPPOAgent(STVimPPOAgent):
                     break
 
                 self.encoder_optimizer.zero_grad()
-                self.base_encoder_optimizer.zero_grad()
                 self.actor_optimizer.zero_grad()
                 self.critic_optimizer.zero_grad()
                 loss.backward()
                 nn.utils.clip_grad_norm_(self.encoder.parameters(), self.max_grad_norm)
-                nn.utils.clip_grad_norm_(self.base_encoder.parameters(), self.max_grad_norm)
                 nn.utils.clip_grad_norm_(self.actor.parameters(), self.max_grad_norm)
                 nn.utils.clip_grad_norm_(self.critic.parameters(), self.max_grad_norm)
                 self.encoder_optimizer.step()
-                self.base_encoder_optimizer.step()
                 self.actor_optimizer.step()
                 self.critic_optimizer.step()
 

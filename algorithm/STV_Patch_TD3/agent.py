@@ -5,7 +5,6 @@ import torch.nn.functional as F
 from torch import nn
 from torch.optim import Adam
 
-from ..state_adapter import StateAdapter
 from ..config_loader import get_algo_param
 from ..VMTD3.networks import Actor, Critic
 from .buffer import ReplayBuffer
@@ -28,7 +27,6 @@ class VimPatchTD3Agent:
 
         self.args = args
         self.base_dim = base_dim
-        self.base_feature_dim = getattr(args, "base_feature_dim", 32)
         self.depth_shape = depth_shape  # expected (C, H, W), recurrent path passes C=1
         self.seq_len = max(1, int(getattr(args, "n_frames", 4)))
 
@@ -59,9 +57,8 @@ class VimPatchTD3Agent:
             input_channels=channels,
             **encoder_kwargs,
         ).to(self.device)
-        self.actor_base_net = StateAdapter(self.base_dim, self.base_feature_dim).to(self.device)
         self.visual_feature_dim = int(self.actor_encoder.repr_dim)
-        self.fused_feature_dim = self.visual_feature_dim + self.base_feature_dim
+        self.fused_feature_dim = self.visual_feature_dim + self.base_dim
         self.actor = Actor(
             feature_dim=self.fused_feature_dim,
             action_dim=self.action_dim,
@@ -74,7 +71,6 @@ class VimPatchTD3Agent:
             input_channels=channels,
             **encoder_kwargs,
         ).to(self.device)
-        self.critic_base_net = StateAdapter(self.base_dim, self.base_feature_dim).to(self.device)
         self.critic_1 = Critic(
             feature_dim=self.fused_feature_dim,
             action_dim=self.action_dim,
@@ -87,20 +83,18 @@ class VimPatchTD3Agent:
         ).to(self.device)
 
         self.actor_encoder_target = copy.deepcopy(self.actor_encoder)
-        self.actor_base_net_target = copy.deepcopy(self.actor_base_net)
         self.actor_target = copy.deepcopy(self.actor)
         self.critic_encoder_target = copy.deepcopy(self.critic_encoder)
-        self.critic_base_net_target = copy.deepcopy(self.critic_base_net)
         self.critic_1_target = copy.deepcopy(self.critic_1)
         self.critic_2_target = copy.deepcopy(self.critic_2)
 
         self.actor_optimizer = Adam(
-            list(self.actor_encoder.parameters()) + list(self.actor_base_net.parameters()) + list(self.actor.parameters()),
+            list(self.actor_encoder.parameters()) + list(self.actor.parameters()),
             lr=args.actor_lr,
         )
         self.critic_optimizer = Adam(
             list(self.critic_encoder.parameters())
-            + list(self.critic_base_net.parameters())
+           
             + list(self.critic_1.parameters())
             + list(self.critic_2.parameters()),
             lr=args.critic_lr,
@@ -156,8 +150,7 @@ class VimPatchTD3Agent:
 
         with torch.no_grad():
             visual_feat = self.actor_encoder(depth_img)
-            base_feat = self.actor_base_net(current_state)
-            actor_input = torch.cat([visual_feat, base_feat], dim=-1)
+            actor_input = torch.cat([visual_feat, base], dim=-1)
             action = self.actor(actor_input).cpu().numpy().flatten()
 
         if noise:
@@ -188,21 +181,18 @@ class VimPatchTD3Agent:
 
         with torch.no_grad():
             next_visual = self.actor_encoder_target(next_depth)
-            next_base_actor = self.actor_base_net_target(next_state)
             next_actor_input = torch.cat([next_visual, next_base_actor], dim=-1)
             next_action = self.actor_target(next_actor_input)
             noise = (torch.randn_like(next_action) * self.policy_noise).clamp(-self.noise_clip, self.noise_clip)
             next_action = (next_action + noise).clamp(-1.0, 1.0)
 
             target_visual = self.critic_encoder_target(next_depth)
-            target_base = self.critic_base_net_target(next_state)
             target_input = torch.cat([target_visual, target_base], dim=-1)
             target_q1 = self.critic_1_target(target_input, next_action)
             target_q2 = self.critic_2_target(target_input, next_action)
             target_q = reward + (1.0 - dones) * self.gamma * torch.min(target_q1, target_q2)
 
         current_visual = self.critic_encoder(depth)
-        current_base = self.critic_base_net(state)
         critic_input = torch.cat([current_visual, current_base], dim=-1)
         current_q1 = self.critic_1(critic_input, action)
         current_q2 = self.critic_2(critic_input, action)
@@ -212,7 +202,7 @@ class VimPatchTD3Agent:
         critic_loss.backward()
         nn.utils.clip_grad_norm_(
             list(self.critic_encoder.parameters())
-            + list(self.critic_base_net.parameters())
+           
             + list(self.critic_1.parameters())
             + list(self.critic_2.parameters()),
             self.grad_clip,
@@ -222,13 +212,11 @@ class VimPatchTD3Agent:
         actor_loss_value = None
         if self.total_it % self.policy_freq == 0:
             actor_visual = self.actor_encoder(depth)
-            actor_base = self.actor_base_net(state)
             actor_input = torch.cat([actor_visual, actor_base], dim=-1)
             actor_action = self.actor(actor_input)
 
             with torch.no_grad():
                 q_visual = self.critic_encoder(depth)
-            q_base = self.critic_base_net(state)
             q_input = torch.cat([q_visual, q_base], dim=-1)
             actor_loss = -self.critic_1(q_input, actor_action).mean()
             actor_loss_value = float(actor_loss.item())
@@ -236,16 +224,14 @@ class VimPatchTD3Agent:
             self.actor_optimizer.zero_grad()
             actor_loss.backward()
             nn.utils.clip_grad_norm_(
-                list(self.actor_encoder.parameters()) + list(self.actor_base_net.parameters()) + list(self.actor.parameters()),
+                list(self.actor_encoder.parameters()) + list(self.actor.parameters()),
                 self.grad_clip,
             )
             self.actor_optimizer.step()
 
             self.soft_update(self.actor_encoder, self.actor_encoder_target, self.tau)
-            self.soft_update(self.actor_base_net, self.actor_base_net_target, self.tau)
             self.soft_update(self.actor, self.actor_target, self.tau)
             self.soft_update(self.critic_encoder, self.critic_encoder_target, self.tau)
-            self.soft_update(self.critic_base_net, self.critic_base_net_target, self.tau)
             self.soft_update(self.critic_1, self.critic_1_target, self.tau)
             self.soft_update(self.critic_2, self.critic_2_target, self.tau)
 
@@ -264,17 +250,13 @@ class VimPatchTD3Agent:
         torch.save(
             {
                 "actor_encoder": self.actor_encoder.state_dict(),
-                "actor_base_net": self.actor_base_net.state_dict(),
                 "actor": self.actor.state_dict(),
                 "critic_encoder": self.critic_encoder.state_dict(),
-                "critic_base_net": self.critic_base_net.state_dict(),
                 "critic_1": self.critic_1.state_dict(),
                 "critic_2": self.critic_2.state_dict(),
                 "actor_encoder_target": self.actor_encoder_target.state_dict(),
-                "actor_base_net_target": self.actor_base_net_target.state_dict(),
                 "actor_target": self.actor_target.state_dict(),
                 "critic_encoder_target": self.critic_encoder_target.state_dict(),
-                "critic_base_net_target": self.critic_base_net_target.state_dict(),
                 "critic_1_target": self.critic_1_target.state_dict(),
                 "critic_2_target": self.critic_2_target.state_dict(),
                 "actor_optimizer": self.actor_optimizer.state_dict(),
@@ -287,24 +269,16 @@ class VimPatchTD3Agent:
     def load(self, filename):
         checkpoint = torch.load(filename, map_location=self.device)
         self.actor_encoder.load_state_dict(checkpoint["actor_encoder"])
-        if "actor_base_net" in checkpoint:
-            self.actor_base_net.load_state_dict(checkpoint["actor_base_net"])
         self.actor.load_state_dict(checkpoint["actor"])
         self.critic_encoder.load_state_dict(checkpoint["critic_encoder"])
-        if "critic_base_net" in checkpoint:
-            self.critic_base_net.load_state_dict(checkpoint["critic_base_net"])
         self.critic_1.load_state_dict(checkpoint["critic_1"])
         self.critic_2.load_state_dict(checkpoint["critic_2"])
         if "actor_encoder_target" in checkpoint:
             self.actor_encoder_target.load_state_dict(checkpoint["actor_encoder_target"])
-        if "actor_base_net_target" in checkpoint:
-            self.actor_base_net_target.load_state_dict(checkpoint["actor_base_net_target"])
         if "actor_target" in checkpoint:
             self.actor_target.load_state_dict(checkpoint["actor_target"])
         if "critic_encoder_target" in checkpoint:
             self.critic_encoder_target.load_state_dict(checkpoint["critic_encoder_target"])
-        if "critic_base_net_target" in checkpoint:
-            self.critic_base_net_target.load_state_dict(checkpoint["critic_base_net_target"])
         if "critic_1_target" in checkpoint:
             self.critic_1_target.load_state_dict(checkpoint["critic_1_target"])
         if "critic_2_target" in checkpoint:

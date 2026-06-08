@@ -5,7 +5,6 @@ from torch import nn
 from torch.optim import Adam
 
 from ..config_loader import get_algo_param
-from ..state_adapter import StateAdapter
 from .buffer import ReplayBuffer
 from .networks import Actor, Critic, STVimEncoder
 
@@ -22,7 +21,6 @@ class PLSTVimSACAgent:
         self.args = args
         self.args.depth_shape = depth_shape
         self.base_dim = base_dim
-        self.base_feature_dim = getattr(args, "base_feature_dim", 32)
         self.depth_shape = depth_shape
         self.action_dim = action_space.shape[0]
 
@@ -38,13 +36,9 @@ class PLSTVimSACAgent:
         self.critic_encoder_target.load_state_dict(self.critic_encoder.state_dict())
 
         # State adapters
-        self.actor_base_adapter = StateAdapter(base_dim, self.base_feature_dim).to(self.device)
-        self.critic_base_adapter = StateAdapter(base_dim, self.base_feature_dim).to(self.device)
-        self.critic_base_adapter_target = StateAdapter(base_dim, self.base_feature_dim).to(self.device)
-        self.critic_base_adapter_target.load_state_dict(self.critic_base_adapter.state_dict())
 
         # State dimensions match the base algorithm; only critic depth differs.
-        self.actor_state_dim = self.base_feature_dim + self.actor_encoder.repr_dim
+        self.actor_state_dim = self.base_dim + self.actor_encoder.repr_dim
         self.critic_state_dim = self.actor_state_dim
 
         # Actor and Critic networks
@@ -57,12 +51,12 @@ class PLSTVimSACAgent:
         self.actor_params = (
             list(self.actor.parameters())
             + list(self.actor_encoder.parameters())
-            + list(self.actor_base_adapter.parameters())
+           
         )
         self.critic_params = (
             list(self.critic.parameters())
             + list(self.critic_encoder.parameters())
-            + list(self.critic_base_adapter.parameters())
+           
         )
         self.actor_optimizer = Adam(self.actor_params, lr=args.actor_lr)
         self.critic_optimizer = Adam(self.critic_params, lr=args.critic_lr)
@@ -121,21 +115,18 @@ class PLSTVimSACAgent:
     # ------------------------------------------------------------------
     def _encode_actor_state(self, base, depth):
         depth = self._format_depth_sequence(depth)
-        base_features = self.actor_base_adapter(base)
         depth_features = self.actor_encoder(depth)
-        return torch.cat([base_features, depth_features], dim=1)
+        return torch.cat([base_states, depth_features], dim=1)
 
     def _encode_critic_state(self, base, depth, critic_depth):
         depth = self._format_depth_sequence(critic_depth)
-        base_features = self.critic_base_adapter(base)
         depth_features = self.critic_encoder(depth)
-        return torch.cat([base_features, depth_features], dim=1)
+        return torch.cat([base_states, depth_features], dim=1)
 
     def _encode_critic_state_target(self, base, depth, critic_depth):
         depth = self._format_depth_sequence(critic_depth)
-        base_features = self.critic_base_adapter_target(base)
         depth_features = self.critic_encoder_target(depth)
-        return torch.cat([base_features, depth_features], dim=1)
+        return torch.cat([base_states, depth_features], dim=1)
 
     # ------------------------------------------------------------------
     #  Replay sampling (non-prioritized)
@@ -299,17 +290,11 @@ class PLSTVimSACAgent:
             target_param.data.copy_(self.tau * param.data + (1.0 - self.tau) * target_param.data)
         for param, target_param in zip(self.critic_encoder.parameters(), self.critic_encoder_target.parameters()):
             target_param.data.copy_(self.tau * param.data + (1.0 - self.tau) * target_param.data)
-        for param, target_param in zip(self.critic_base_adapter.parameters(), self.critic_base_adapter_target.parameters()):
-            target_param.data.copy_(self.tau * param.data + (1.0 - self.tau) * target_param.data)
-
     def save(self, path):
         checkpoint = {
             "actor_encoder": self.actor_encoder.state_dict(),
             "critic_encoder": self.critic_encoder.state_dict(),
             "critic_encoder_target": self.critic_encoder_target.state_dict(),
-            "actor_base_adapter": self.actor_base_adapter.state_dict(),
-            "critic_base_adapter": self.critic_base_adapter.state_dict(),
-            "critic_base_adapter_target": self.critic_base_adapter_target.state_dict(),
             "actor": self.actor.state_dict(),
             "critic": self.critic.state_dict(),
             "critic_target": self.critic_target.state_dict(),
@@ -328,11 +313,6 @@ class PLSTVimSACAgent:
         self.actor_encoder.load_state_dict(checkpoint["actor_encoder"])
         self.critic_encoder.load_state_dict(checkpoint["critic_encoder"])
         self.critic_encoder_target.load_state_dict(checkpoint.get("critic_encoder_target", checkpoint["critic_encoder"]))
-        self.actor_base_adapter.load_state_dict(checkpoint["actor_base_adapter"])
-        self.critic_base_adapter.load_state_dict(checkpoint["critic_base_adapter"])
-        self.critic_base_adapter_target.load_state_dict(
-            checkpoint.get("critic_base_adapter_target", checkpoint["critic_base_adapter"])
-        )
         self.actor.load_state_dict(checkpoint["actor"])
         self.critic.load_state_dict(checkpoint["critic"])
         self.critic_target.load_state_dict(checkpoint.get("critic_target", checkpoint["critic"]))
