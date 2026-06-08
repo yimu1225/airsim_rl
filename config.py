@@ -29,7 +29,7 @@ def get_config(argv=None):
     parser.add_argument("--env_name", type=str, default='AirSimEnv-v42', help="要训练的环境名称")
 
     # 算法选择 (Algorithm Selection)
-    parser.add_argument("--algorithm_name", type=str, default='CL-SDDPG',
+    parser.add_argument("--algorithm_name", type=str, default='CL-DPER_SVMSAC',
                         help="要训练的算法。支持: TD3, DDPG, DPER_TD3, VMTD3, STV_Patch_TD3, Vim_TD3, ST_Seq_Vim_TD3, STV_Seq_Vim_TD3, DPER_VMTD3, SVMTD3, Mamba_TD3, ST_DualVim_TD3, AETD3, SAC, SAC_Beta, LSTM_SAC, VMSAC, SVMSAC, VMSAC_Beta, DPER_VMSAC, DPER_VMSAC_Beta, PPO, VMPPO, PL_VMPPO, PL_TD3, PL_DPER_TD3, PL_VMTD3, PL_SAC, PL_SAC_Beta, PL_VMSAC, PL_PER_VMSAC, PL_DPER_VMSAC, PL_DPER_VMSAC_Beta, PL_DPER_VMTD3,MM_VMSAC,MambaCSJA_SAC")
     parser.add_argument("--plot_cl", action='store_true', default=True, help="绘图时是否检索带 CL- 前缀的算法 (默认: True)")
     parser.add_argument("--plot_non_cl", action='store_true', default=True, help="绘图时是否检索常规算法 (默认: True)")
@@ -73,7 +73,7 @@ def get_config(argv=None):
     parser.add_argument("--depth_view_scale", type=float, default=2.5, help="深度图显示窗口放大倍数")
 
     # 观测图像噪声 (Observation Image Noise)
-    parser.add_argument("--enable_observation_noise", action='store_true', default=False, help="是否对传给算法的深度图加噪声")
+    parser.add_argument("--enable_observation_noise", action='store_true', default=True, help="是否对传给算法的深度图加噪声")
     parser.add_argument("--disable_observation_noise", action='store_false', dest="enable_observation_noise", help="关闭传给算法的深度图噪声")
     parser.add_argument("--depth_noise_gaussian_std", type=float, default=10.0, help="深度图高斯噪声标准差，作用在0-255图像强度上")
     parser.add_argument("--depth_noise_gaussian_clip", type=float, default=30.0, help="深度图高斯噪声裁剪范围 [-clip, clip]")

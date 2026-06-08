@@ -9,7 +9,7 @@ from .buffer import DualPrioritizedReplayBuffer
 from .networks import Actor, Critic, STVimEncoder
 
 
-class PLDPERSTVimSACAgent:
+class PLDPERVMSACAgent:
     """PER ST-Vim-SAC where the actor sees noisy depth and the critic sees clean depth."""
 
     def __init__(self, base_dim: int, depth_shape, action_space, args, device=None, seed=None):

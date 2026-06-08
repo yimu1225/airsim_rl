@@ -1,3 +1,3 @@
-from .agent import STVimTD3Agent
+from .agent import VMTD3Agent
 
-__all__ = ["STVimTD3Agent"]
+__all__ = ["VMTD3Agent"]

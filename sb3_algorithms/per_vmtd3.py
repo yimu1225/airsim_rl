@@ -3,6 +3,6 @@
 from sb3_algorithms.per_td3 import PERTD3
 
 
-class PERSTVimTD3(PERTD3):
+class PERVMTD3(PERTD3):
     pass
 

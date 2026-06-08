@@ -5,12 +5,12 @@ import torch.nn.functional as F
 from torch import nn
 from torch.optim import Adam
 
-from ...config_loader import get_algo_param
+from ..config_loader import get_algo_param
 from .networks import STVimEncoder, Actor, Critic, SafetyConstraintHead, safety_project_actions
 from .buffer import ReplayBuffer
 
 
-class STSVimTD3Agent:
+class SAFEVMTD3Agent:
     def __init__(self, base_dim, depth_shape, action_space, args, device=None, seed=None):
         self.device = torch.device(device if device is not None else ("cuda" if torch.cuda.is_available() else "cpu"))
         print(f"ST-Mamba-VimTokens-Safety-TD3 Agent using device: {self.device}")

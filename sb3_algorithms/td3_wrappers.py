@@ -9,7 +9,7 @@ class VimTD3(TD3):
     pass
 
 
-class STVimTD3(TD3):
+class VMTD3(TD3):
     pass
 
 
@@ -25,7 +25,7 @@ class VimPatchTD3(TD3):
     pass
 
 
-class STSVimTD3(TD3):
+class SAFEVMTD3(TD3):
     pass
 
 
@@ -37,7 +37,7 @@ class DualVimTD3(TD3):
     pass
 
 
-class PLSTVimTD3(TD3):
+class PLVMTD3(TD3):
     def __init__(self, policy="MultiInputPolicy", *args, **kwargs) -> None:
         from sb3_extensions.policies import PLTD3Policy
 

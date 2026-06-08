@@ -1,5 +1,5 @@
-from .agent import MMSTVimSACAgent
+from .agent import MMVMSACAgent
 
-SACAgent = MMSTVimSACAgent
+SACAgent = MMVMSACAgent
 
-__all__ = ["MMSTVimSACAgent", "SACAgent"]
+__all__ = ["MMVMSACAgent", "SACAgent"]

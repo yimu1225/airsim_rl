@@ -1,3 +1,3 @@
-from .agent import PLSTVimTD3Agent
+from .agent import PLVMTD3Agent
 
-__all__ = ["PLSTVimTD3Agent"]
+__all__ = ["PLVMTD3Agent"]

@@ -9,7 +9,7 @@ from .buffer import DualPrioritizedReplayBuffer
 from .networks import Actor, Critic, STVimEncoder
 
 
-class DPERSTVimSACAgent:
+class DPERVMSACAgent:
     """SB3-style SAC with ST-Vim/Mamba features and prioritized replay."""
 
     def __init__(self, base_dim: int, depth_shape, action_space, args, device=None, seed=None):

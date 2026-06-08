@@ -10,7 +10,7 @@ from .networks import STVimEncoder, Actor, Critic
 from .buffer import DualPrioritizedReplayBuffer
 
 
-class PLDPERSTVimTD3Agent:
+class PLDPERVMTD3Agent:
     """
     PL + PER + ST-Vim TD3:
     - Visual encoder: STVimEncoder
