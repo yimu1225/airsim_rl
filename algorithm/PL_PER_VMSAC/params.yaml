@@ -1,0 +1,24 @@
+# PL_PER_VMSAC algorithm-specific parameters
+ent_coef: 'auto'
+target_entropy: auto
+target_update_interval: 1
+policy_freq: 1
+
+# Single-pool prioritized replay parameters.
+per_alpha: 0.6
+per_beta0: 0.4
+per_beta1: 1.0
+per_eps: 0.000001
+
+# Vim + temporal Mamba visual encoder parameters, matching VMSAC.
+st_mamba_embed_dim: 64
+st_mamba_depth: 1
+st_mamba_patch_size: 32
+st_mamba_d_state: 32
+st_mamba_d_conv: 4
+st_mamba_expand: 2
+st_mamba_drop_rate: 0.05
+st_mamba_drop_path_rate: 0.05
+st_mamba_temporal_depth: 1
+vmconcat_cls_before_temporal_mamba: false
+vmflatten_all_tokens: true

@@ -10,4 +10,4 @@ st_mamba_drop_rate: 0.05  # ST-Mamba dropout 概率
 st_mamba_drop_path_rate: 0.05  # ST-Mamba drop-path 概率
 st_mamba_temporal_depth: 1  # 兼容参数（本算法不使用额外 temporal mamba）
 st_state_proj_dim: 32  # base state 先投影到该维度再与视觉 token 融合
-st_vim_flatten_all_tokens: true  # 是否展平所有时序 token 作为策略/价值输入
+vmflatten_all_tokens: true  # 是否展平所有时序 token 作为策略/价值输入

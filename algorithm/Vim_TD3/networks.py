@@ -26,7 +26,7 @@ class VimEncoder(nn.Module):
         width = depth_shape[2]
 
         # Keep token usage behavior aligned with ST-VimTD3 for fair ablation.
-        self.flatten_all_tokens = bool(get_algo_param(args, "st_vim_flatten_all_tokens", True))
+        self.flatten_all_tokens = bool(get_algo_param(args, "vmflatten_all_tokens", True))
         self.repr_dim = self.embed_dim * self.seq_len if self.flatten_all_tokens else self.embed_dim
 
         self.vim = VisionMamba(

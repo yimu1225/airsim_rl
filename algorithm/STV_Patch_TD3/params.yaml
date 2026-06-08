@@ -9,4 +9,4 @@ st_mamba_expand: 2  # ST-Mamba 的通道扩展倍数 expand
 st_mamba_drop_rate: 0.05  # ST-Mamba dropout 概率
 st_mamba_drop_path_rate: 0.05  # ST-Mamba drop-path 概率
 st_mamba_temporal_depth: 1  # ST-Mamba 时序堆叠层数
-st_vim_flatten_all_tokens: true  # 是否展平所有时序 token 作为策略/价值输入
+vmflatten_all_tokens: true  # 是否展平所有时序 token 作为策略/价值输入

@@ -1,0 +1,19 @@
+# SVMTD3 algorithm-specific parameters
+# Shared/common parameters stay in config.py
+st_mamba_embed_dim: 64  # ST-Mamba/Vim token 嵌入维度
+st_mamba_depth: 1  # Vim 主干 block 层数
+st_mamba_patch_size: 32  # 2D patch 尺寸（像素）
+st_mamba_d_state: 32  # ST-Mamba 的状态维度 d_state
+st_mamba_d_conv: 4  # ST-Mamba 的局部卷积宽度 d_conv
+st_mamba_expand: 2  # ST-Mamba 的通道扩展倍数 expand
+st_mamba_drop_rate: 0.05  # ST-Mamba dropout 概率
+st_mamba_drop_path_rate: 0.05  # ST-Mamba drop-path 概率
+st_mamba_temporal_depth: 1  # ST-Mamba 时序堆叠层数
+vmflatten_all_tokens: true  # 是否展平所有时序 token 作为策略/价值输入
+use_vim_safety_layer: true  # 是否启用基于隐空间约束的 Safety Layer
+safety_lr: 0.0005  # Safety Head 学习率
+safety_loss_coef: 1.0  # 安全监督损失权重
+safety_actor_penalty_coef: 0.05  # Actor 约束违反惩罚权重
+safety_warmup_steps: 0  # Safety Head 开始训练前预热步数
+safety_end_to_end: false  # 安全损失是否回传更新视觉编码器
+safety_label_mode: collision  # 安全标签来源模式

@@ -7,7 +7,7 @@ from torch.optim import Adam
 
 from ..state_adapter import StateAdapter
 from ..config_loader import get_algo_param
-from ..ST_Vim_TD3.networks import Actor, Critic
+from ..VMTD3.networks import Actor, Critic
 from .buffer import ReplayBuffer
 from .networks import Encoder as VideoPatchEncoder
 
@@ -15,7 +15,7 @@ from .networks import Encoder as VideoPatchEncoder
 class VimPatchTD3Agent:
     """
     ST-VimTD3 training pipeline with video-style patch embedding.
-    Actor/Critic/TD3 update stay the same as ST_VimTD3.
+    Actor/Critic/TD3 update stay the same as VMTD3.
     """
 
     def __init__(self, base_dim, depth_shape, action_space, args, device=None, seed=None):
@@ -50,7 +50,7 @@ class VimPatchTD3Agent:
             drop_rate=get_algo_param(args, "st_mamba_drop_rate", 0.0),
             drop_path_rate=get_algo_param(args, "st_mamba_drop_path_rate", 0.1),
             temporal_layers=get_algo_param(args, "st_mamba_temporal_depth", 2),
-            flatten_all_tokens=bool(get_algo_param(args, "st_vim_flatten_all_tokens", True)),
+            flatten_all_tokens=bool(get_algo_param(args, "vmflatten_all_tokens", True)),
         )
 
         self.actor_encoder = VideoPatchEncoder(

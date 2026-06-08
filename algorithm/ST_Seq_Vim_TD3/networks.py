@@ -52,7 +52,7 @@ class STVimEncoder(nn.Module):
         depth_shape = args.depth_shape
         in_chans = depth_shape[0]
         self.seq_len = args.n_frames
-        self.flatten_all_tokens = bool(get_algo_param(args, "st_vim_flatten_all_tokens", True))
+        self.flatten_all_tokens = bool(get_algo_param(args, "vmflatten_all_tokens", True))
         self.repr_dim = self.embed_dim * self.seq_len if self.flatten_all_tokens else self.embed_dim
 
         height = depth_shape[1]

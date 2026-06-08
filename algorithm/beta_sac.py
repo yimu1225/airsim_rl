@@ -11,9 +11,9 @@ from torch.optim import Adam
 from .config_loader import get_algo_param
 from .SAC.agent import SACAgent
 from .PL_SAC.agent import PLSACAgent
-from .ST_Vim_SAC.agent import STVimSACAgent
-from .DPER_ST_Vim_SAC.agent import DPERSTVimSACAgent
-from .PL_DPER_ST_Vim_SAC.agent import PLDPERSTVimSACAgent
+from .VMSAC.agent import STVimSACAgent
+from .DPER_VMSAC.agent import DPERSTVimSACAgent
+from .PL_DPER_VMSAC.agent import PLDPERSTVimSACAgent
 
 
 class BetaFeedForwardActor(nn.Module):

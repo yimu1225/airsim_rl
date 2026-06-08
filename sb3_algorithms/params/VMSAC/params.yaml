@@ -1,0 +1,19 @@
+# ST-Vim-SAC algorithm-specific parameters
+# SAC parameters aligned with SB3-style defaults where practical.
+ent_coef: 'auto'  # SAC 熵系数；auto 表示自动学习 alpha
+target_entropy: auto  # SAC 目标熵；auto 使用 SB3 的 -action_dim 启发式
+target_update_interval: 1  # critic target 网络更新间隔（梯度步）
+policy_freq: 2  # 保留兼容参数；SB3 SAC 默认每个梯度步更新 actor
+
+# Vim + temporal Mamba visual encoder parameters, matching VMTD3.
+st_mamba_embed_dim: 64  # VisionMamba 每帧 CLS/token 嵌入维度
+st_mamba_depth: 1  # VisionMamba block 层数
+st_mamba_patch_size: 32  # 深度图 2D patch 尺寸
+st_mamba_d_state: 32  # VisionMamba/Mamba 状态维度 d_state
+st_mamba_d_conv: 4  # Mamba 局部卷积宽度 d_conv
+st_mamba_expand: 2  # Mamba 通道扩展倍数
+st_mamba_drop_rate: 0.05  # VisionMamba dropout 概率
+st_mamba_drop_path_rate: 0.05  # VisionMamba drop-path 概率
+st_mamba_temporal_depth: 1  # 时序 Mamba 堆叠层数
+vmconcat_cls_before_temporal_mamba: false  # 是否先拼接多帧 CLS 再输入 Temporal Mamba
+vmflatten_all_tokens: true  # 是否展平所有时序 token 作为视觉表示

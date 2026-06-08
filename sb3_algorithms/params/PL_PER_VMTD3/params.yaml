@@ -1,0 +1,24 @@
+# PL_PER_VMTD3 algorithm-specific parameters
+# Prioritized replay parameters (matching PER_VMTD3 / PL_PER_TD3).
+per_td3_success_capacity_ratio: 0.3
+per_td3_alpha: 0.6
+per_td3_priority_eps: 0.000001
+per_td3_beta_start: 0.4
+per_td3_beta_final: 1.0
+per_td3_mu_low: 0.30
+per_td3_mu_mid: 0.45
+per_td3_mu_high: 0.60
+per_td3_mu_step1: 0.25
+per_td3_mu_step2: 0.65
+
+# Vim + temporal Mamba visual encoder parameters, matching VMTD3.
+st_mamba_embed_dim: 64
+st_mamba_depth: 1
+st_mamba_patch_size: 32
+st_mamba_d_state: 32
+st_mamba_d_conv: 4
+st_mamba_expand: 2
+st_mamba_drop_rate: 0.05
+st_mamba_drop_path_rate: 0.05
+st_mamba_temporal_depth: 1
+vmflatten_all_tokens: true
