@@ -11,9 +11,9 @@ from torch.optim import Adam
 from .config_loader import get_algo_param
 from .SAC.agent import SACAgent
 from .PL_SAC.agent import PLSACAgent
-from .VMSAC.agent import STVimSACAgent
-from .DPER_VMSAC.agent import DPERSTVimSACAgent
-from .PL_DPER_VMSAC.agent import PLDPERSTVimSACAgent
+from .VMSAC.agent import VMSACAgent
+from .DPER_VMSAC.agent import DPERVMSACAgent
+from .PL_DPER_VMSAC.agent import PLDPERVMSACAgent
 
 
 class BetaFeedForwardActor(nn.Module):
@@ -132,19 +132,19 @@ class PLSACBetaAgent(PLSACAgent):
         _replace_base_actor(self, action_space.shape)
 
 
-class STVimSACBetaAgent(STVimSACAgent):
+class VMSACBetaAgent(VMSACAgent):
     def __init__(self, base_dim, depth_shape, action_space, args, device=None, seed=None):
         super().__init__(base_dim, depth_shape, action_space, args, device=device, seed=seed)
         _replace_base_actor(self, action_space.shape)
 
 
-class DPERSTVimSACBetaAgent(DPERSTVimSACAgent):
+class DPERVMSACBetaAgent(DPERVMSACAgent):
     def __init__(self, base_dim, depth_shape, action_space, args, device=None, seed=None):
         super().__init__(base_dim, depth_shape, action_space, args, device=device, seed=seed)
         _replace_base_actor(self, action_space.shape)
 
 
-class PLDPERSTVimSACBetaAgent(PLDPERSTVimSACAgent):
+class PLDPERVMSACBetaAgent(PLDPERVMSACAgent):
     def __init__(self, base_dim, depth_shape, action_space, args, device=None, seed=None):
         super().__init__(base_dim, depth_shape, action_space, args, device=device, seed=seed)
         _replace_base_actor(self, action_space.shape, state_dim_attr="actor_state_dim")
@@ -153,7 +153,7 @@ class PLDPERSTVimSACBetaAgent(PLDPERSTVimSACAgent):
 __all__ = [
     "SACBetaAgent",
     "PLSACBetaAgent",
-    "STVimSACBetaAgent",
-    "DPERSTVimSACBetaAgent",
-    "PLDPERSTVimSACBetaAgent",
+    "VMSACBetaAgent",
+    "DPERVMSACBetaAgent",
+    "PLDPERVMSACBetaAgent",
 ]

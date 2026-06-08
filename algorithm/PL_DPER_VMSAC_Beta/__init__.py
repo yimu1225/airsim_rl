@@ -1,5 +1,5 @@
-from ..beta_sac import PLDPERSTVimSACBetaAgent
+from ..beta_sac import PLDPERVMSACBetaAgent
 
-PLDPERSTVimSACAgent = PLDPERSTVimSACBetaAgent
+PLDPERVMSACAgent = PLDPERVMSACBetaAgent
 
-__all__ = ["PLDPERSTVimSACBetaAgent", "PLDPERSTVimSACAgent"]
+__all__ = ["PLDPERVMSACBetaAgent", "PLDPERVMSACAgent"]

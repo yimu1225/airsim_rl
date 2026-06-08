@@ -1,3 +1,3 @@
-from .agent import STVimSACAgent
+from .agent import VMSACAgent
 
-__all__ = ["STVimSACAgent"]
+__all__ = ["VMSACAgent"]

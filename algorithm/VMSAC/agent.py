@@ -9,7 +9,7 @@ from .buffer import ReplayBuffer
 from .networks import Actor, Critic, STVimEncoder
 
 
-class STVimSACAgent:
+class VMSACAgent:
     """SB3-style SAC adapted to base-state + ST-Vim/Mamba depth sequences."""
 
     def __init__(self, base_dim: int, depth_shape, action_space, args, device=None, seed=None):
@@ -302,4 +302,4 @@ class STVimSACAgent:
                 self.alpha_optimizer.load_state_dict(checkpoint["alpha_optimizer"])
 
 
-SACAgent = STVimSACAgent
+SACAgent = VMSACAgent

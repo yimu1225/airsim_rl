@@ -1,11 +1,11 @@
 import numpy as np
 
 from ..config_loader import get_algo_param
-from ..VMSAC.agent import STVimSACAgent
+from ..VMSAC.agent import VMSACAgent
 from .buffer import PrioritizedReplayBuffer
 
 
-class PERSTVimSACAgent(STVimSACAgent):
+class PERVMSACAgent(VMSACAgent):
     """ST-Vim-SAC with single-pool prioritized replay."""
 
     def __init__(self, base_dim: int, depth_shape, action_space, args, device=None, seed=None):
@@ -38,4 +38,4 @@ class PERSTVimSACAgent(STVimSACAgent):
         self.replay_buffer.update_priorities(refs, np.asarray(td_errors, dtype=np.float32))
 
 
-SACAgent = PERSTVimSACAgent
+SACAgent = PERVMSACAgent

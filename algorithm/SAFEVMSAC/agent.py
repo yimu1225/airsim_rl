@@ -6,13 +6,13 @@ import torch.nn.functional as F
 from torch import nn
 from torch.optim import Adam
 
-from algorithm.VMSAC.agent import STVimSACAgent
-from ...config_loader import get_algo_param
+from algorithm.VMSAC.agent import VMSACAgent
+from ..config_loader import get_algo_param
 from .buffer import ReplayBuffer
 from .networks import SafetyConstraintHead, safety_project_actions
 
 
-class STSVimSACAgent(STVimSACAgent):
+class SAFEVMSACAgent(VMSACAgent):
     """ST-Vim SAC with a learned safety projection layer."""
 
     def __init__(self, base_dim: int, depth_shape, action_space, args, device=None, seed=None):
@@ -280,4 +280,4 @@ class STSVimSACAgent(STVimSACAgent):
                 self.alpha_optimizer.load_state_dict(checkpoint["alpha_optimizer"])
 
 
-SACAgent = STSVimSACAgent
+SACAgent = SAFEVMSACAgent

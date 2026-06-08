@@ -1,5 +1,5 @@
-from ..beta_sac import STVimSACBetaAgent
+from ..beta_sac import VMSACBetaAgent
 
-STVimSACAgent = STVimSACBetaAgent
+VMSACAgent = VMSACBetaAgent
 
-__all__ = ["STVimSACBetaAgent", "STVimSACAgent"]
+__all__ = ["VMSACBetaAgent", "VMSACAgent"]

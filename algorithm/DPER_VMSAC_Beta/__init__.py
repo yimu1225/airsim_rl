@@ -1,5 +1,5 @@
-from ..beta_sac import DPERSTVimSACBetaAgent
+from ..beta_sac import DPERVMSACBetaAgent
 
-DPERSTVimSACAgent = DPERSTVimSACBetaAgent
+DPERVMSACAgent = DPERVMSACBetaAgent
 
-__all__ = ["DPERSTVimSACBetaAgent", "DPERSTVimSACAgent"]
+__all__ = ["DPERVMSACBetaAgent", "DPERVMSACAgent"]

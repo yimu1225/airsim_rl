@@ -6,7 +6,7 @@ from sb3_algorithms.per_sac import PERSAC
 from sb3_extensions.policies import PLSACPolicy
 
 
-class PLPERSTVimSAC(PERSAC):
+class PLPERVMSAC(PERSAC):
     def __init__(self, policy="MultiInputPolicy", *args, **kwargs) -> None:
         if policy == "MultiInputPolicy":
             policy = PLSACPolicy

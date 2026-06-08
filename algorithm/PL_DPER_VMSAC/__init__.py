@@ -1,3 +1,3 @@
-from .agent import PLDPERSTVimSACAgent
+from .agent import PLDPERVMSACAgent
 
-__all__ = ["PLDPERSTVimSACAgent"]
+__all__ = ["PLDPERVMSACAgent"]

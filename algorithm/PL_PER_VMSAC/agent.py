@@ -1,11 +1,11 @@
 import numpy as np
 
 from ..config_loader import get_algo_param
-from ..PL_DPER_VMSAC.agent import PLDPERSTVimSACAgent
+from ..PL_DPER_VMSAC.agent import PLDPERVMSACAgent
 from .buffer import PrioritizedReplayBuffer
 
 
-class PLPERSTVimSACAgent(PLDPERSTVimSACAgent):
+class PLPERVMSACAgent(PLDPERVMSACAgent):
     """PL ST-Vim-SAC with a single prioritized replay pool."""
 
     def __init__(self, base_dim: int, depth_shape, action_space, args, device=None, seed=None):
@@ -38,7 +38,7 @@ class PLPERSTVimSACAgent(PLDPERSTVimSACAgent):
         self.replay_buffer.update_priorities(refs, np.asarray(td_errors, dtype=np.float32))
 
 
-SACAgent = PLPERSTVimSACAgent
+SACAgent = PLPERVMSACAgent
 
 
-__all__ = ["PLPERSTVimSACAgent", "SACAgent"]
+__all__ = ["PLPERVMSACAgent", "SACAgent"]

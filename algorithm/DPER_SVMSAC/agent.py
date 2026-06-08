@@ -6,11 +6,11 @@ from torch.optim import Adam
 
 from ..config_loader import get_algo_param
 from .buffer import DualPrioritizedReplayBuffer
-from .networks import Actor, Critic, STVimEncoder
+from .networks import VisualSubNetwork, BaseSubNetwork, GlobalActor, Critic
 
 
-class DPERVMSACAgent:
-    """SB3-style SAC with ST-Vim/Mamba features and prioritized replay."""
+class DPERSVMSACAgent:
+    """State-Decomposed ST-Vim SAC with Dual Prioritized Experience Replay."""
 
     def __init__(self, base_dim: int, depth_shape, action_space, args, device=None, seed=None):
         self.device = torch.device(device if device is not None else ("cuda" if torch.cuda.is_available() else "cpu"))
@@ -29,31 +29,43 @@ class DPERVMSACAgent:
         self.action_scale = torch.as_tensor((self.max_action - self.min_action) / 2.0, dtype=torch.float32, device=self.device)
         self.action_bias = torch.as_tensor((self.max_action + self.min_action) / 2.0, dtype=torch.float32, device=self.device)
 
-        self.actor_encoder = STVimEncoder(args).to(self.device)
-        self.critic_encoder = STVimEncoder(args).to(self.device)
-        self.critic_encoder_target = STVimEncoder(args).to(self.device)
-        self.critic_encoder_target.load_state_dict(self.critic_encoder.state_dict())
+        # ---- Hyperparameters ----
+        self.sub_visual_hidden = get_algo_param(args, "sub_visual_hidden", [256, 128])
+        self.sub_base_hidden = get_algo_param(args, "sub_base_hidden", [256, 128])
+        self.sub_out_dim = get_algo_param(args, "sub_out_dim", 2)
 
+        # ---- Sub-networks (online + target) ----
+        self.visual_sub = VisualSubNetwork(args, self.sub_visual_hidden, self.sub_out_dim).to(self.device)
+        self.visual_sub_target = VisualSubNetwork(args, self.sub_visual_hidden, self.sub_out_dim).to(self.device)
+        self.visual_sub_target.load_state_dict(self.visual_sub.state_dict())
 
-        self.state_dim = self.base_dim + self.actor_encoder.repr_dim
-        self.actor = Actor(self.state_dim, action_space.shape, args.hidden_dim).to(self.device)
-        self.critic = Critic(self.state_dim, action_space.shape, args.hidden_dim).to(self.device)
-        self.critic_target = Critic(self.state_dim, action_space.shape, args.hidden_dim).to(self.device)
+        self.base_sub = BaseSubNetwork(self.base_dim, self.sub_base_hidden, self.sub_out_dim).to(self.device)
+        self.base_sub_target = BaseSubNetwork(self.base_dim, self.sub_base_hidden, self.sub_out_dim).to(self.device)
+        self.base_sub_target.load_state_dict(self.base_sub.state_dict())
+
+        # ---- GlobalActor (online + target) ----
+        global_actor_input_dim = self.sub_out_dim * 2 + self.visual_sub.repr_dim + self.base_dim
+        self.global_actor = GlobalActor(global_actor_input_dim, args.hidden_dim, self.action_dim).to(self.device)
+        self.global_actor_target = GlobalActor(global_actor_input_dim, args.hidden_dim, self.action_dim).to(self.device)
+        self.global_actor_target.load_state_dict(self.global_actor.state_dict())
+
+        # ---- Critic (online + target, independent encoder) ----
+        self.critic = Critic(args, self.base_dim, self.action_dim).to(self.device)
+        self.critic_target = Critic(args, self.base_dim, self.action_dim).to(self.device)
         self.critic_target.load_state_dict(self.critic.state_dict())
 
+        # ---- Optimizer parameter groups ----
         self.actor_params = (
-            list(self.actor.parameters())
-            + list(self.actor_encoder.parameters())
-           
+            list(self.visual_sub.parameters())
+            + list(self.base_sub.parameters())
+            + list(self.global_actor.parameters())
         )
-        self.critic_params = (
-            list(self.critic.parameters())
-            + list(self.critic_encoder.parameters())
-           
-        )
+        self.critic_params = list(self.critic.parameters())
+
         self.actor_optimizer = Adam(self.actor_params, lr=args.actor_lr)
         self.critic_optimizer = Adam(self.critic_params, lr=args.critic_lr)
 
+        # ---- Entropy tuning ----
         self.ent_coef = get_algo_param(args, "ent_coef", 0.2)
         target_entropy = get_algo_param(args, "target_entropy", "auto")
         self.target_entropy = -float(self.action_dim) if target_entropy in (None, "auto") else float(target_entropy)
@@ -73,6 +85,7 @@ class DPERVMSACAgent:
             self.alpha = float(self.ent_coef)
             self.auto_entropy_tuning = False
 
+        # ---- Dual Prioritized Replay Buffer ----
         self.replay_buffer = DualPrioritizedReplayBuffer(
             args.buffer_size,
             success_capacity_ratio=get_algo_param(args, "dper_success_capacity_ratio", 0.3),
@@ -105,11 +118,6 @@ class DPERVMSACAgent:
         if depth_batch.size(2) != 1:
             raise ValueError(f"Expected single-channel sequence frames, got {tuple(depth_batch.shape)}")
         return depth_batch
-
-    def _encode_state(self, base, depth, encoder):
-        depth = self._format_depth_sequence(depth)
-        depth_features = encoder(depth)
-        return torch.cat([base, depth_features], dim=1)
 
     def _to_float_tensor(self, data):
         tensor = torch.as_tensor(data, device=self.device)
@@ -166,12 +174,14 @@ class DPERVMSACAgent:
         depth_tensor = torch.as_tensor(depth, dtype=torch.float32, device=self.device)
 
         with torch.no_grad():
-            state = self._encode_state(base, depth_tensor, self.actor_encoder)
+            depth_seq = self._format_depth_sequence(depth_tensor)
+            ao_visual, so_repr = self.visual_sub(depth_seq)
+            ao_base = self.base_sub(base)
             if with_log_prob and not deterministic:
-                action, log_prob = self.actor.action_log_prob(state)
+                action, log_prob = self.global_actor.action_log_prob(ao_visual, ao_base, so_repr, base)
                 real_action = self.action_scale * action + self.action_bias
                 return real_action.cpu().numpy().flatten(), log_prob.cpu().numpy()
-            action = self.actor(state, deterministic=deterministic)
+            action = self.global_actor(ao_visual, ao_base, so_repr, base, deterministic=deterministic)
             real_action = self.action_scale * action + self.action_bias
             return real_action.cpu().numpy().flatten()
 
@@ -195,23 +205,24 @@ class DPERVMSACAgent:
         dones = self._to_float_tensor(dones).view(-1, 1)
         weights = self._to_float_tensor(replay_weights).view(-1, 1)
 
+        depths_seq = self._format_depth_sequence(depths)
+        next_depths_seq = self._format_depth_sequence(next_depths)
+
+        # ----- Critic update -----
         with torch.no_grad():
-            next_actor_state = self._encode_state(
-                next_base_states, next_depths, self.actor_encoder
+            next_ao_visual, next_so_repr = self.visual_sub_target(next_depths_seq)
+            next_ao_base = self.base_sub_target(next_base_states)
+            next_actions, next_log_prob = self.global_actor_target.action_log_prob(
+                next_ao_visual, next_ao_base, next_so_repr, next_base_states
             )
-            next_actions, next_log_prob = self.actor.action_log_prob(next_actor_state)
-            next_target_state = self._encode_state(
-                next_base_states, next_depths, self.critic_encoder_target
-            )
-            next_q1, next_q2 = self.critic_target(next_target_state, next_actions)
+            next_q1, next_q2 = self.critic_target(next_depths_seq, next_base_states, next_actions)
             next_q = torch.min(next_q1, next_q2)
             alpha = self.log_alpha.exp().detach() if self.auto_entropy_tuning else torch.tensor(
                 self.alpha, dtype=torch.float32, device=self.device
             )
             target_q = rewards + (1.0 - dones) * self.gamma * (next_q - alpha * next_log_prob)
 
-        critic_state = self._encode_state(base_states, depths, self.critic_encoder)
-        current_q1, current_q2 = self.critic(critic_state, actions)
+        current_q1, current_q2 = self.critic(depths_seq, base_states, actions)
         critic_loss_elements = 0.5 * (
             F.mse_loss(current_q1, target_q, reduction="none")
             + F.mse_loss(current_q2, target_q, reduction="none")
@@ -227,18 +238,18 @@ class DPERVMSACAgent:
         self.critic_optimizer.step()
         self._update_replay_priorities(replay_refs, td_errors.detach().cpu().numpy().reshape(-1))
 
+        # ----- Actor update -----
         actor_loss_value = None
         alpha_loss_value = None
         mean_log_prob_value = None
         q_pi_mean_value = None
         if self.total_it % self.policy_freq == 0:
-            actor_state = self._encode_state(base_states, depths, self.actor_encoder)
-            actions_pi, log_prob = self.actor.action_log_prob(actor_state)
+            ao_visual, so_repr = self.visual_sub(depths_seq)
+            ao_base = self.base_sub(base_states)
+            actions_pi, log_prob = self.global_actor.action_log_prob(ao_visual, ao_base, so_repr, base_states)
+
             with torch.no_grad():
-                critic_state_for_pi = self._encode_state(
-                    base_states, depths, self.critic_encoder
-                )
-            q1_pi, q2_pi = self.critic(critic_state_for_pi, actions_pi)
+                q1_pi, q2_pi = self.critic(depths_seq, base_states, actions_pi)
             min_q_pi = torch.min(q1_pi, q2_pi)
             alpha = self.log_alpha.exp().detach() if self.auto_entropy_tuning else torch.tensor(
                 self.alpha, dtype=torch.float32, device=self.device
@@ -261,6 +272,7 @@ class DPERVMSACAgent:
                 self.alpha = float(self.log_alpha.exp().detach().item())
                 alpha_loss_value = float(alpha_loss.item())
 
+        # ----- Soft updates -----
         if self.total_it % self.target_update_interval == 0:
             self._soft_update()
 
@@ -282,16 +294,23 @@ class DPERVMSACAgent:
         return result
 
     def _soft_update(self):
-        for param, target_param in zip(self.critic.parameters(), self.critic_target.parameters()):
-            target_param.data.copy_(self.tau * param.data + (1.0 - self.tau) * target_param.data)
-        for param, target_param in zip(self.critic_encoder.parameters(), self.critic_encoder_target.parameters()):
-            target_param.data.copy_(self.tau * param.data + (1.0 - self.tau) * target_param.data)
+        for target, source in [
+            (self.visual_sub_target, self.visual_sub),
+            (self.base_sub_target, self.base_sub),
+            (self.global_actor_target, self.global_actor),
+            (self.critic_target, self.critic),
+        ]:
+            for param, source_param in zip(target.parameters(), source.parameters()):
+                param.data.copy_(self.tau * source_param.data + (1.0 - self.tau) * param.data)
+
     def save(self, path):
         checkpoint = {
-            "actor_encoder": self.actor_encoder.state_dict(),
-            "critic_encoder": self.critic_encoder.state_dict(),
-            "critic_encoder_target": self.critic_encoder_target.state_dict(),
-            "actor": self.actor.state_dict(),
+            "visual_sub": self.visual_sub.state_dict(),
+            "visual_sub_target": self.visual_sub_target.state_dict(),
+            "base_sub": self.base_sub.state_dict(),
+            "base_sub_target": self.base_sub_target.state_dict(),
+            "global_actor": self.global_actor.state_dict(),
+            "global_actor_target": self.global_actor_target.state_dict(),
             "critic": self.critic.state_dict(),
             "critic_target": self.critic_target.state_dict(),
             "actor_optimizer": self.actor_optimizer.state_dict(),
@@ -306,10 +325,12 @@ class DPERVMSACAgent:
 
     def load(self, path):
         checkpoint = torch.load(path, map_location=self.device)
-        self.actor_encoder.load_state_dict(checkpoint["actor_encoder"])
-        self.critic_encoder.load_state_dict(checkpoint["critic_encoder"])
-        self.critic_encoder_target.load_state_dict(checkpoint.get("critic_encoder_target", checkpoint["critic_encoder"]))
-        self.actor.load_state_dict(checkpoint["actor"])
+        self.visual_sub.load_state_dict(checkpoint["visual_sub"])
+        self.visual_sub_target.load_state_dict(checkpoint.get("visual_sub_target", checkpoint["visual_sub"]))
+        self.base_sub.load_state_dict(checkpoint["base_sub"])
+        self.base_sub_target.load_state_dict(checkpoint.get("base_sub_target", checkpoint["base_sub"]))
+        self.global_actor.load_state_dict(checkpoint["global_actor"])
+        self.global_actor_target.load_state_dict(checkpoint.get("global_actor_target", checkpoint["global_actor"]))
         self.critic.load_state_dict(checkpoint["critic"])
         self.critic_target.load_state_dict(checkpoint.get("critic_target", checkpoint["critic"]))
         if "actor_optimizer" in checkpoint:

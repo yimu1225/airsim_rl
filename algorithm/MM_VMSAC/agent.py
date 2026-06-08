@@ -9,7 +9,7 @@ from .buffer import ReplayBuffer
 from .networks import Actor, Critic, STVimEncoder
 
 
-class MMSTVimSACAgent:
+class MMVMSACAgent:
     """SAC with per-frame visual/base fusion before temporal Mamba."""
 
     def __init__(self, base_dim: int, depth_shape, action_space, args, device=None, seed=None):
@@ -286,4 +286,4 @@ class MMSTVimSACAgent:
                 self.alpha_optimizer.load_state_dict(checkpoint["alpha_optimizer"])
 
 
-SACAgent = MMSTVimSACAgent
+SACAgent = MMVMSACAgent

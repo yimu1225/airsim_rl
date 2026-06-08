@@ -11,7 +11,7 @@ class LSTMSAC(SAC):
     pass
 
 
-class STVimSAC(SAC):
+class VMSAC(SAC):
     pass
 
 

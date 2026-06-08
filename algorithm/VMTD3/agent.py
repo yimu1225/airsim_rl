@@ -10,7 +10,7 @@ from .buffer import ReplayBuffer
 # “定位型”NaN/Inf监控
 
 
-class STVimTD3Agent:
+class VMTD3Agent:
     def __init__(self, base_dim, depth_shape, action_space, args, device=None, seed=None):
         self.device = torch.device(device if device is not None else ("cuda" if torch.cuda.is_available() else "cpu"))
         print(f"ST-Mamba-VimTokens-TD3 Agent using device: {self.device}")

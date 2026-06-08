@@ -46,40 +46,42 @@ from algorithm.TD3.td3 import TD3Agent
 from algorithm.DDPG.ddpg import DDPGAgent
 from algorithm.DPER_TD3.agent import DPERTD3Agent
 
-from algorithm.VMTD3.agent import STVimTD3Agent
+from algorithm.VMTD3.agent import VMTD3Agent
 from algorithm.STV_Patch_TD3.agent import VimPatchTD3Agent
 from algorithm.Vim_TD3.agent import VimTD3Agent
 from algorithm.ST_Seq_Vim_TD3.agent import StateSeqVimTD3Agent
 from algorithm.STV_Seq_Vim_TD3.agent import VimStateSeqTD3Agent
-from algorithm.DPER_VMTD3.agent import DPERVimTD3Agent
-from algorithm.safe.SVMTD3.agent import STSVimTD3Agent
+from algorithm.DPER_VMTD3.agent import DPERVMTD3Agent
+from algorithm.SAFEVMTD3.agent import SAFEVMTD3Agent
 from algorithm.Mamba_TD3.agent import MambaTD3Agent
 from algorithm.ST_DualVim_TD3.agent import DualBranchVideoMambaTD3Agent
 from algorithm.SAC.agent import SACAgent
 from algorithm.PL_SAC.agent import PLSACAgent
-from algorithm.PL_VMSAC.agent import PLSTVimSACAgent
-from algorithm.PL_PER_VMSAC.agent import PLPERSTVimSACAgent
-from algorithm.PL_DPER_VMSAC.agent import PLDPERSTVimSACAgent
-from algorithm.PL_DPER_VMTD3.agent import PLDPERSTVimTD3Agent
-from algorithm.VMSAC.agent import STVimSACAgent
-from algorithm.MM_VMSAC.agent import MMSTVimSACAgent
-from algorithm.PER_VMSAC.agent import PERSTVimSACAgent
-from algorithm.safe.SVMSAC.agent import STSVimSACAgent
-from algorithm.DPER_VMSAC.agent import DPERSTVimSACAgent
+from algorithm.PL_VMSAC.agent import PLVMSACAgent
+from algorithm.PL_PER_VMSAC.agent import PLPERVMSACAgent
+from algorithm.PL_DPER_VMSAC.agent import PLDPERVMSACAgent
+from algorithm.PL_DPER_VMTD3.agent import PLDPERVMTD3Agent
+from algorithm.VMSAC.agent import VMSACAgent
+from algorithm.MM_VMSAC.agent import MMVMSACAgent
+from algorithm.PER_VMSAC.agent import PERVMSACAgent
+from algorithm.SAFEVMSAC.agent import SAFEVMSACAgent
+from algorithm.DPER_VMSAC.agent import DPERVMSACAgent
+from algorithm.SVMSAC.agent import SVMSACAgent
+from algorithm.DPER_SVMSAC.agent import DPERSVMSACAgent
 from algorithm.MambaCSJA_SAC.agent import MambaCSJA_SACAgent
 from algorithm.DPER_MambaCSJA_SAC.agent import DPERMambaCSJASACAgent
 from algorithm.Mamba_SAC.agent import MambaSACAgent
 from algorithm.PER_Mamba_SAC.agent import PERMambaSACAgent
 from algorithm.beta_sac import (
-    DPERSTVimSACBetaAgent,
-    PLDPERSTVimSACBetaAgent,
+    DPERVMSACBetaAgent,
+    PLDPERVMSACBetaAgent,
     PLSACBetaAgent,
     SACBetaAgent,
-    STVimSACBetaAgent,
+    VMSACBetaAgent,
 )
 from algorithm.PL_TD3.pl_td3 import PLTD3Agent
 from algorithm.PL_DPER_TD3.agent import PLDPERTD3Agent
-from algorithm.PL_VMTD3.agent import PLSTVimTD3Agent
+from algorithm.PL_VMTD3.agent import PLVMTD3Agent
 from algorithm.AETD3.aetd3 import AETD3Agent
 from algorithm.SDDPG.sddpg import SDDPGAgent
 
@@ -182,15 +184,15 @@ def get_agent_class(algo_name):
         'DDPG': DDPGAgent,
         'DPER_TD3': DPERTD3Agent,
         'PL_DPER_TD3': PLDPERTD3Agent,
-        'PL_DPER_VMTD3': PLDPERSTVimTD3Agent,
-        'VMTD3': STVimTD3Agent,
+        'PL_DPER_VMTD3': PLDPERVMTD3Agent,
+        'VMTD3': VMTD3Agent,
         'STV_Patch_TD3': VimPatchTD3Agent,
         'Vim_TD3': VimTD3Agent,
         'ST_Seq_Vim_TD3': StateSeqVimTD3Agent,
         'STV_Seq_Vim_TD3': VimStateSeqTD3Agent,
-        'DPER_VMTD3': DPERVimTD3Agent,
-        'PL_VMTD3': PLSTVimTD3Agent,
-        'SVMTD3': STSVimTD3Agent,
+        'DPER_VMTD3': DPERVMTD3Agent,
+        'PL_VMTD3': PLVMTD3Agent,
+        'SAFE_VMTD3': SAFEVMTD3Agent,
         'Mamba_TD3': MambaTD3Agent,
         'ST_DualVim_TD3': DualBranchVideoMambaTD3Agent,
         'AETD3': AETD3Agent,
@@ -198,17 +200,19 @@ def get_agent_class(algo_name):
         'SAC_Beta': SACBetaAgent,
         'PL_SAC': PLSACAgent,
         'PL_SAC_Beta': PLSACBetaAgent,
-        'PL_VMSAC': PLSTVimSACAgent,
-        'PL_PER_VMSAC': PLPERSTVimSACAgent,
-        'PL_DPER_VMSAC': PLDPERSTVimSACAgent,
-        'PL_DPER_VMSAC_Beta': PLDPERSTVimSACBetaAgent,
-        'VMSAC': STVimSACAgent,
-        'MM_VMSAC': MMSTVimSACAgent,
-        'PER_VMSAC': PERSTVimSACAgent,
-        'SVMSAC': STSVimSACAgent,
-        'VMSAC_Beta': STVimSACBetaAgent,
-        'DPER_VMSAC': DPERSTVimSACAgent,
-        'DPER_VMSAC_Beta': DPERSTVimSACBetaAgent,
+        'PL_VMSAC': PLVMSACAgent,
+        'PL_PER_VMSAC': PLPERVMSACAgent,
+        'PL_DPER_VMSAC': PLDPERVMSACAgent,
+        'PL_DPER_VMSAC_Beta': PLDPERVMSACBetaAgent,
+        'VMSAC': VMSACAgent,
+        'MM_VMSAC': MMVMSACAgent,
+        'PER_VMSAC': PERVMSACAgent,
+        'SVMSAC': SVMSACAgent,
+        'SAFE_VMSAC': SAFEVMSACAgent,
+        'VMSAC_Beta': VMSACBetaAgent,
+        'DPER_VMSAC': DPERVMSACAgent,
+        'DPER_VMSAC_Beta': DPERVMSACBetaAgent,
+        'DPER_SVMSAC': DPERSVMSACAgent,
         'Mamba_SAC': MambaSACAgent,
         'MambaCSJA_SAC': MambaCSJA_SACAgent,
         'DPER_MambaCSJA_SAC': DPERMambaCSJASACAgent,
