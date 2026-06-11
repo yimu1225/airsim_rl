@@ -70,10 +70,10 @@ class PERMambaSACAgent(MambaSACAgent):
         # ============ Critic Update ============
         with torch.no_grad():
             next_actor_states = self._concat_state(
-                next_base_states, next_depths, self.actor_encoder, base_states
+                next_base_states, next_depths, self.actor_encoder
             )
             next_target_states = self._concat_state(
-                next_base_states, next_depths, self.critic_encoder_target, base_states
+                next_base_states, next_depths, self.critic_encoder_target
             )
 
             next_actions, next_log_probs, _, _ = self.actor(next_actor_states, with_log_prob=True)
@@ -127,7 +127,7 @@ class PERMambaSACAgent(MambaSACAgent):
 
             with torch.no_grad():
                 critic_states_for_pi = self._concat_state(
-                    base_states, depths, self.critic_encoder, base_states
+                    base_states, depths, self.critic_encoder
                 )
 
             q1_new, q2_new = self.critic(critic_states_for_pi, sampled_actions)

@@ -9,7 +9,7 @@ policy_freq: 1
 st_mamba_embed_dim: 64
 st_mamba_depth: 1
 st_mamba_patch_size: 32
-st_mamba_d_state: 32
+st_mamba_d_state: 16
 st_mamba_d_conv: 4
 st_mamba_expand: 2
 st_mamba_drop_rate: 0.05
