@@ -153,11 +153,11 @@ class VMSACAgent:
 
         with torch.no_grad():
             next_actor_state = self._encode_state(
-                next_base_states, next_depths, self.actor_encoder, base_states
+                next_base_states, next_depths, self.actor_encoder
             )
             next_actions, next_log_prob = self.actor.action_log_prob(next_actor_state)
             next_target_state = self._encode_state(
-                next_base_states, next_depths, self.critic_encoder_target, base_states
+                next_base_states, next_depths, self.critic_encoder_target
             )
             next_q1, next_q2 = self.critic_target(next_target_state, next_actions)
             next_q = torch.min(next_q1, next_q2)
@@ -203,7 +203,7 @@ class VMSACAgent:
             actions_pi, log_prob = self.actor.action_log_prob(actor_state)
             with torch.no_grad():
                 critic_state_for_pi = self._encode_state(
-                    base_states, depths, self.critic_encoder, base_states
+                    base_states, depths, self.critic_encoder
                 )
             q1_pi, q2_pi = self.critic(critic_state_for_pi, actions_pi)
             min_q_pi = torch.min(q1_pi, q2_pi)

@@ -345,6 +345,7 @@ class SACAgent:
             
             with torch.no_grad():
                 critic_states_for_pi = self._concat_state(
+                    base_states,
                     depths,
                     self.critic_encoder,
                 )

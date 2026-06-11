@@ -132,9 +132,9 @@ class Actor(nn.Module):
         self.input_norm = nn.LayerNorm(repr_dim)
         self.trunk = nn.Sequential(
             nn.Linear(repr_dim, hidden_dim),
-            nn.ReLU(inplace=True),
+            nn.SiLU(inplace=True),
             nn.Linear(hidden_dim, hidden_dim),
-            nn.ReLU(inplace=True),
+            nn.SiLU(inplace=True),
         )
         self.mean_linear = nn.Linear(hidden_dim, self.action_dim)
         self.log_std_linear = nn.Linear(hidden_dim, self.action_dim)
@@ -142,7 +142,7 @@ class Actor(nn.Module):
 
     def _init_weights(self, module):
         if isinstance(module, nn.Linear):
-            nn.init.kaiming_uniform_(module.weight, mode="fan_in", nonlinearity="relu")
+            nn.init.kaiming_uniform_(module.weight, mode="fan_in", nonlinearity="linear")
             if module.bias is not None:
                 nn.init.constant_(module.bias, 0)
 
@@ -184,23 +184,23 @@ class Critic(nn.Module):
         self.input_norm = nn.LayerNorm(input_dim)
         self.q1 = nn.Sequential(
             nn.Linear(input_dim, hidden_dim),
-            nn.ReLU(inplace=True),
+            nn.SiLU(inplace=True),
             nn.Linear(hidden_dim, hidden_dim),
-            nn.ReLU(inplace=True),
+            nn.SiLU(inplace=True),
             nn.Linear(hidden_dim, 1),
         )
         self.q2 = nn.Sequential(
             nn.Linear(input_dim, hidden_dim),
-            nn.ReLU(inplace=True),
+            nn.SiLU(inplace=True),
             nn.Linear(hidden_dim, hidden_dim),
-            nn.ReLU(inplace=True),
+            nn.SiLU(inplace=True),
             nn.Linear(hidden_dim, 1),
         )
         self.apply(self._init_weights)
 
     def _init_weights(self, module):
         if isinstance(module, nn.Linear):
-            nn.init.kaiming_uniform_(module.weight, mode="fan_in", nonlinearity="relu")
+            nn.init.kaiming_uniform_(module.weight, mode="fan_in", nonlinearity="linear")
             if module.bias is not None:
                 nn.init.constant_(module.bias, 0)
 
