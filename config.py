@@ -29,7 +29,7 @@ def get_config(argv=None):
     parser.add_argument("--env_name", type=str, default='AirSimEnv-v42', help="要训练的环境名称")
 
     # 算法选择 (Algorithm Selection)
-    parser.add_argument("--algorithm_name", type=str, default='CL-VMSAC,CL-SAC',
+    parser.add_argument("--algorithm_name", type=str, default='CL-DPER_VMSAC',
                         help="要训练的算法。支持: TD3, DDPG, DPER_TD3, VMTD3, STV_Patch_TD3, Vim_TD3, ST_Seq_Vim_TD3, STV_Seq_Vim_TD3, DPER_VMTD3, SVMTD3, Mamba_TD3, ST_DualVim_TD3, AETD3, SAC, SAC_Beta, LSTM_SAC, VMSAC, SVMSAC, VMSAC_Beta, DPER_VMSAC, DPER_VMSAC_Beta, PPO, VMPPO, PL_VMPPO, PL_TD3, PL_DPER_TD3, PL_VMTD3, PL_SAC, PL_SAC_Beta, PL_VMSAC, PL_PER_VMSAC, PL_DPER_VMSAC, PL_DPER_VMSAC_Beta, PL_DPER_VMTD3,MM_VMSAC,MambaCSJA_SAC")
     parser.add_argument("--plot_cl", action='store_true', default=True, help="绘图时是否检索带 CL- 前缀的算法 (默认: True)")
     parser.add_argument("--plot_non_cl", action='store_true', default=True, help="绘图时是否检索常规算法 (默认: True)")
@@ -39,7 +39,7 @@ def get_config(argv=None):
     parser.add_argument("--curve_smooth_step", type=float, default=1.0, help="baselines 风格 EMA 重采样 smooth_step")
 
     # 训练设置 (Training Setup)
-    parser.add_argument("--seed", type=str, default="25,26,27,28,29", help="随机种子 (支持逗号分隔多个种子)")
+    parser.add_argument("--seed", type=str, default="25", help="随机种子 (支持逗号分隔多个种子)")
     parser.add_argument("--curriculum_start_level", type=int, default=0, choices=[0, 1, 2, 3], help="课程学习起始等级 (0-3, 默认: 0)。注意：算法名以 'CL-' 前缀开头时自动启用课程学习")
     parser.add_argument("--curriculum_mode", type=str, default="progress", choices=["progress", "success"], help="课程学习模式: progress=按训练进度连续增加难度, success=按成功率离散切换难度")
     parser.add_argument("--curriculum_progress_max_ratio", type=float, default=0.9, help="progress课程达到最大难度所需的训练进度比例")
