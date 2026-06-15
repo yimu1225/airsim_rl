@@ -8,6 +8,7 @@ from .Vim_TD3.agent import VimTD3Agent
 from .DPER_VMTD3.agent import DPERVMTD3Agent
 from .SAFEVMTD3.agent import SAFEVMTD3Agent
 from .Mamba_TD3.agent import MambaTD3Agent
+from .Transformer_SAC.agent import TransformerSACAgent
 from .ST_DualVim_TD3.agent import DualBranchVideoMambaTD3Agent
 from .PPO import PPOAgent
 from .VMSAC.agent import VMSACAgent
@@ -28,4 +29,4 @@ from .PL_DPER_VMTD3.agent import PLDPERVMTD3Agent
 from .VMPPO.agent import STVimPPOAgent
 from .SDDPG import SDDPGAgent
 
-__all__ = ["TD3Agent", "AETD3Agent", "VMTD3Agent", "VimStateSeqTD3Agent", "VimTD3Agent", "DPERVMTD3Agent", "SAFEVMTD3Agent", "MambaTD3Agent", "DualBranchVideoMambaTD3Agent", "PPOAgent", "VMSACAgent", "MMVMSACAgent", "PERVMSACAgent", "LSTMSACAgent", "DPERVMSACAgent", "SVMSACAgent", "DPERSVMSACAgent", "PLTD3Agent", "PLDPERTD3Agent", "PLVMTD3Agent", "PLSACAgent", "PLVMSACAgent", "PLPERVMSACAgent", "PLDPERVMSACAgent", "PLDPERVMTD3Agent", "STVimPPOAgent", "MambaCSJA_SACAgent", "DPERMambaCSJASACAgent", "SDDPGAgent"]
+__all__ = ["TD3Agent", "AETD3Agent", "VMTD3Agent", "VimStateSeqTD3Agent", "VimTD3Agent", "DPERVMTD3Agent", "SAFEVMTD3Agent", "MambaTD3Agent", "TransformerSACAgent", "DualBranchVideoMambaTD3Agent", "PPOAgent", "VMSACAgent", "MMVMSACAgent", "PERVMSACAgent", "LSTMSACAgent", "DPERVMSACAgent", "SVMSACAgent", "DPERSVMSACAgent", "PLTD3Agent", "PLDPERTD3Agent", "PLVMTD3Agent", "PLSACAgent", "PLVMSACAgent", "PLPERVMSACAgent", "PLDPERVMSACAgent", "PLDPERVMTD3Agent", "STVimPPOAgent", "MambaCSJA_SACAgent", "DPERMambaCSJASACAgent", "SDDPGAgent"]
