@@ -1,0 +1,15 @@
+# Transformer-SAC algorithm-specific parameters
+ent_coef: 'auto'
+target_entropy: auto
+target_update_interval: 1
+policy_freq: 1
+
+# Transformer temporal encoder parameters
+transformer_sac_temporal_depth: 2
+transformer_sac_n_heads: 4
+transformer_sac_ff_dim: 256
+transformer_sac_dropout: 0.0
+transformer_sac_activation: gelu
+transformer_sac_norm_first: true
+transformer_sac_use_cls_token: false
+transformer_sac_flatten_all_tokens: true
