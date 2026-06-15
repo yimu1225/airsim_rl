@@ -54,6 +54,7 @@ RECURRENT_ALGOS = {
     "VMSAC_Beta",
     "DPER_VMSAC",
     "DPER_VMSAC_Beta",
+    "Transformer_SAC",
 }
 
 BASE_SEQUENCE_ALGOS = {"ST_Seq_Vim_TD3", "STV_Seq_Vim_TD3", "MM_VMSAC"}

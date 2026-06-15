@@ -89,6 +89,7 @@
 | **MM_VMSAC** | Vision Mamba | Temporal Mamba | 多模态 VMSAC |
 | **SAFE_VMSAC** | Vision Mamba | Temporal Mamba | 带安全约束的 VMSAC |
 | **Mamba_SAC** | CNN | Temporal Mamba | CNN + Mamba 混合 SAC |
+| **Transformer_SAC** | CNN | Transformer Encoder | CNN + Transformer 历史观测融合 + SAC |
 | **PER_Mamba_SAC** | CNN | Temporal Mamba | Mamba_SAC + 优先回放 |
 | **MambaCSJA_SAC** | CNN | CSJA-Mamba | Mamba + 通道-空间联合注意力 |
 | **DPER_MambaCSJA_SAC** | CNN | CSJA-Mamba | MambaCSJA + 示范优先回放 |

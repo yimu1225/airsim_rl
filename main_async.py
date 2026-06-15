@@ -71,6 +71,7 @@ from algorithm.DPER_SVMSAC.agent import DPERSVMSACAgent
 from algorithm.MambaCSJA_SAC.agent import MambaCSJA_SACAgent
 from algorithm.DPER_MambaCSJA_SAC.agent import DPERMambaCSJASACAgent
 from algorithm.Mamba_SAC.agent import MambaSACAgent
+from algorithm.Transformer_SAC.agent import TransformerSACAgent
 from algorithm.PER_Mamba_SAC.agent import PERMambaSACAgent
 from algorithm.beta_sac import (
     DPERVMSACBetaAgent,
@@ -214,6 +215,7 @@ def get_agent_class(algo_name):
         'DPER_VMSAC_Beta': DPERVMSACBetaAgent,
         'DPER_SVMSAC': DPERSVMSACAgent,
         'Mamba_SAC': MambaSACAgent,
+        'Transformer_SAC': TransformerSACAgent,
         'MambaCSJA_SAC': MambaCSJA_SACAgent,
         'DPER_MambaCSJA_SAC': DPERMambaCSJASACAgent,
         'PER_Mamba_SAC': PERMambaSACAgent,
@@ -541,6 +543,7 @@ def main():
                 'VMSAC_Beta',
                 'DPER_VMSAC',
                 'DPER_VMSAC_Beta',
+                'Transformer_SAC',
             }
             
             is_recurrent = actual_algo_name in recurrent_algos
