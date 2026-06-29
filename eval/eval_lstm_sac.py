@@ -3,23 +3,26 @@
 
 import copy
 import os
+import sys
 
 import numpy as np
 import torch
 
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if REPO_ROOT not in sys.path:
+    sys.path.insert(0, REPO_ROOT)
+
 from algorithm.config_loader import apply_algorithm_params
 from algorithm.LSTM_SAC.agent import LSTMSACAgent
 from config import get_config
-from eval_common import (
+from eval.eval_common import (
     close_env,
     print_eval_summary,
     resolve_checkpoint,
     run_eval_episodes,
     seeds_from_args,
-    set_eval_curriculum_progress,
-    write_eval_csv,
 )
-from gym_airsim.envs import AirSimEnv
+from eval.eval_env import SceneEvalAirSimEnv
 from main_async import _configure_reproducibility
 
 
@@ -35,11 +38,10 @@ def evaluate_seed(base_args, seed: int) -> None:
     args.n_frames = 1
     _configure_reproducibility(seed, args)
 
-    env = AirSimEnv(takeoff_height=args.takeoff_height, config=args, stack_frames=1)
+    env = SceneEvalAirSimEnv(takeoff_height=args.takeoff_height, config=args, stack_frames=1)
     try:
         if hasattr(env.action_space, "seed"):
             env.action_space.seed(seed)
-        set_eval_curriculum_progress(env)
         obs, _ = env.reset(seed=seed)
 
         depth_shape = obs["depth"].shape
@@ -59,6 +61,7 @@ def evaluate_seed(base_args, seed: int) -> None:
             return current_obs["base"], depth_seq, None
 
         label = f"LSTM_SAC_seed{seed}"
+        csv_path = os.path.join("./results", "eval", f"{label}_eval.csv")
         results = run_eval_episodes(
             env,
             agent,
@@ -67,9 +70,8 @@ def evaluate_seed(base_args, seed: int) -> None:
             is_recurrent=True,
             prepare_action_inputs=prepare,
             label=label,
+            csv_path=csv_path,
         )
-        csv_path = os.path.join("./results", "eval", f"{label}_eval.csv")
-        write_eval_csv(results, csv_path)
         print_eval_summary(results, label=label, csv_path=csv_path)
     finally:
         close_env(env, label=f"LSTM_SAC seed={seed}")

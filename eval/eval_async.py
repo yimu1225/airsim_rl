@@ -4,9 +4,14 @@
 import collections
 import copy
 import os
+import sys
 
 import numpy as np
 import torch
+
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if REPO_ROOT not in sys.path:
+    sys.path.insert(0, REPO_ROOT)
 
 from algo_name_utils import (
     expand_algorithm_spec,
@@ -17,16 +22,15 @@ from algo_name_utils import (
 )
 from algorithm.config_loader import apply_algorithm_params
 from config import get_config
-from eval_common import (
+from eval.eval_common import (
     close_env,
     print_eval_summary,
     resolve_checkpoint,
     run_eval_episodes,
     seeds_from_args,
-    set_eval_curriculum_progress,
-    write_eval_csv,
 )
-from main_async import create_env_from_name, get_agent_class, _configure_reproducibility
+from eval.eval_env import SceneEvalAirSimEnv
+from main_async import get_agent_class, _configure_reproducibility
 
 
 RECURRENT_ALGOS = {
@@ -65,6 +69,7 @@ def _build_action_input_preparer(initial_base, *, is_recurrent: bool, core_algo_
     use_base_sequence = bool(is_recurrent and core_algo_name in BASE_SEQUENCE_ALGOS)
     base_seq_deque = None
     base_seq = None
+    
     def reset_base_sequence(base):
         nonlocal base_seq_deque, base_seq
         if not use_base_sequence:
@@ -124,11 +129,10 @@ def evaluate_algorithm(base_args, algo_name: str, seed: int) -> None:
 
     is_recurrent = core_algo_name in RECURRENT_ALGOS
     n_frames = int(args.n_frames)
-    env = create_env_from_name(args, n_frames)
+    env = SceneEvalAirSimEnv(takeoff_height=args.takeoff_height, config=args, stack_frames=n_frames)
     try:
         if hasattr(env.action_space, "seed"):
             env.action_space.seed(seed)
-        set_eval_curriculum_progress(env)
         obs, _ = env.reset(seed=seed)
 
         depth_shape = obs["depth"].shape
@@ -149,6 +153,7 @@ def evaluate_algorithm(base_args, algo_name: str, seed: int) -> None:
             n_frames=n_frames,
         )
         label = f"{algo_name}_seed{seed}"
+        csv_path = os.path.join("./results", "eval", f"{label}_eval.csv")
         results = run_eval_episodes(
             env,
             agent,
@@ -159,9 +164,8 @@ def evaluate_algorithm(base_args, algo_name: str, seed: int) -> None:
             after_step=after_step,
             on_episode_reset=on_episode_reset,
             label=label,
+            csv_path=csv_path,
         )
-        csv_path = os.path.join("./results", "eval", f"{label}_eval.csv")
-        write_eval_csv(results, csv_path)
         print_eval_summary(results, label=label, csv_path=csv_path)
     finally:
         close_env(env, label=f"{algo_name} seed={seed}")

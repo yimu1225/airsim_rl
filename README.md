@@ -241,10 +241,13 @@ python main_async.py --algorithm_name VMSAC --seed "1,2,3" --max_timesteps 10000
 
 ```bash
 # 评估训练好的模型
-python eval_SAC.py --model_dir results/AirSimEnv-v42/VMSAC/run1/models --algorithm_name VMSAC
+python -m eval.eval_async --algorithm_name VMSAC --load_model models/VMSAC/seed1/async_final.pth
 
 # 指定评估回合数
-python eval_SAC.py --model_dir path/to/model --algorithm_name VMSAC --eval_episodes 100
+python -m eval.eval_async --algorithm_name VMSAC --load_model path/to/model.pth --eval_episodes 100
+
+# 测试场景评估
+python -m eval.eval_async --algorithm_name CL-DPER_VMSAC --seed 29 --load_model models/CL-DPER_VMSAC/seed29/async_final.pth
 ```
 
 ---
@@ -370,7 +373,7 @@ airsim_rl/
 ├── main_mamba_rsac.py             # Mamba RSAC 训练入口
 ├── train_lstm_sac.py              # LSTM-SAC 专用训练脚本
 ├── train_ppo.py                   # PPO 训练脚本
-├── eval_SAC.py                    # 模型评估脚本
+├── eval/                          # 模型评估脚本
 ├── plot_curves.py                 # 训练曲线绘制
 │
 ├── config.py                      # 全局配置 & 命令行参数
