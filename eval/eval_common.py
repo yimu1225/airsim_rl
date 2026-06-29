@@ -19,7 +19,7 @@ class EpisodeResult:
     reward: float
     length: int
     success: bool
-    level: int
+    碰撞率: bool
 
 
 def seeds_from_args(args) -> List[int]:
@@ -135,6 +135,7 @@ def run_eval_episodes(
     after_step: Optional[Callable[[dict, dict], None]] = None,
     on_episode_reset: Optional[Callable[[dict], None]] = None,
     label: str,
+    csv_path: Optional[str] = None,
 ) -> List[EpisodeResult]:
     set_agent_eval_mode(agent)
     depth_view_scale = max(float(getattr(args, "depth_view_scale", 2.5)), 1.0)
@@ -179,49 +180,60 @@ def run_eval_episodes(
                 after_step(obs, next_obs)
             obs = next_obs
 
-        env_core = get_env_core(env)
         success = bool(last_info.get("is_success", False))
-        level = int(getattr(env_core, "level", -1))
+        碰撞率 = bool(last_info.get("has_collided", False))
         results.append(
             EpisodeResult(
                 episode=episode,
                 reward=episode_reward,
                 length=episode_length,
                 success=success,
-                level=level,
+                碰撞率=碰撞率,
             )
         )
+        # 实时累计统计
+        cum_rewards = [r.reward for r in results]
+        cum_successes = [r.success for r in results]
+        cum_collisions = [r.碰撞率 for r in results]
+        cum_lengths = [r.length for r in results]
         print(
             f"[Eval][{label}] Episode {episode}: "
-            f"reward={episode_reward:.2f}, length={episode_length}, "
-            f"success={int(success)}, level={level}"
+            f"avg_reward={np.mean(cum_rewards):.2f}, "
+            f"avg_length={np.mean(cum_lengths):.1f}, "
+            f"success_rate={np.mean(cum_successes):.3f}, "
+            f"collision_rate={np.mean(cum_collisions):.3f}"
         )
+        # 增量写入 CSV，防止中途崩溃丢失数据
+        if csv_path is not None:
+            write_eval_csv(results, csv_path)
 
     if args.render_window:
         cv2.destroyAllWindows()
     return results
 
 
-def write_eval_csv(results: Iterable[EpisodeResult], path: str) -> None:
+def write_eval_csv(results: List[EpisodeResult], path: str) -> None:
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, mode="w", newline="") as f:
         writer = csv.writer(f)
-        writer.writerow(["episode", "reward", "episode_length", "success", "level"])
+        writer.writerow(["episode", "reward", "episode_length", "success_rate", "collision_rate"])
         for row in results:
-            writer.writerow([row.episode, row.reward, row.length, int(row.success), row.level])
+            writer.writerow([row.episode, row.reward, row.length, int(row.success), int(row.碰撞率)])
 
 
 def print_eval_summary(results: List[EpisodeResult], *, label: str, csv_path: str) -> None:
     rewards = np.asarray([row.reward for row in results], dtype=np.float32)
     lengths = np.asarray([row.length for row in results], dtype=np.float32)
     successes = np.asarray([row.success for row in results], dtype=np.float32)
+    collisions = np.asarray([row.碰撞率 for row in results], dtype=np.float32)
     print(
         f"[Eval][{label}] Summary: "
         f"episodes={len(results)}, "
         f"mean_reward={float(rewards.mean()):.2f}, "
         f"std_reward={float(rewards.std()):.2f}, "
         f"mean_length={float(lengths.mean()):.2f}, "
-        f"success_rate={float(successes.mean()):.3f}"
+        f"success_rate={float(successes.mean()):.3f}, "
+        f"collision_rate={float(collisions.mean()):.3f}"
     )
     print(f"[Eval][{label}] CSV saved to {csv_path}")
 
