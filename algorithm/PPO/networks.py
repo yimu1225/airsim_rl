@@ -28,9 +28,9 @@ class Actor(nn.Module):
         # Mean network
         self.mean_net = nn.Sequential(
             nn.Linear(repr_dim, hidden_dim),
-            nn.ReLU(inplace=True),
+            nn.SiLU(inplace=True),
             nn.Linear(hidden_dim, hidden_dim),
-            nn.ReLU(inplace=True),
+            nn.SiLU(inplace=True),
             nn.Linear(hidden_dim, action_dim)
         )
         
@@ -42,7 +42,7 @@ class Actor(nn.Module):
         
     def _init_weights(self, m):
         if isinstance(m, nn.Linear):
-            nn.init.kaiming_uniform_(m.weight, mode='fan_in', nonlinearity='relu')
+            nn.init.kaiming_uniform_(m.weight, mode='fan_in', nonlinearity='linear')
             if m.bias is not None:
                 nn.init.constant_(m.bias, 0)
     
@@ -112,9 +112,9 @@ class Critic(nn.Module):
         
         self.value_net = nn.Sequential(
             nn.Linear(repr_dim, hidden_dim),
-            nn.ReLU(inplace=True),
+            nn.SiLU(inplace=True),
             nn.Linear(hidden_dim, hidden_dim),
-            nn.ReLU(inplace=True),
+            nn.SiLU(inplace=True),
             nn.Linear(hidden_dim, 1)
         )
         
@@ -122,7 +122,7 @@ class Critic(nn.Module):
         
     def _init_weights(self, m):
         if isinstance(m, nn.Linear):
-            nn.init.kaiming_uniform_(m.weight, mode='fan_in', nonlinearity='relu')
+            nn.init.kaiming_uniform_(m.weight, mode='fan_in', nonlinearity='linear')
             if m.bias is not None:
                 nn.init.constant_(m.bias, 0)
     
