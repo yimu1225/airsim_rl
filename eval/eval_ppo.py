@@ -28,8 +28,8 @@ from main_ppo import get_agent_class, _configure_reproducibility
 SUPPORTED_PPO_ALGOS = {"PPO", "VMPPO", "PL_VMPPO"}
 
 
-def _default_checkpoint(algo_name: str) -> str:
-    return os.path.join("./models", f"{algo_name}_async_final.pth")
+def _default_checkpoint(algo_name: str, seed: int) -> str:
+    return os.path.join("./models", algo_name, f"seed{seed}", "async_final.pth")
 
 
 def evaluate_algorithm(base_args, algo_name: str, seed: int) -> None:
@@ -61,7 +61,7 @@ def evaluate_algorithm(base_args, algo_name: str, seed: int) -> None:
 
         AgentClass = get_agent_class(algo_name)
         agent = AgentClass(base_dim, model_depth_shape, env.action_space, args, device=device, seed=seed)
-        checkpoint = resolve_checkpoint(args.load_model, _default_checkpoint(algo_name))
+        checkpoint = resolve_checkpoint(args.load_model, _default_checkpoint(algo_name, seed))
         print(f"[Eval][{algo_name}_seed{seed}] Loading model: {checkpoint}")
         agent.load(checkpoint)
 
