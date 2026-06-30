@@ -125,9 +125,9 @@ class Actor(nn.Module):
         self.input_norm = nn.LayerNorm(repr_dim)
         self.mean_net = nn.Sequential(
             nn.Linear(repr_dim, hidden_dim),
-            nn.ReLU(inplace=True),
+            nn.SiLU(inplace=True),
             nn.Linear(hidden_dim, hidden_dim),
-            nn.ReLU(inplace=True),
+            nn.SiLU(inplace=True),
             nn.Linear(hidden_dim, action_dim),
         )
         self.log_std = nn.Parameter(torch.zeros(action_dim))
@@ -135,7 +135,7 @@ class Actor(nn.Module):
 
     def _init_weights(self, module):
         if isinstance(module, nn.Linear):
-            nn.init.kaiming_uniform_(module.weight, mode="fan_in", nonlinearity="relu")
+            nn.init.kaiming_uniform_(module.weight, mode="fan_in", nonlinearity="linear")
             if module.bias is not None:
                 nn.init.constant_(module.bias, 0)
 
@@ -166,16 +166,16 @@ class Critic(nn.Module):
         self.input_norm = nn.LayerNorm(repr_dim)
         self.value_net = nn.Sequential(
             nn.Linear(repr_dim, hidden_dim),
-            nn.ReLU(inplace=True),
+            nn.SiLU(inplace=True),
             nn.Linear(hidden_dim, hidden_dim),
-            nn.ReLU(inplace=True),
+            nn.SiLU(inplace=True),
             nn.Linear(hidden_dim, 1),
         )
         self.apply(self._init_weights)
 
     def _init_weights(self, module):
         if isinstance(module, nn.Linear):
-            nn.init.kaiming_uniform_(module.weight, mode="fan_in", nonlinearity="relu")
+            nn.init.kaiming_uniform_(module.weight, mode="fan_in", nonlinearity="linear")
             if module.bias is not None:
                 nn.init.constant_(module.bias, 0)
 

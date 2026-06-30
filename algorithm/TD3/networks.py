@@ -51,16 +51,16 @@ class Actor(nn.Module):
 
         self.policy = nn.Sequential(
             nn.Linear(repr_dim, hidden_dim),
-            nn.ReLU(inplace=True),
+            nn.SiLU(inplace=True),
             nn.Linear(hidden_dim, hidden_dim),
-            nn.ReLU(inplace=True),
+            nn.SiLU(inplace=True),
             nn.Linear(hidden_dim, action_shape[0])
         )
         self.apply(self._init_weights)
 
     def _init_weights(self, m):
         if isinstance(m, nn.Linear):
-            nn.init.kaiming_uniform_(m.weight, mode='fan_in', nonlinearity='relu')
+            nn.init.kaiming_uniform_(m.weight, mode='fan_in', nonlinearity='linear')
             if m.bias is not None:
                 nn.init.constant_(m.bias, 0)
 
@@ -83,17 +83,17 @@ class Critic(nn.Module):
         
         self.Q1 = nn.Sequential(
             nn.Linear(repr_dim + action_shape[0], hidden_dim),
-            nn.ReLU(inplace=True),
+            nn.SiLU(inplace=True),
             nn.Linear(hidden_dim, hidden_dim),
-            nn.ReLU(inplace=True),
+            nn.SiLU(inplace=True),
             nn.Linear(hidden_dim, 1)
         )
 
         self.Q2 = nn.Sequential(
             nn.Linear(repr_dim + action_shape[0], hidden_dim),
-            nn.ReLU(inplace=True),
+            nn.SiLU(inplace=True),
             nn.Linear(hidden_dim, hidden_dim),
-            nn.ReLU(inplace=True),
+            nn.SiLU(inplace=True),
             nn.Linear(hidden_dim, 1)
         )
 
@@ -101,7 +101,7 @@ class Critic(nn.Module):
 
     def _init_weights(self, m):
         if isinstance(m, nn.Linear):
-            nn.init.kaiming_uniform_(m.weight, mode='fan_in', nonlinearity='relu')
+            nn.init.kaiming_uniform_(m.weight, mode='fan_in', nonlinearity='linear')
             if m.bias is not None:
                 nn.init.constant_(m.bias, 0)
 
