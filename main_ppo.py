@@ -219,6 +219,10 @@ def train_ppo_algorithm(env, agent, args, algo_name, device, base_state, depth_i
 
     # Training parameters
     max_timesteps = args.max_timesteps
+
+    # Model directory with seed subdirectory (unified with main_async.py)
+    model_dir = os.path.join("./models", display_algo_name, f"seed{args.seed}")
+    os.makedirs(model_dir, exist_ok=True)
     
     def _get_env_core(env):
         return env.unwrapped if hasattr(env, "unwrapped") else env
@@ -464,16 +468,17 @@ def train_ppo_algorithm(env, agent, args, algo_name, device, base_state, depth_i
 
         # Checkpointing
         if total_timesteps % 100000 == 0:
-            agent.save(f"./models/{algo_name}_async_{total_timesteps}.pth")
-            print(f"Model saved at timestep {total_timesteps}")
+            model_path = os.path.join(model_dir, f"async_{total_timesteps}.pth")
+            agent.save(model_path)
+            print(f"Model saved at timestep {total_timesteps}: {model_path}")
             
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
             gc.collect()
 
-    # Final save
-    agent.save(f"./models/{algo_name}_async_final.pth")
-    print("Training completed.")
+    final_model_path = os.path.join(model_dir, "async_final.pth")
+    agent.save(final_model_path)
+    print(f"Training completed. Final model saved to {final_model_path}")
     
     if args.render_window:
         cv2.destroyAllWindows()
