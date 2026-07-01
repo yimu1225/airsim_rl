@@ -217,8 +217,18 @@ def write_eval_csv(results: List[EpisodeResult], path: str) -> None:
     with open(path, mode="w", newline="") as f:
         writer = csv.writer(f)
         writer.writerow(["episode", "reward", "episode_length", "success_rate", "collision_rate"])
-        for row in results:
-            writer.writerow([row.episode, row.reward, row.length, int(row.success), int(row.碰撞率)])
+        success_count = 0
+        collision_count = 0
+        for idx, row in enumerate(results, start=1):
+            success_count += int(row.success)
+            collision_count += int(row.碰撞率)
+            writer.writerow([
+                row.episode,
+                row.reward,
+                row.length,
+                success_count / idx,
+                collision_count / idx,
+            ])
 
 
 def print_eval_summary(results: List[EpisodeResult], *, label: str, csv_path: str) -> None:
