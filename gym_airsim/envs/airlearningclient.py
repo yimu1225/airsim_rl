@@ -734,6 +734,106 @@ class AirLearningClient(object):
                     # After restart, we are safe, returns False for collision
                     return False
 
+    def _check_collision_with_recovery(self, context="simGetCollisionInfo"):
+        for attempt in range(3):
+            try:
+                return self.client.simGetCollisionInfo().has_collided
+            except msgpackrpc.error.TimeoutError:
+                print(f"RPC TimeoutError during {context} (Attempt {attempt+1}/3)")
+                if attempt < 2:
+                    time.sleep(1)
+                else:
+                    print("Max retries reached. Triggering game restart...")
+                    from game_handling.game_handler_class import GameHandler
+
+                    gh = GameHandler()
+                    gh.restart_game()
+
+                    client_ip = settings.ip
+                    client_port = getattr(settings, 'port', 41451)
+
+                    print("Reconnecting AirLearningClient...")
+                    self.client = airsim.MultirotorClient(ip=client_ip, port=client_port, timeout_value=3600)
+                    self._apply_client_patches()
+                    self.client.confirmConnection()
+                    self.client.enableApiControl(True)
+                    self.client.armDisarm(True)
+                    return False
+
+    def take_continuous_action_3d_precise_pause(self, action, duration=0.1):
+        """
+        Execute [body_x_velocity, yaw_rate, z_velocity] while keeping the
+        simulator unpaused only for the actual velocity command.
+
+        State queries and collision checks happen while paused, so AirSim
+        ClockSpeed does not amplify RPC overhead into extra flight time.
+        """
+
+        body_x_velocity = float(action[0])
+        yaw_rate = float(action[1])  # rad/s
+        v_z = float(action[2])
+
+        # Read yaw before unpausing; this is the state used to construct a_t.
+        pitch, roll, yaw = airsim.to_eularian_angles(self.client.simGetVehiclePose().orientation)
+        vx = math.cos(yaw) * body_x_velocity
+        vy = math.sin(yaw) * body_x_velocity
+        yaw_mode = airsim.YawMode(is_rate=True, yaw_or_rate=math.degrees(yaw_rate))
+
+        remaining = max(0.0, float(duration))
+        while remaining > 1e-6:
+            step_duration = min(0.05, remaining)
+            try:
+                self.client.simPause(False)
+                self.client.moveByVelocityAsync(
+                    vx, vy, v_z, step_duration,
+                    airsim.DrivetrainType.MaxDegreeOfFreedom,
+                    yaw_mode,
+                ).join()
+            except msgpackrpc.error.TimeoutError:
+                print("RPC TimeoutError during moveByVelocityAsync, ignoring and proceeding to collision check")
+            finally:
+                try:
+                    self.client.simPause(True)
+                except msgpackrpc.error.TimeoutError:
+                    print("RPC TimeoutError during simPause(True) after moveByVelocityAsync")
+
+            if self._check_collision_with_recovery(context="mid-action simGetCollisionInfo"):
+                return True
+            remaining -= step_duration
+
+        return self._check_collision_with_recovery()
+
+    def take_continious_action_precise_pause(self, action, duration=None):
+        """
+        Precise-pause version of take_continious_action for moveByVelocity mode.
+        The current velocity is read while paused; only moveByVelocityZAsync runs
+        while unpaused.
+        """
+
+        if(settings.control_mode=="moveByVelocity"):
+            action=np.clip(action, -0.3, 0.3)
+
+            detla_x = action[0]
+            detla_y = action[1]
+            v=self.drone_velocity()
+            v_x = v[0] + detla_x
+            v_y = v[1] + detla_y
+
+            yaw_mode = airsim.YawMode(is_rate=False, yaw_or_rate=0)
+            move_duration = duration if duration is not None else settings.vel_duration
+            try:
+                self.client.simPause(False)
+                self.client.moveByVelocityZAsync(v_x, v_y, self.z, move_duration, 1, yaw_mode).join()
+            finally:
+                try:
+                    self.client.simPause(True)
+                except msgpackrpc.error.TimeoutError:
+                    print("RPC TimeoutError during simPause(True) after moveByVelocityZAsync")
+        else:
+            raise NotImplementedError
+
+        return self._check_collision_with_recovery()
+
     def take_continious_action(self, action, duration=None):
         """
         执行连续动作控制（基于速度控制）。

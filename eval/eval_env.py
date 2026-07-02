@@ -30,7 +30,7 @@ class SceneEvalAirSimEnv(AirSimEnv):
         config=None,
         stack_frames: int = 4,
         *,
-        goal_xyz=(32.0, 32.0, -1.0),  # AirSim NED 坐标系: X=北, Y=东, Z=下 (负值=向上, -1.0 即离地 1m)
+        goal_xyz=(33.0, 34.0, -1.0),  # AirSim NED 坐标系: X=北, Y=东, Z=下 (负值=向上, -1.0 即离地 1m)
         project_file: str | None = None,
         unreal_editor: str | None = None,
     ) -> None:

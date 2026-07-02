@@ -740,21 +740,20 @@ class AirSimEnv(gym.Env):
             }
             return state, 0.0, True, False, info
         
-        self.airgym.client.simPause(False)
         if (settings.control_mode == "moveByVelocity"):
 
-            collided = self.airgym.take_continious_action(action, duration=self.action_duration)
+            collided = self.airgym.take_continious_action_precise_pause(action, duration=self.action_duration)
 
         elif (settings.control_mode == "Continuous"):
              # 适配连续动作：如果有多余的维度（batch维），去除它
             if np.ndim(action) > 1:
                 action = action[0]
-            collided = self.airgym.take_continuous_action_3d(action, duration=self.action_duration)
+            collided = self.airgym.take_continuous_action_3d_precise_pause(action, duration=self.action_duration)
 
         else:
+            self.airgym.client.simPause(False)
             collided = self.airgym.take_discrete_action(action)
-
-        self.airgym.client.simPause(True)
+            self.airgym.client.simPause(True)
 
         # Update stacks: max 3 attempts in getScreenDepth; restart immediately on failure.
         depth_img = None
