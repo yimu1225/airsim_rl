@@ -11,7 +11,7 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
 
-from algo_name_utils import expand_algorithm_spec, to_internal_algorithm_name, to_internal_core_algorithm_name
+from algo_name_utils import expand_algorithm_spec, to_internal_algorithm_name, to_internal_core_algorithm_name, to_output_algorithm_name
 from algorithm.config_loader import apply_algorithm_params
 from config import get_config
 from eval.eval_common import (
@@ -25,17 +25,18 @@ from eval.eval_env import SceneEvalAirSimEnv
 from main_ppo import get_agent_class, _configure_reproducibility
 
 
-SUPPORTED_PPO_ALGOS = {"PPO", "VMPPO", "PL_VMPPO"}
+SUPPORTED_PPO_ALGOS = {"PPO", "VSSM_PPO", "PL_VSSM_PPO"}
 
 
 def _default_checkpoint(algo_name: str, seed: int) -> str:
-    return os.path.join("./models", algo_name, f"seed{seed}", "async_final.pth")
+    return os.path.join("./models", to_output_algorithm_name(algo_name), f"seed{seed}", "async_final.pth")
 
 
 def evaluate_algorithm(base_args, algo_name: str, seed: int) -> None:
     core_algo_name = to_internal_core_algorithm_name(algo_name)
+    display_algo_name = to_output_algorithm_name(algo_name)
     if core_algo_name not in SUPPORTED_PPO_ALGOS:
-        print(f"Skipping {algo_name}: eval_ppo.py only supports PPO, VMPPO, PL_VMPPO.")
+        print(f"Skipping {display_algo_name}: eval_ppo.py only supports PPO, VSSM-PPO, PL-VSSM-PPO.")
         return
 
     args = copy.deepcopy(base_args)
@@ -44,7 +45,7 @@ def evaluate_algorithm(base_args, algo_name: str, seed: int) -> None:
     apply_algorithm_params(args, algo_name)
     _configure_reproducibility(seed, args)
 
-    is_recurrent = core_algo_name in {"VMPPO", "PL_VMPPO"}
+    is_recurrent = core_algo_name in {"VSSM_PPO", "PL_VSSM_PPO"}
     n_frames = int(args.n_frames)
     env = SceneEvalAirSimEnv(takeoff_height=args.takeoff_height, config=args, stack_frames=n_frames)
     try:
@@ -62,13 +63,13 @@ def evaluate_algorithm(base_args, algo_name: str, seed: int) -> None:
         AgentClass = get_agent_class(algo_name)
         agent = AgentClass(base_dim, model_depth_shape, env.action_space, args, device=device, seed=seed)
         checkpoint = resolve_checkpoint(args.load_model, _default_checkpoint(algo_name, seed))
-        print(f"[Eval][{algo_name}_seed{seed}] Loading model: {checkpoint}")
+        print(f"[Eval][{display_algo_name}_seed{seed}] Loading model: {checkpoint}")
         agent.load(checkpoint)
 
         def prepare(current_obs):
             return current_obs["base"], current_obs["depth"], current_obs.get("distance_sensor")
 
-        label = f"{algo_name}_seed{seed}"
+        label = f"{display_algo_name}_seed{seed}"
         csv_path = os.path.join("./results", "eval", f"{label}_eval.csv")
         results = run_eval_episodes(
             env,
@@ -82,7 +83,7 @@ def evaluate_algorithm(base_args, algo_name: str, seed: int) -> None:
         )
         print_eval_summary(results, label=label, csv_path=csv_path)
     finally:
-        close_env(env, label=f"{algo_name} seed={seed}")
+        close_env(env, label=f"{display_algo_name} seed={seed}")
 
 
 def main():

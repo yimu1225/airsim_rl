@@ -3,7 +3,7 @@ import torch.nn as nn
 
 from Vim.vim.models_mamba import VisionMamba
 
-from ..VMTD3.networks import TemporalMambaStack
+from ..VSSM_TD3.networks import TemporalMambaStack
 
 
 class VideoPatchEmbed(nn.Module):
@@ -63,7 +63,7 @@ class VideoPatchEmbed(nn.Module):
 
 class STVimVideoPatchEncoder(nn.Module):
     """
-    Keep VMTD3 pipeline unchanged, only replace frame-wise 2D patch embedding
+    Keep VSSM_TD3 pipeline unchanged, only replace frame-wise 2D patch embedding
     with sequence-level video patch embedding.
     """
 

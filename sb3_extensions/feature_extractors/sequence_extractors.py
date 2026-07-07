@@ -162,7 +162,7 @@ class VimFrameEncoder(nn.Module):
 
 
 class STVimEncoder(VimFrameEncoder):
-    """Frame-wise VisionMamba followed by temporal Mamba, matching VM* algorithms."""
+    """Frame-wise VisionMamba followed by temporal Mamba, matching VSSM* algorithms."""
 
     def __init__(self, shape: SequenceShape, params: dict[str, Any], pre_norm: bool = True) -> None:
         super().__init__(shape, params)
@@ -199,7 +199,7 @@ class STVimEncoder(VimFrameEncoder):
 
 
 class STSeqVimEncoder(STVimEncoder):
-    """VM with base-state sequence fusion before temporal Mamba."""
+    """VSSM with base-state sequence fusion before temporal Mamba."""
 
     def __init__(self, shape: SequenceShape, params: dict[str, Any], base_dim: int) -> None:
         super().__init__(shape, params)

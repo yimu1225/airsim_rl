@@ -1,0 +1,19 @@
+# SB_PER_MambaCSJA_SAC algorithm-specific parameters
+# Use SB3-style ent_coef: can be a float (fixed) or a string 'auto' / 'auto_<init_value>'
+ent_coef: 'auto'  # use 'auto' to learn entropy coefficient, or a float value to fix it
+target_entropy: auto  # auto -> use SB3 heuristic -action_dim; can set to a float to override
+target_update_interval: 1  # SB3-style critic target update interval, in gradient steps
+policy_freq: 1  # SAC/SB3 updates actor every gradient step
+
+# SB_PER (Dual Prioritized Experience Replay) parameters
+sb_per_success_capacity_ratio: 0.3
+sb_per_success_sample_ratio: 0.30
+sb_per_alpha: 0.6
+sb_per_eps: 1.0e-6
+sb_per_beta0: 0.4
+sb_per_beta1: 1.0
+sb_per_mu_low: 0.30
+sb_per_mu_mid: 0.40
+sb_per_mu_high: 0.45
+sb_per_mu_step1: 0.25
+sb_per_mu_step2: 0.70
