@@ -19,6 +19,7 @@ from algo_name_utils import (
     split_curriculum_prefix,
     to_internal_algorithm_name,
     to_internal_core_algorithm_name,
+    to_output_algorithm_name,
 )
 from algorithm.config_loader import apply_algorithm_params
 from config import get_config
@@ -35,34 +36,34 @@ from main_async import get_agent_class, _configure_reproducibility
 
 RECURRENT_ALGOS = {
     "Mamba_TD3",
-    "VMTD3",
+    "VSSM_TD3",
     "STV_Patch_TD3",
     "Vim_TD3",
     "ST_Seq_Vim_TD3",
     "STV_Seq_Vim_TD3",
-    "DPER_VMTD3",
-    "PL_VMTD3",
-    "PL_VMSAC",
-    "PL_PER_VMSAC",
-    "PL_DPER_VMSAC",
-    "PL_DPER_VMSAC_Beta",
-    "PL_DPER_VMTD3",
-    "SAFE_VMTD3",
+    "SB_PER_VSSM_TD3",
+    "PL_VSSM_TD3",
+    "PL_VSSM_SAC",
+    "PL_PER_VSSM_SAC",
+    "PL_SB_PER_VSSM_SAC",
+    "PL_SB_PER_VSSM_SAC_Beta",
+    "PL_SB_PER_VSSM_TD3",
+    "SAFE_VSSM_TD3",
     "ST_DualVim_TD3",
-    "VMSAC",
-    "MM_VMSAC",
-    "PER_VMSAC",
-    "SVMSAC",
-    "DPER_SVMSAC",
-    "SAFE_VMSAC",
-    "VMSAC_Beta",
-    "DPER_VMSAC",
-    "DPER_VMSAC_Beta",
+    "VSSM_SAC",
+    "MM_VSSM_SAC",
+    "PER_VSSM_SAC",
+    "SVSSM_SAC",
+    "SB_PER_SVSSM_SAC",
+    "SAFE_VSSM_SAC",
+    "VSSM_SAC_Beta",
+    "SB_PER_VSSM_SAC",
+    "SB_PER_VSSM_SAC_Beta",
     "Transformer_SAC",
 }
 
-BASE_SEQUENCE_ALGOS = {"ST_Seq_Vim_TD3", "STV_Seq_Vim_TD3", "MM_VMSAC"}
-UNSUPPORTED_IN_ASYNC_EVAL = {"PPO", "VMPPO", "PL_VMPPO", "LSTM_SAC"}
+BASE_SEQUENCE_ALGOS = {"ST_Seq_Vim_TD3", "STV_Seq_Vim_TD3", "MM_VSSM_SAC"}
+UNSUPPORTED_IN_ASYNC_EVAL = {"PPO", "VSSM_PPO", "PL_VSSM_PPO", "LSTM_SAC"}
 
 
 def _build_action_input_preparer(initial_base, *, is_recurrent: bool, core_algo_name: str, n_frames: int):
@@ -107,7 +108,7 @@ def _build_action_input_preparer(initial_base, *, is_recurrent: bool, core_algo_
 
 
 def _default_checkpoint(algo_name: str, seed: int) -> str:
-    return os.path.join("./models", algo_name, f"seed{seed}", "async_final.pth")
+    return os.path.join("./models", to_output_algorithm_name(algo_name), f"seed{seed}", "async_final.pth")
 
 
 def evaluate_algorithm(base_args, algo_name: str, seed: int) -> None:
@@ -118,14 +119,15 @@ def evaluate_algorithm(base_args, algo_name: str, seed: int) -> None:
     _configure_reproducibility(seed, args)
 
     core_algo_name = to_internal_core_algorithm_name(algo_name)
+    display_algo_name = to_output_algorithm_name(algo_name)
     if core_algo_name in UNSUPPORTED_IN_ASYNC_EVAL:
-        print(f"Skipping {algo_name}: use eval_ppo.py or eval_lstm_sac.py for this algorithm.")
+        print(f"Skipping {display_algo_name}: use eval_ppo.py or eval_lstm_sac.py for this algorithm.")
         return
 
     if is_curriculum_algorithm(algo_name):
-        print(f"[Eval] Curriculum enabled for {split_curriculum_prefix(algo_name)[1]}; using final progress.")
+        print(f"[Eval] Curriculum enabled for {to_output_algorithm_name(split_curriculum_prefix(algo_name)[1])}; using final progress.")
     else:
-        print(f"[Eval] Curriculum disabled for {algo_name}.")
+        print(f"[Eval] Curriculum disabled for {display_algo_name}.")
 
     is_recurrent = core_algo_name in RECURRENT_ALGOS
     n_frames = int(args.n_frames)
@@ -143,7 +145,7 @@ def evaluate_algorithm(base_args, algo_name: str, seed: int) -> None:
         AgentClass = get_agent_class(algo_name)
         agent = AgentClass(base_dim, model_depth_shape, env.action_space, args, device=device, seed=seed)
         checkpoint = resolve_checkpoint(args.load_model, _default_checkpoint(algo_name, seed))
-        print(f"[Eval][{algo_name}_seed{seed}] Loading model: {checkpoint}")
+        print(f"[Eval][{display_algo_name}_seed{seed}] Loading model: {checkpoint}")
         agent.load(checkpoint)
 
         prepare, after_step, on_episode_reset = _build_action_input_preparer(
@@ -152,7 +154,7 @@ def evaluate_algorithm(base_args, algo_name: str, seed: int) -> None:
             core_algo_name=core_algo_name,
             n_frames=n_frames,
         )
-        label = f"{algo_name}_seed{seed}"
+        label = f"{display_algo_name}_seed{seed}"
         csv_path = os.path.join("./results", "eval", f"{label}_eval.csv")
         results = run_eval_episodes(
             env,
@@ -168,7 +170,7 @@ def evaluate_algorithm(base_args, algo_name: str, seed: int) -> None:
         )
         print_eval_summary(results, label=label, csv_path=csv_path)
     finally:
-        close_env(env, label=f"{algo_name} seed={seed}")
+        close_env(env, label=f"{display_algo_name} seed={seed}")
 
 
 def main():

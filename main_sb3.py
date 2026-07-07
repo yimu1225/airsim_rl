@@ -26,22 +26,22 @@ from sb3_algorithms import (
     LSTMSAC,
     MambaTD3,
     PLPERTD3,
-    PLPERVMSAC,
-    PLPERVMTD3,
+    PLPERVSSM_SAC,
+    PLPERVSSM_TD3,
     PLSAC,
     PLSTVimPPO,
-    PLVMTD3,
+    PLVSSM_TD3,
     PLTD3,
     PERSAC,
-    PERVMSAC,
-    PERVMTD3,
+    PERVSSM_SAC,
+    PERVSSM_TD3,
     PERTD3,
     STSeqVimTD3,
-    SAFEVMTD3,
+    SAFE_VSSM_TD3,
     STVSeqVimTD3,
     STVimPPO,
-    VMSAC,
-    VMTD3,
+    VSSM_SAC,
+    VSSM_TD3,
     VimPatchTD3,
     VimTD3,
 )
@@ -73,24 +73,24 @@ SUPPORTED_ALGORITHMS = {
     "PER_TD3": PERTD3,
     "PL_PER_TD3": PLPERTD3,
     "PL_TD3": PLTD3,
-    "VMTD3": VMTD3,
+    "VSSM_TD3": VSSM_TD3,
     "STV_Patch_TD3": VimPatchTD3,
     "Vim_TD3": VimTD3,
     "ST_Seq_Vim_TD3": STSeqVimTD3,
     "STV_Seq_Vim_TD3": STVSeqVimTD3,
-    "PER_VMTD3": PERVMTD3,
-    "SAFE_VMTD3": SAFEVMTD3,
+    "PER_VSSM_TD3": PERVSSM_TD3,
+    "SAFE_VSSM_TD3": SAFE_VSSM_TD3,
     "Mamba_TD3": MambaTD3,
     "ST_DualVim_TD3": DualVimTD3,
     "LSTM_SAC": LSTMSAC,
-    "VMSAC": VMSAC,
-    "PER_VMSAC": PERVMSAC,
-    "VMPPO": STVimPPO,
-    "PL_VMPPO": PLSTVimPPO,
-    "PL_VMTD3": PLVMTD3,
+    "VSSM_SAC": VSSM_SAC,
+    "PER_VSSM_SAC": PERVSSM_SAC,
+    "VSSM_PPO": STVimPPO,
+    "PL_VSSM_PPO": PLSTVimPPO,
+    "PL_VSSM_TD3": PLVSSM_TD3,
     "PL_SAC": PLSAC,
-    "PL_PER_VMSAC": PLPERVMSAC,
-    "PL_PER_VMTD3": PLPERVMTD3,
+    "PL_PER_VSSM_SAC": PLPERVSSM_SAC,
+    "PL_PER_VSSM_TD3": PLPERVSSM_TD3,
 }
 
 NORMALIZED_TO_CANONICAL_ALGORITHM = {name.lower(): name for name in SUPPORTED_ALGORITHMS}
@@ -106,27 +106,27 @@ FEATURE_EXTRACTORS = {
     "PL_TD3": AirSimCNNExtractor,
     "PL_SAC": AirSimCNNExtractor,
     "Vim_TD3": VimFeatureExtractor,
-    "VMTD3": STVimFeatureExtractor,
-    "PER_VMTD3": STVimFeatureExtractor,
-    "PL_VMTD3": STVimFeatureExtractor,
-    "VMSAC": STVimFeatureExtractor,
-    "PER_VMSAC": STVimFeatureExtractor,
-    "PL_PER_VMSAC": STVimFeatureExtractor,
-    "PL_PER_VMTD3": STVimFeatureExtractor,
-    "VMPPO": STVimFeatureExtractor,
-    "PL_VMPPO": STVimFeatureExtractor,
+    "VSSM_TD3": STVimFeatureExtractor,
+    "PER_VSSM_TD3": STVimFeatureExtractor,
+    "PL_VSSM_TD3": STVimFeatureExtractor,
+    "VSSM_SAC": STVimFeatureExtractor,
+    "PER_VSSM_SAC": STVimFeatureExtractor,
+    "PL_PER_VSSM_SAC": STVimFeatureExtractor,
+    "PL_PER_VSSM_TD3": STVimFeatureExtractor,
+    "VSSM_PPO": STVimFeatureExtractor,
+    "PL_VSSM_PPO": STVimFeatureExtractor,
     "ST_Seq_Vim_TD3": STSeqVimFeatureExtractor,
     "STV_Seq_Vim_TD3": STVSeqVimFeatureExtractor,
     "STV_Patch_TD3": VimPatchFeatureExtractor,
-    "SAFE_VMTD3": STSVimFeatureExtractor,
+    "SAFE_VSSM_TD3": STSVimFeatureExtractor,
     "Mamba_TD3": MambaExtractor,
     "ST_DualVim_TD3": DualVimFeatureExtractor,
     "LSTM_SAC": LSTMExtractor,
 }
 
-PER_ALGORITHMS = {"PER_TD3", "PL_PER_TD3", "PER_VMTD3", "PER_VMSAC", "PL_PER_VMSAC", "PL_PER_VMTD3"}
-SAC_ALGORITHMS = {"SAC", "LSTM_SAC", "VMSAC", "PER_VMSAC", "PL_SAC", "PL_PER_VMSAC"}
-PPO_ALGORITHMS = {"PPO", "VMPPO", "PL_VMPPO"}
+PER_ALGORITHMS = {"PER_TD3", "PL_PER_TD3", "PER_VSSM_TD3", "PER_VSSM_SAC", "PL_PER_VSSM_SAC", "PL_PER_VSSM_TD3"}
+SAC_ALGORITHMS = {"SAC", "LSTM_SAC", "VSSM_SAC", "PER_VSSM_SAC", "PL_SAC", "PL_PER_VSSM_SAC"}
+PPO_ALGORITHMS = {"PPO", "VSSM_PPO", "PL_VSSM_PPO"}
 
 
 class _EpisodePrintCallback(BaseCallback):
@@ -271,7 +271,7 @@ def _policy_kwargs(algo_name: str, args) -> dict:
         activation_fn=nn.ReLU,
         normalize_images=False,
     )
-    if algo_name == "PL_VMPPO":
+    if algo_name == "PL_VSSM_PPO":
         policy_kwargs["privileged_key"] = str(getattr(args, "privileged_key", "distance_sensor"))
     return policy_kwargs
 

@@ -9,6 +9,8 @@ from algo_name_utils import (
     split_curriculum_prefix,
     to_internal_algorithm_name,
     to_kebab_algorithm_name,
+    to_output_algorithm_name,
+    to_plot_algorithm_label,
 )
 
 
@@ -21,9 +23,23 @@ def _safe_to_internal_algo_name(name):
 
 def _safe_to_plot_label(name):
     try:
-        return to_kebab_algorithm_name(name, upper=False)
+        return to_plot_algorithm_label(name)
     except ValueError:
         return str(name).strip().replace("_", "-").upper()
+
+
+def _safe_to_output_name(name):
+    try:
+        return to_output_algorithm_name(name)
+    except ValueError:
+        return str(name).strip().replace("_", "-")
+
+
+def _format_plot_label(name, show_cl_prefix=False):
+    label = _safe_to_plot_label(name)
+    if not show_cl_prefix and label.startswith("CL-"):
+        return label[3:]
+    return label
 
 def _prepare_xy(x_values, y_values):
     """清洗并排序单条曲线，保证 x 严格递增。"""
@@ -180,7 +196,8 @@ def aggregate_seed_curves(seed_curves, resample_points=512, smooth_step=1.0, ci_
     return x_common, mean, lower, upper, std, stderr, ys.shape[0]
 
 def plot_curves(algorithms, seeds_to_plot=None, save_path="learning_curves.png",
-                plot_cl=True, plot_non_cl=True, n_interpolate_points=512, smooth_step=1.0, ci_type="std"):
+                plot_cl=True, plot_non_cl=True, n_interpolate_points=512, smooth_step=1.0, ci_type="std",
+                show_cl_prefix=False):
     """
     Plots learning curves for specified algorithms on the same figures.
     Reads CSV logs from 'results' directory.
@@ -194,6 +211,7 @@ def plot_curves(algorithms, seeds_to_plot=None, save_path="learning_curves.png",
         plot_non_cl: 是否绘制不带 CL- 前缀的算法
         n_interpolate_points: baselines 风格重采样点数（默认 512）
         smooth_step: baselines 风格 EMA 的 decay_steps 参数
+        show_cl_prefix: 图例中是否保留 CL- 前缀
     """
     results_dir = "./results"
     
@@ -205,12 +223,13 @@ def plot_curves(algorithms, seeds_to_plot=None, save_path="learning_curves.png",
     all_data = []
     
     for algo in algorithms:
+        display_algo = _safe_to_output_name(algo)
         # 根据参数决定搜索哪些算法变体
         algo_variants = []
         if plot_non_cl:
-            algo_variants.append(algo)
+            algo_variants.append(display_algo)
         if plot_cl:
-            algo_variants.append(f"CL-{algo}")
+            algo_variants.append(f"CL-{display_algo}")
         
         if not algo_variants:
             print(f"Warning: plot_cl and plot_non_cl are both False for {algo}, skipping...")
@@ -253,7 +272,7 @@ def plot_curves(algorithms, seeds_to_plot=None, save_path="learning_curves.png",
                     continue
                 
                 df['Algorithm'] = actual_algo
-                df['AlgorithmLabel'] = _safe_to_plot_label(actual_algo)
+                df['AlgorithmLabel'] = _format_plot_label(actual_algo, show_cl_prefix=show_cl_prefix)
                 df['Seed'] = seed_part
                 all_data.append(df)
                 print(f"  Loaded: {file_basename} -> {actual_algo} (seed={seed_part})")
@@ -424,10 +443,17 @@ def main():
         if core_name not in algos_to_plot:
             algos_to_plot.append(core_name)
 
-    display_algos = [to_kebab_algorithm_name(name, upper=False) for name in algos_to_plot]
+    display_algos = []
+    for name in algos_to_plot:
+        label = _format_plot_label(name, show_cl_prefix=args.plot_show_cl_prefix)
+        if args.plot_show_cl_prefix and args.plot_cl:
+            display_algos.append(f"CL-{label}")
+        if args.plot_non_cl:
+            display_algos.append(label)
     print(f"Plotting curves for: {display_algos}")
     print(f"Plot CL algorithms: {args.plot_cl}")
     print(f"Plot non-CL algorithms: {args.plot_non_cl}")
+    print(f"Show CL prefix in legend: {args.plot_show_cl_prefix}")
     
     if not args.plot_cl and not args.plot_non_cl:
         print("Error: Both --plot_cl and --plot_non_cl are False. Nothing to plot.")
@@ -451,7 +477,8 @@ def main():
         plot_non_cl=args.plot_non_cl,
         n_interpolate_points=args.resample_points,
         smooth_step=args.curve_smooth_step,
-        ci_type=args.ci_type)
+        ci_type=args.ci_type,
+        show_cl_prefix=args.plot_show_cl_prefix)
 
 if __name__ == "__main__":
     main()

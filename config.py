@@ -1,6 +1,6 @@
+import os
 import argparse
 import numpy as np
-import os
 from algo_name_utils import normalize_algorithm_name_for_config
 
 # Set CUDA memory allocator configuration to reduce fragmentation
@@ -29,17 +29,23 @@ def get_config(argv=None):
     parser.add_argument("--env_name", type=str, default='AirSimEnv-v42', help="要训练的环境名称")
 
     # 算法选择 (Algorithm Selection)
-    parser.add_argument("--algorithm_name", type=str, default='CL-DPER_VMSAC,CL-DDPG,CL-TD3,CL-Transformer_SAC',
-                        help="要训练的算法。支持: TD3, DDPG, DPER_TD3, VMTD3, STV_Patch_TD3, Vim_TD3, ST_Seq_Vim_TD3, STV_Seq_Vim_TD3, DPER_VMTD3, SVMTD3, Mamba_TD3, ST_DualVim_TD3, AETD3, SAC, SAC_Beta, LSTM_SAC, VMSAC, SVMSAC, VMSAC_Beta, DPER_VMSAC, DPER_VMSAC_Beta, Mamba_SAC, Transformer_SAC, PPO, VMPPO, PL_VMPPO, PL_TD3, PL_DPER_TD3, PL_VMTD3, PL_SAC, PL_SAC_Beta, PL_VMSAC, PL_PER_VMSAC, PL_DPER_VMSAC, PL_DPER_VMSAC_Beta, PL_DPER_VMTD3,MM_VMSAC,MambaCSJA_SAC")
+    parser.add_argument("--algorithm_name", type=str, default='CL-VSSM-SAC, CL-no-SB-PER,  CL-SAC',
+                        help="要训练的算法。支持: TD3, DDPG, SB-PER-TD3, VSSM-TD3, STV-Patch-TD3, Vim-TD3, ST-Seq-Vim-TD3, STV-Seq-Vim-TD3, SB-PER-VSSM-TD3, SAFE-VSSM-TD3, Mamba-TD3, ST-DualVim-TD3, AETD3, SAC, SAC-Beta, LSTM-SAC, VSSM-SAC, no-SB-PER, no-VSSM, SVSSM-SAC, MM-VSSM-SAC, PER-VSSM-SAC, SAFE-VSSM-SAC, VSSM-SAC-Beta, SB-PER-VSSM-SAC-Beta, SB-PER-SVSSM-SAC, Mamba-SAC, Transformer-SAC, Mamba-RSAC, PL-Mamba-RSAC, MambaCSJA-SAC, SB-PER-MambaCSJA-SAC, PER-Mamba-SAC, PPO, VSSM-PPO, PL-VSSM-PPO, PL-TD3, PL-SB-PER-TD3, PL-VSSM-TD3, PL-SAC, PL-SAC-Beta, PL-VSSM-SAC, PL-PER-VSSM-SAC, PL-SB-PER-VSSM-SAC, PL-SB-PER-VSSM-SAC-Beta, PL-SB-PER-VSSM-TD3, SDDPG。算法组: all, base, seq, vssm_sac_ablation。消融组 vssm_sac_ablation = VSSM-SAC, no-SB-PER, no-VSSM, SAC。")
     parser.add_argument("--plot_cl", action='store_true', default=True, help="绘图时是否检索带 CL- 前缀的算法 (默认: True)")
     parser.add_argument("--plot_non_cl", action='store_true', default=True, help="绘图时是否检索常规算法 (默认: True)")
+    parser.add_argument(
+        "--plot_show_cl_prefix",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="绘图图例是否显示 CL- 前缀 (默认: False，可用 --plot_show_cl_prefix 开启)",
+    )
     parser.add_argument("--use_percentile", action='store_true', default=False, help="使用四分位范围作为阴影带而不是均值加置信区间")
     parser.add_argument("--ci_type", type=str, default="std", choices=["std", "sem"], help="阴影区域类型: std=标准差, sem=标准误差")
     parser.add_argument("--resample_points", type=int, default=512, help="baselines 风格曲线聚合的重采样点数")
     parser.add_argument("--curve_smooth_step", type=float, default=1.0, help="baselines 风格 EMA 重采样 smooth_step")
 
     # 训练设置 (Training Setup)
-    parser.add_argument("--seed", type=str, default="25", help="随机种子 (支持逗号分隔多个种子)")
+    parser.add_argument("--seed", type=str, default="25,26,27,28,29", help="随机种子 (支持逗号分隔多个种子)")
     parser.add_argument("--curriculum_start_level", type=int, default=0, choices=[0, 1, 2, 3], help="课程学习起始等级 (0-3, 默认: 0)。注意：算法名以 'CL-' 前缀开头时自动启用课程学习")
     parser.add_argument("--curriculum_mode", type=str, default="progress", choices=["progress", "success"], help="课程学习模式: progress=按训练进度连续增加难度, success=按成功率离散切换难度")
     parser.add_argument("--curriculum_progress_max_ratio", type=float, default=0.9, help="progress课程达到最大难度所需的训练进度比例")

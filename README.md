@@ -22,7 +22,7 @@
 - **四大算法家族** — 统一实现 DDPG / TD3 / SAC / PPO 及其大量变体
 - **视觉编码器** — 支持 CNN、Vision Mamba (Vim)、VideoMamba、Dual-Branch Mamba 等架构
 - **时序建模** — 支持 LSTM、Temporal Mamba、状态空间模型 (SSM) 等序列处理方法
-- **优先经验回放** — 内置 PER (Prioritized) 与 DPER (Demonstration + Prioritized) 机制
+- **优先经验回放** — 内置 PER (Prioritized) 与 SB-PER (Success-Buffer Prioritized) 机制
 - **课程学习** — 通过 `CL-` 前缀一键启用，支持 progress / success 两种模式
 - **特权学习 (Privileged Learning)** — `PL_` 前缀算法支持干净深度图作为特权信息
 - **环境随机化** — 四档难度等级，动态障碍物，确定性可复现采样
@@ -38,16 +38,16 @@
 |-----------|------|
 | `CL-` | 课程学习 (Curriculum Learning) |
 | `PL_` | 特权学习 (Privileged Learning)，Actor 可访问干净深度图 |
-| `DPER_` | 示范数据 + 优先经验回放 (Demonstration PER) |
+| `SB-PER_` | 成功缓冲优先经验回放 (Success-Buffer PER) |
 | `PER_` | 优先经验回放 (Prioritized Experience Replay) |
-| `VM` | Vision Mamba 视觉编码器 |
-| `SVM` | 状态分解 + Vision Mamba (State-Decomposed VM) |
+| `VSSM` | Vision Mamba 视觉编码器 |
+| `SVSSM` | 状态分解 + Vision Mamba (State-Decomposed VSSM) |
 | `SAFE_` | 带安全约束的变体 |
 | `MM_` | 多模态变体 |
 | `_Beta` | Beta 分布策略变体 |
 | `Mamba_` / `MambaCSJA_` | Mamba / CSJA-Mamba 序列编码器 |
 
-> 示例：`CL-DPER_SVMSAC` = 课程学习 + 示范优先回放 + 状态分解 Vision Mamba + SAC
+> 示例：`CL-VSSM-SAC` = 课程学习 + 完整 VSSM-SAC 方法；`no-SB-PER` 和 `no-VSSM` 为消融算法名
 
 ### 算法家族
 
@@ -61,17 +61,17 @@
 | 算法 | 视觉编码 | 时序处理 | 亮点 |
 |------|----------|----------|------|
 | **TD3** | CNN | 帧堆叠 | 标准 Twin Delayed DDPG |
-| **DPER_TD3** | CNN | 帧堆叠 | TD3 + 示范优先回放 |
+| **SB-PER_TD3** | CNN | 帧堆叠 | TD3 + 成功缓冲优先回放 |
 | **AETD3** | CNN | 帧堆叠 | 自适应集成 Critic |
-| **VMTD3** | Vision Mamba | Temporal Mamba | 纯 Mamba 时空建模 |
+| **VSSM-TD3** | Vision Mamba | Temporal Mamba | 纯 Mamba 时空建模 |
 | **Vim_TD3** | Vision Mamba | 无 | 纯 Vim 特征提取 |
 | **ST_Seq_Vim_TD3** | Vision Mamba | Temporal Mamba | 状态-视觉双流时空 |
 | **STV_Seq_Vim_TD3** | Vision Mamba | Temporal Mamba | 视觉-状态-视觉三流融合 |
 | **STV_Patch_TD3** | Vision Mamba | Temporal Mamba | Video-style Patch Embedding |
-| **ST_DualVim_TD3** | Dual-Branch VM | Temporal Mamba | 双分支视频 Mamba |
+| **ST_DualVim_TD3** | Dual-Branch VSSM | Temporal Mamba | 双分支视频 Mamba |
 | **Mamba_TD3** | CNN | Temporal Mamba | CNN + Mamba 混合 |
-| **DPER_VMTD3** | Vision Mamba | Temporal Mamba | VMTD3 + 示范优先回放 |
-| **SAFE_VMTD3** | Vision Mamba | Temporal Mamba | 带安全约束的 VMTD3 |
+| **SB-PER-VSSM-TD3** | Vision Mamba | Temporal Mamba | VSSM-TD3 + 成功缓冲优先回放 |
+| **SAFE-VSSM-TD3** | Vision Mamba | Temporal Mamba | 带安全约束的 VSSM-TD3 |
 
 #### 3. SAC 家族（最大）
 | 算法 | 视觉编码 | 时序处理 | 亮点 |
@@ -79,33 +79,34 @@
 | **SAC** | CNN | 帧堆叠 | 标准 Soft Actor-Critic |
 | **SAC_Beta** | CNN | 帧堆叠 | Beta 分布替代高斯 |
 | **LSTM_SAC** | CNN | LSTM | 循环神经网络时序建模 |
-| **VMSAC** | Vision Mamba | Temporal Mamba | Mamba 时空 + SAC |
-| **VMSAC_Beta** | Vision Mamba | Temporal Mamba | VMSAC + Beta 分布 |
-| **SVMSAC** | Vision Mamba | Temporal Mamba | **状态分解** VMSAC |
-| **PER_VMSAC** | Vision Mamba | Temporal Mamba | VMSAC + 优先回放 |
-| **DPER_VMSAC** | Vision Mamba | Temporal Mamba | VMSAC + 示范优先回放 |
-| **DPER_VMSAC_Beta** | Vision Mamba | Temporal Mamba | DPER_VMSAC + Beta 分布 |
-| **DPER_SVMSAC** | Vision Mamba | Temporal Mamba | 状态分解 + 示范优先回放 |
-| **MM_VMSAC** | Vision Mamba | Temporal Mamba | 多模态 VMSAC |
-| **SAFE_VMSAC** | Vision Mamba | Temporal Mamba | 带安全约束的 VMSAC |
+| **VSSM-SAC** | Vision Mamba | Temporal Mamba | 完整方法：VSSM + SB-PER + SAC |
+| **no SB-PER** | Vision Mamba | Temporal Mamba | 消融：去掉成功缓冲优先回放 |
+| **no VSSM** | CNN | 帧堆叠 | 消融：去掉视觉状态空间记忆，仅保留 SB-PER |
+| **VSSM-SAC_Beta** | Vision Mamba | Temporal Mamba | VSSM-SAC + Beta 分布 |
+| **SVSSM-SAC** | Vision Mamba | Temporal Mamba | **状态分解** VSSM-SAC |
+| **PER-VSSM-SAC** | Vision Mamba | Temporal Mamba | VSSM-SAC + 优先回放 |
+| **SB-PER-VSSM-SAC_Beta** | Vision Mamba | Temporal Mamba | VSSM-SAC + Beta 分布 + SB-PER |
+| **SB-PER_SVSSM-SAC** | Vision Mamba | Temporal Mamba | 状态分解 + 成功缓冲优先回放 |
+| **MM-VSSM-SAC** | Vision Mamba | Temporal Mamba | 多模态 VSSM-SAC |
+| **SAFE-VSSM-SAC** | Vision Mamba | Temporal Mamba | 带安全约束的 VSSM-SAC |
 | **Mamba_SAC** | CNN | Temporal Mamba | CNN + Mamba 混合 SAC |
 | **Transformer_SAC** | CNN | Transformer Encoder | CNN + Transformer 历史观测融合 + SAC |
 | **PER_Mamba_SAC** | CNN | Temporal Mamba | Mamba_SAC + 优先回放 |
 | **MambaCSJA_SAC** | CNN | CSJA-Mamba | Mamba + 通道-空间联合注意力 |
-| **DPER_MambaCSJA_SAC** | CNN | CSJA-Mamba | MambaCSJA + 示范优先回放 |
+| **SB-PER_MambaCSJA_SAC** | CNN | CSJA-Mamba | MambaCSJA + 成功缓冲优先回放 |
 | **Mamba_RSAC** | CNN | Temporal Mamba | Mamba + 循环 SAC |
 
 #### 4. PPO 家族
 | 算法 | 视觉编码 | 时序处理 | 亮点 |
 |------|----------|----------|------|
 | **PPO** | CNN | 帧堆叠 | 标准 Proximal Policy Optimization |
-| **VMPPO** | Vision Mamba | Temporal Mamba | PPO + Mamba 时空编码 |
-| **PL_VMPPO** | Vision Mamba | Temporal Mamba | 特权学习 VMPPO |
+| **VSSM-PPO** | Vision Mamba | Temporal Mamba | PPO + Mamba 时空编码 |
+| **PL-VSSM-PPO** | Vision Mamba | Temporal Mamba | 特权学习 VSSM-PPO |
 
 #### 5. 特权学习 (PL) 变体
 所有 PL 前缀算法允许 Actor 访问无噪声的"干净"深度图作为特权观测，Critic 仍使用带噪声的常规观测：
 
-`PL_TD3` · `PL_DPER_TD3` · `PL_VMTD3` · `PL_DPER_VMTD3` · `PL_SAC` · `PL_SAC_Beta` · `PL_VMSAC` · `PL_PER_VMSAC` · `PL_DPER_VMSAC` · `PL_DPER_VMSAC_Beta` · `PL_Mamba_RSAC`
+`PL_TD3` · `PL_SB-PER_TD3` · `PL-VSSM-TD3` · `PL_SB-PER-VSSM-TD3` · `PL_SAC` · `PL_SAC_Beta` · `PL-VSSM-SAC` · `PL_PER-VSSM-SAC` · `PL_SB-PER-VSSM-SAC` · `PL_SB-PER-VSSM-SAC_Beta` · `PL_Mamba_RSAC`
 
 ---
 
@@ -217,37 +218,38 @@ cd ../..
 
 ```bash
 # 单算法训练 (推荐使用算法组名)
-python main_async.py --algorithm_name VMSAC --max_timesteps 1000000
+python main_async.py --algorithm_name VSSM-SAC --max_timesteps 1000000
 
 # 训练带课程学习的版本
-python main_async.py --algorithm_name CL-VMSAC --max_timesteps 1000000
+python main_async.py --algorithm_name CL-VSSM-SAC --max_timesteps 1000000
 
 # 训练状态分解版本
-python main_async.py --algorithm_name SVMSAC --max_timesteps 1000000
+python main_async.py --algorithm_name SVSSM-SAC --max_timesteps 1000000
 
 # 批量训练 — 使用算法组
 python main_async.py --algorithm_name base --max_timesteps 500000   # 基础算法组
 python main_async.py --algorithm_name seq  --max_timesteps 500000   # 时序算法组
+python main_async.py --algorithm_name vssm_sac_ablation --max_timesteps 500000   # VSSM-SAC 消融组
 python main_async.py --algorithm_name all  --max_timesteps 500000   # 全部算法
 
 # 手动指定多个算法
-python main_async.py --algorithm_name "VMSAC,SVMSAC,VMTD3" --max_timesteps 500000
+python main_async.py --algorithm_name "VSSM-SAC,no-SB-PER,no-VSSM,SAC" --max_timesteps 500000
 
 # 多种子训练
-python main_async.py --algorithm_name VMSAC --seed "1,2,3" --max_timesteps 1000000
+python main_async.py --algorithm_name VSSM-SAC --seed "1,2,3" --max_timesteps 1000000
 ```
 
 ### 评估
 
 ```bash
 # 评估训练好的模型
-python -m eval.eval_async --algorithm_name VMSAC --load_model models/VMSAC/seed1/async_final.pth
+python -m eval.eval_async --algorithm_name VSSM-SAC --load_model models/VSSM-SAC/seed1/async_final.pth
 
 # 指定评估回合数
-python -m eval.eval_async --algorithm_name VMSAC --load_model path/to/model.pth --eval_episodes 100
+python -m eval.eval_async --algorithm_name VSSM-SAC --load_model path/to/model.pth --eval_episodes 100
 
 # 测试场景评估
-python -m eval.eval_async --algorithm_name CL-DPER_VMSAC --seed 29 --load_model models/CL-DPER_VMSAC/seed29/async_final.pth
+python -m eval.eval_async --algorithm_name CL-VSSM-SAC --seed 29 --load_model models/CL-VSSM-SAC/seed29/async_final.pth
 ```
 
 ---
@@ -258,7 +260,7 @@ python -m eval.eval_async --algorithm_name CL-DPER_VMSAC --seed 29 --load_model 
 
 | 参数 | 默认值 | 说明 |
 |------|--------|------|
-| `--algorithm_name` | `CL-DPER_SVMSAC` | 算法名称，支持逗号分隔多算法、算法组名 |
+| `--algorithm_name` | `vssm_sac_ablation` | 算法名称，支持逗号分隔多算法、算法组名 |
 | `--seed` | `1,2,3` | 随机种子，逗号分隔多种子 |
 | `--max_timesteps` | `120000` | 总训练步数 |
 | `--hidden_dim` | `128` | 隐藏层维度 |
@@ -274,22 +276,22 @@ python -m eval.eval_async --algorithm_name CL-DPER_VMSAC --seed 29 --load_model 
 
 ### 算法专属参数
 
-每个算法在 `algorithm/<算法名>/params.yaml` 中定义专属参数，由 `config_loader` 自动加载。例如 `algorithm/VMSAC/params.yaml` 定义 Vision Mamba 编码器的嵌入维度、深度、patch 大小等。
+每个算法在内部目录 `algorithm/<内部算法名>/params.yaml` 中定义专属参数，由 `config_loader` 自动加载。例如展示名 `VSSM-SAC` 对应内部目录 `algorithm/SB_PER_VSSM_SAC/params.yaml`，`no-SB-PER` 对应 `algorithm/VSSM_SAC/params.yaml`。
 
 ### 课程学习配置
 
 ```bash
 # progress 模式 — 随训练进度连续增加难度
-python main_async.py --algorithm_name CL-VMSAC --curriculum_mode progress --curriculum_progress_max_ratio 0.9
+python main_async.py --algorithm_name CL-VSSM-SAC --curriculum_mode progress --curriculum_progress_max_ratio 0.9
 
 # success 模式 — 按成功率离散切换难度
-python main_async.py --algorithm_name CL-VMSAC --curriculum_mode success
+python main_async.py --algorithm_name CL-VSSM-SAC --curriculum_mode success
 
 # 指定起始难度
-python main_async.py --algorithm_name CL-VMSAC --curriculum_start_level 1
+python main_async.py --algorithm_name CL-VSSM-SAC --curriculum_start_level 1
 
 # 非课程学习的固定难度
-python main_async.py --algorithm_name VMSAC --non_curriculum_level 2
+python main_async.py --algorithm_name VSSM-SAC --non_curriculum_level 2
 ```
 
 ---
@@ -304,36 +306,38 @@ airsim_rl/
 │   ├── SDDPG/                     #   状态分解 DDPG
 │   ├── TD3/                       #   TD3 基准
 │   ├── AETD3/                     #   自适应集成 TD3
-│   ├── DPER_TD3/                  #   示范优先回放 TD3
-│   ├── VMTD3/                     #   Vision Mamba TD3
+│   ├── SB-PER_TD3/                  #   成功缓冲优先回放 TD3
+│   ├── VSSM-TD3/                     #   Vision Mamba TD3
 │   ├── Vim_TD3/                   #   纯 Vim TD3
 │   ├── ST_Seq_Vim_TD3/            #   状态-视觉双流 TD3
 │   ├── STV_Seq_Vim_TD3/           #   视觉-状态-视觉三流 TD3
 │   ├── STV_Patch_TD3/             #   Video Patch TD3
 │   ├── ST_DualVim_TD3/            #   双分支 Mamba TD3
 │   ├── Mamba_TD3/                 #   CNN + Mamba TD3
-│   ├── DPER_VMTD3/                #   示范优先回放 VMTD3
-│   ├── SAFEVMTD3/                 #   安全约束 VMTD3
+│   ├── SB-PER-VSSM-TD3/                #   成功缓冲优先回放 VSSM-TD3
+│   ├── SAFE-VSSM-TD3/                 #   安全约束 VSSM-TD3
 │   ├── SAC/                       #   SAC 基准
 │   ├── SAC_Beta/                  #   Beta 分布 SAC
 │   ├── LSTM_SAC/                  #   LSTM 时序 SAC
-│   ├── VMSAC/ / VMSAC_Beta/       #   Vision Mamba SAC
-│   ├── SVMSAC/                    #   状态分解 VMSAC
-│   ├── PER_VMSAC/                 #   优先回放 VMSAC
-│   ├── DPER_VMSAC/                #   示范优先回放 VMSAC
-│   ├── DPER_VMSAC_Beta/           #   示范优先回放 VMSAC Beta
-│   ├── DPER_SVMSAC/               #   状态分解 + 示范优先回放
-│   ├── MM_VMSAC/                  #   多模态 VMSAC
-│   ├── SAFEVMSAC/                 #   安全约束 VMSAC
+│   ├── SB_PER_VSSM_SAC/             #   VSSM-SAC 完整方法
+│   ├── VSSM_SAC/                    #   no-SB-PER 消融
+│   ├── SB_PER_SAC/                  #   no-VSSM 消融
+│   ├── VSSM_SAC_Beta/               #   VSSM-SAC Beta
+│   ├── SVSSM-SAC/                    #   状态分解 VSSM-SAC
+│   ├── PER-VSSM-SAC/                 #   优先回放 VSSM-SAC
+│   ├── SB_PER_VSSM_SAC_Beta/        #   成功缓冲优先回放 VSSM-SAC Beta
+│   ├── SB-PER_SVSSM-SAC/               #   状态分解 + 成功缓冲优先回放
+│   ├── MM-VSSM-SAC/                  #   多模态 VSSM-SAC
+│   ├── SAFE-VSSM-SAC/                 #   安全约束 VSSM-SAC
 │   ├── Mamba_SAC/ / PER_Mamba_SAC/ # Mamba SAC 系列
 │   ├── Mamba_RSAC/                #   Mamba 循环 SAC
 │   ├── MambaCSJA_SAC/             #   Mamba + 通道空间注意力 SAC
-│   ├── DPER_MambaCSJA_SAC/        #   示范优先回放 MambaCSJA SAC
+│   ├── SB-PER_MambaCSJA_SAC/        #   成功缓冲优先回放 MambaCSJA SAC
 │   ├── PPO/                       #   PPO 基准
-│   ├── VMPPO/                     #   Vision Mamba PPO
-│   ├── PL_TD3/ ... PL_DPER_VMTD3/ # 特权学习 TD3 系列
+│   ├── VSSM-PPO/                     #   Vision Mamba PPO
+│   ├── PL_TD3/ ... PL_SB-PER-VSSM-TD3/ # 特权学习 TD3 系列
 │   ├── PL_SAC/ ... PL_Mamba_RSAC/ # 特权学习 SAC 系列
-│   └── PL_VMPPO/                  #   特权学习 PPO
+│   └── PL-VSSM-PPO/                  #   特权学习 PPO
 │
 ├── gym_airsim/                    # AirSim Gymnasium 环境
 │   └── envs/
@@ -412,7 +416,9 @@ airsim_rl/
 tensorboard --logdir=./results --port=6007
 
 # 绘制训练曲线
-python plot_curves.py --algorithm_name VMSAC
+python plot_curves.py --algorithm_name VSSM-SAC
+# 默认图例不显示 CL-；需要保留课程学习前缀时：
+python plot_curves.py --algorithm_name vssm_sac_ablation --plot_show_cl_prefix
 ```
 
 ---
@@ -470,7 +476,7 @@ pip install -e . --verbose
 - **DDPG**: [Continuous Control with Deep Reinforcement Learning](https://arxiv.org/abs/1509.02971)
 - **PPO**: [Proximal Policy Optimization Algorithms](https://arxiv.org/abs/1707.06347)
 - **PER**: [Prioritized Experience Replay](https://arxiv.org/abs/1511.05952)
-- **DPER**: [Deep RL with a Small Amount of Expert Demonstrations](https://arxiv.org/abs/1910.09457)
+- **SB-PER**: Success-Buffer Prioritized Experience Replay
 - **Mamba**: [Mamba: Linear-Time Sequence Modeling with Selective State Spaces](https://arxiv.org/abs/2312.00752)
 - **Vision Mamba**: [Vision Mamba: Efficient Visual Representation Learning with Bidirectional SSM](https://arxiv.org/abs/2401.13666)
 - **VideoMamba**: [VideoMamba: State Space Model for Efficient Video Understanding](https://arxiv.org/abs/2403.06977)

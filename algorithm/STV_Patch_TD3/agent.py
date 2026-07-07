@@ -6,7 +6,7 @@ from torch import nn
 from torch.optim import Adam
 
 from ..config_loader import get_algo_param
-from ..VMTD3.networks import Actor, Critic
+from ..VSSM_TD3.networks import Actor, Critic
 from .buffer import ReplayBuffer
 from .networks import Encoder as VideoPatchEncoder
 
@@ -14,7 +14,7 @@ from .networks import Encoder as VideoPatchEncoder
 class VimPatchTD3Agent:
     """
     ST-VimTD3 training pipeline with video-style patch embedding.
-    Actor/Critic/TD3 update stay the same as VMTD3.
+    Actor/Critic/TD3 update stay the same as VSSM_TD3.
     """
 
     def __init__(self, base_dim, depth_shape, action_space, args, device=None, seed=None):
