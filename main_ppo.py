@@ -245,6 +245,8 @@ def train_ppo_algorithm(env, agent, args, algo_name, device, base_state, depth_i
     episode_reward = 0
     episode_timesteps = 0
     update_step = 0
+    checkpoint_interval = 100000
+    next_checkpoint = checkpoint_interval
 
     state = depth_image
     base = base_state
@@ -466,11 +468,16 @@ def train_ppo_algorithm(env, agent, args, algo_name, device, base_state, depth_i
                 torch.cuda.empty_cache()
             gc.collect()
 
-        # Checkpointing
-        if total_timesteps % 100000 == 0:
+        # Checkpoint after the first update that crosses each interval.  PPO
+        # updates happen at rollout boundaries, which generally do not land
+        # exactly on a multiple of the interval.
+        if total_timesteps >= next_checkpoint:
             model_path = os.path.join(model_dir, f"async_{total_timesteps}.pth")
             agent.save(model_path)
             print(f"Model saved at timestep {total_timesteps}: {model_path}")
+            next_checkpoint = (
+                (total_timesteps // checkpoint_interval) + 1
+            ) * checkpoint_interval
             
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
