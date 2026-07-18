@@ -17,6 +17,7 @@ _CANONICAL_ALGORITHMS: Tuple[str, ...] = (
     "ST_DualVim_TD3",
     "AETD3",
     "SAC",
+    "SAC_FAE",
     "SAC_Beta",
     "LSTM_SAC",
     "SB_PER_SAC",
@@ -147,6 +148,7 @@ ABLATION_OUTPUT_NAMES: Dict[str, str] = {
     "VSSM_SAC": "no-SB-PER",
     "SB_PER_SAC": "no-VSSM",
     "SAC": "SAC",
+    "SAC_FAE": "SAC_FAE",
 }
 
 ABLATION_PLOT_LABELS: Dict[str, str] = {
@@ -154,6 +156,7 @@ ABLATION_PLOT_LABELS: Dict[str, str] = {
     "VSSM_SAC": "no-SB-PER",
     "SB_PER_SAC": "no-VSSM",
     "SAC": "SAC",
+    "SAC_FAE": "SAC_FAE",
 }
 
 ALGORITHM_GROUPS["vssm_sac_ablation"] = [
