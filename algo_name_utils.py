@@ -151,8 +151,8 @@ ABLATION_OUTPUT_NAMES: Dict[str, str] = {
 
 ABLATION_PLOT_LABELS: Dict[str, str] = {
     "SB_PER_VSSM_SAC": "VSSM-SAC",
-    "VSSM_SAC": "no SB-PER",
-    "SB_PER_SAC": "no VSSM",
+    "VSSM_SAC": "no-SB-PER",
+    "SB_PER_SAC": "no-VSSM",
     "SAC": "SAC",
 }
 
