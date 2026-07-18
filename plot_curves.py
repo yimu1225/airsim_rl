@@ -195,9 +195,22 @@ def aggregate_seed_curves(seed_curves, resample_points=512, smooth_step=1.0, ci_
     upper = mean + ci
     return x_common, mean, lower, upper, std, stderr, ys.shape[0]
 
+def _set_environment_step_axis(axis, max_timesteps):
+    """固定环境步数范围，取消横轴留白，并确保最大步数显示为刻度。"""
+    if max_timesteps is None:
+        return
+
+    max_timesteps = int(max_timesteps)
+    if max_timesteps <= 0:
+        raise ValueError("max_timesteps must be greater than 0")
+
+    axis.set_xlim(0, max_timesteps)
+    axis.set_xticks(np.linspace(0, max_timesteps, 6))
+
+
 def plot_curves(algorithms, seeds_to_plot=None, save_path="learning_curves.png",
                 plot_cl=True, plot_non_cl=True, n_interpolate_points=512, smooth_step=1.0, ci_type="std",
-                show_cl_prefix=False):
+                show_cl_prefix=False, max_timesteps=None):
     """
     Plots learning curves for specified algorithms on the same figures.
     Reads CSV logs from 'results' directory.
@@ -212,6 +225,7 @@ def plot_curves(algorithms, seeds_to_plot=None, save_path="learning_curves.png",
         n_interpolate_points: baselines 风格重采样点数（默认 512）
         smooth_step: baselines 风格 EMA 的 decay_steps 参数
         show_cl_prefix: 图例中是否保留 CL- 前缀
+        max_timesteps: 横轴显示的最大环境步数；设置后横轴范围固定为 0 到该值
     """
     results_dir = "./results"
     
@@ -290,13 +304,29 @@ def plot_curves(algorithms, seeds_to_plot=None, save_path="learning_curves.png",
     unique_algorithms = full_df['Algorithm'].unique()
     print(f"\nAlgorithms to plot: {list(unique_algorithms)}")
     
-    # 为每个算法分配颜色
-    colors = plt.cm.tab10(np.linspace(0, 1, len(unique_algorithms)))
-    color_map = {algo: colors[i] for i, algo in enumerate(unique_algorithms)}
+    # 固定配色方案：按算法出现顺序依次分配颜色。
+    # 颜色选自 Tableau 10，适合学术论文。
+    PALETTE = [
+        "#d62728",  # red
+        "#17becf",  # cyan
+        "#ff7f0e",  # orange
+        "#e377c2",  # pink
+        "#2ca02c",  # green
+        "#9467bd",  # purple
+        "#8c564b",  # brown
+        "#7f7f7f",  # gray
+        "#bcbd22",  # olive
+        "#1f77b4",  # blue
+
+    ]
+    color_map = {
+        algo: np.array(plt.cm.colors.to_rgba(PALETTE[i % len(PALETTE)], 1.0))
+        for i, algo in enumerate(unique_algorithms)
+    }
     
     # 为不同算法分配不同的线型
-    line_styles = ['-', '--', '-.', ':', (0, (3, 1, 1, 1)), (0, (5, 1, 1, 1))]
-    line_style_map = {algo: line_styles[i % len(line_styles)] for i, algo in enumerate(unique_algorithms)}
+    # line_styles = ['-', '--', '-.', ':', (0, (3, 1, 1, 1)), (0, (5, 1, 1, 1))]
+    # line_style_map = {algo: line_styles[i % len(line_styles)] for i, algo in enumerate(unique_algorithms)}
     
     # === Plot Reward ===
     fig_reward, ax_reward = plt.subplots(figsize=(12, 8))
@@ -343,15 +373,15 @@ def plot_curves(algorithms, seeds_to_plot=None, save_path="learning_curves.png",
 
         # 绘制均值曲线
         ax_reward.plot(x_common, mean_reward,
-                      label=display_label, linewidth=2.5, color=color,
-                      linestyle=line_style_map[algo_name])
+                      label=display_label, linewidth=2.5, color=color)  # linestyle=line_style_map[algo_name]
         
         # baselines 风格：均值曲线 + 组内离散度阴影
         ax_reward.fill_between(x_common, lower, upper, color=color, alpha=0.2)
     
-    ax_reward.set_xlabel("Total Timesteps", fontfamily='Arial', fontsize=20)
+    ax_reward.set_xlabel("Environment Steps", fontfamily='Arial', fontsize=20)
     ax_reward.set_ylabel("Reward", fontfamily='Arial', fontsize=20)
     ax_reward.set_title("Learning Curves - Reward Comparison", fontfamily='Arial', fontsize=20, fontweight='bold')
+    _set_environment_step_axis(ax_reward, max_timesteps)
     ax_reward.legend(prop={'family': 'Arial', 'size': 20}, loc='best')
     ax_reward.grid(True, alpha=0.3)
     ax_reward.tick_params(axis='both', labelsize=18)  # 设置坐标轴刻度文字大小
@@ -407,17 +437,17 @@ def plot_curves(algorithms, seeds_to_plot=None, save_path="learning_curves.png",
 
         # 绘制均值曲线
         ax_success.plot(x_common, mean_success,
-                       label=display_label, linewidth=2.5, color=color,
-                       linestyle=line_style_map[algo_name])
+                       label=display_label, linewidth=2.5, color=color)  # linestyle=line_style_map[algo_name]
         
         # 绘制阴影区域（标准差或标准误差）
         ax_success.fill_between(x_common, lower, upper,
                                color=color, alpha=0.2)
     
-    ax_success.set_xlabel("Total Timesteps", fontfamily='Arial', fontsize=20)
+    ax_success.set_xlabel("Environment Steps", fontfamily='Arial', fontsize=20)
     ax_success.set_ylabel("Success Rate", fontfamily='Arial', fontsize=20)
     # ax_success.set_title("Learning Curves - Success Rate Comparison", fontfamily='Arial', fontsize=20, fontweight='bold')
     ax_success.set_ylim(0, 1.05)
+    _set_environment_step_axis(ax_success, max_timesteps)
     ax_success.legend(prop={'family': 'Arial', 'size': 20}, loc='best')
     ax_success.grid(True, alpha=0.3)
     ax_success.tick_params(axis='both', labelsize=18)  # 设置坐标轴刻度文字大小
@@ -478,7 +508,8 @@ def main():
         n_interpolate_points=args.resample_points,
         smooth_step=args.curve_smooth_step,
         ci_type=args.ci_type,
-        show_cl_prefix=args.plot_show_cl_prefix)
+        show_cl_prefix=args.plot_show_cl_prefix,
+        max_timesteps=args.max_timesteps)
 
 if __name__ == "__main__":
     main()
