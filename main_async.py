@@ -57,6 +57,7 @@ from algorithm.SAFE_VSSM_TD3.agent import SAFE_VSSM_TD3Agent
 from algorithm.Mamba_TD3.agent import MambaTD3Agent
 from algorithm.ST_DualVim_TD3.agent import DualBranchVideoMambaTD3Agent
 from algorithm.SAC.agent import SACAgent
+from algorithm.SAC_FAE.agent import SACFAEAgent
 from algorithm.SB_PER_SAC.agent import SB_PERSACAgent
 from algorithm.PL_SAC.agent import PLSACAgent
 from algorithm.PL_VSSM_SAC.agent import PLVSSM_SACAgent
@@ -200,6 +201,7 @@ def get_agent_class(algo_name):
         'ST_DualVim_TD3': DualBranchVideoMambaTD3Agent,
         'AETD3': AETD3Agent,
         'SAC': SACAgent,
+        'SAC_FAE': SACFAEAgent,
         'SB_PER_SAC': SB_PERSACAgent,
         'SAC_Beta': SACBetaAgent,
         'PL_SAC': PLSACAgent,

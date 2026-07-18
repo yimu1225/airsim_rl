@@ -1,0 +1,33 @@
+# SAC_FAE comparison baseline parameters
+# Official Focus autoencoder architecture adapted to 4 x 128 x 128 depth input.
+
+# Fair-comparison training parameters
+actor_lr: 0.0003
+critic_lr: 0.0003
+buffer_size: 25600
+batch_size: 256
+n_frames: 4
+
+# SAC entropy and update schedule
+ent_coef: auto
+target_entropy: auto
+policy_freq: 1
+target_update_interval: 2
+
+# Focus autoencoder and measurement encoder
+sac_fae_feature_dim: 384
+sac_fae_measurement_dim: 128
+sac_fae_num_filters: 32
+sac_fae_reconstruction_coef: 1.0
+
+# Actor and twin-critic MLPs from the paper
+sac_fae_actor_hidden_dim: 1024
+sac_fae_actor_hidden_layers: 4
+sac_fae_critic_hidden_dim: 1024
+sac_fae_critic_hidden_layers: 4
+sac_fae_log_std_min: -10.0
+sac_fae_log_std_max: 2.0
+
+# Target-network soft updates
+sac_fae_critic_tau: 0.005
+sac_fae_encoder_tau: 0.025
