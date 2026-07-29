@@ -370,6 +370,7 @@ airsim_rl/
 ├── scripts/                       # 辅助脚本
 ├── models/                        # 预训练模型
 ├── results/                       # 训练结果 & TensorBoard 日志
+│   └── <algorithm>/seed<seed>/   # 与 models/ 相同的算法/种子分层
 │
 ├── main_async.py                  # 主训练入口 (异步架构)
 ├── main_sb3.py                    # SB3 风格训练入口

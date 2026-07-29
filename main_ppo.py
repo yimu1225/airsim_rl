@@ -28,7 +28,9 @@ from algo_name_utils import (
     split_curriculum_prefix,
     to_internal_algorithm_name,
     to_internal_core_algorithm_name,
+    to_output_algorithm_name,
 )
+from result_paths import initialize_training_log_csv, reset_training_run_dir
 import gymnasium as gym
 import gym_airsim  # noqa: F401 - ensure env ids are registered
 from gym_airsim.envs import AirSimEnv
@@ -186,7 +188,7 @@ def train_ppo_algorithm(env, agent, args, algo_name, device, base_state, depth_i
         print(f"Loading model: {args.load_model}")
         agent.load(args.load_model)
 
-    display_algo_name = algo_name
+    display_algo_name = to_output_algorithm_name(algo_name)
     print(f"Start PPO Training {display_algo_name}...")
 
     # Restart interval for refreshing UE4 memory
@@ -194,26 +196,17 @@ def train_ppo_algorithm(env, agent, args, algo_name, device, base_state, depth_i
     next_restart = restart_interval
 
     # Logging
-    if not os.path.exists("./results"): 
-        os.makedirs("./results")
     if not os.path.exists("./models"): 
         os.makedirs("./models")
     
-    run_name = f"{display_algo_name}_seed{args.seed}"
-    log_dir = f"./results/{run_name}"
-    
-    if os.path.exists(log_dir):
-        import shutil
-        shutil.rmtree(log_dir)
-    os.makedirs(log_dir)
+    log_dir = os.fspath(reset_training_run_dir(display_algo_name, args.seed))
         
     writer = SummaryWriter(log_dir=log_dir)
     
     # Initialize CSV logger
-    csv_filename = os.path.join(log_dir, f"{display_algo_name}_seed{args.seed}_log.csv")
-    with open(csv_filename, mode='w', newline='') as f:
-        csv_writer = csv.writer(f)
-        csv_writer.writerow(['episode', 'total_timesteps', 'reward', 'episode_length', 'success_rate'])
+    csv_filename = os.fspath(
+        initialize_training_log_csv(display_algo_name, args.seed)
+    )
     
     print(f"Logging to {csv_filename}")
 
@@ -221,7 +214,7 @@ def train_ppo_algorithm(env, agent, args, algo_name, device, base_state, depth_i
     max_timesteps = args.max_timesteps
 
     # Model directory with seed subdirectory (unified with main_async.py)
-    model_dir = os.path.join("./models", display_algo_name, f"seed{args.seed}")
+    model_dir = os.path.join("./models", algo_name, f"seed{args.seed}")
     os.makedirs(model_dir, exist_ok=True)
     
     def _get_env_core(env):

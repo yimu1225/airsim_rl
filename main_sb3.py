@@ -19,8 +19,14 @@ from stable_baselines3 import DDPG, PPO, SAC, TD3
 from stable_baselines3.common.callbacks import BaseCallback, CheckpointCallback
 from stable_baselines3.common.noise import NormalActionNoise
 
-from algo_name_utils import expand_algorithm_spec, split_curriculum_prefix, to_internal_core_algorithm_name
+from algo_name_utils import (
+    expand_algorithm_spec,
+    split_curriculum_prefix,
+    to_internal_core_algorithm_name,
+    to_output_algorithm_name,
+)
 from config import get_config
+from result_paths import training_run_dir
 from sb3_algorithms import (
     DualVimTD3,
     LSTMSAC,
@@ -255,6 +261,16 @@ def _device(args) -> str:
     return "cuda" if bool(args.cuda) and th.cuda.is_available() else "cpu"
 
 
+def _training_results_dir(args) -> Path:
+    configured_path = getattr(args, "training_results_dir", None)
+    if configured_path is not None:
+        return Path(configured_path)
+    return training_run_dir(
+        to_output_algorithm_name(args.algorithm_name),
+        int(args.seed),
+    )
+
+
 def _policy_kwargs(algo_name: str, args) -> dict:
     extractor_cls = FEATURE_EXTRACTORS[algo_name]
     extractor_kwargs = dict(
@@ -303,7 +319,7 @@ def _off_policy_common_kwargs(algo_name: str, env, args) -> dict:
         gamma=float(args.gamma),
         train_freq=(int(args.steps_per_update), "step"),
         gradient_steps=_resolve_gradient_steps(args),
-        tensorboard_log="./results/",
+        tensorboard_log=str(_training_results_dir(args)),
         verbose=1,
         seed=int(args.seed),
         device=_device(args),
@@ -356,7 +372,7 @@ def build_ppo_model(algo_name: str, env, args):
         vf_coef=float(getattr(args, "vf_coef", 0.5)),
         max_grad_norm=float(getattr(args, "max_grad_norm", getattr(args, "grad_clip", 0.5))),
         target_kl=getattr(args, "target_kl", None),
-        tensorboard_log="./results/",
+        tensorboard_log=str(_training_results_dir(args)),
         verbose=1,
         seed=int(args.seed),
         device=_device(args),
@@ -375,7 +391,12 @@ def _default_td3_when_algorithm_omitted(argv: list[str]) -> list[str]:
     return [*argv, "--algorithm_name", "TD3"]
 
 
-def _build_callbacks(args, run_name: str, checkpoint_dir: Path):
+def _build_callbacks(
+    args,
+    run_name: str,
+    checkpoint_dir: Path,
+    training_results_dir: Path,
+):
     callbacks = [
         CheckpointCallback(
             save_freq=max(1, int(args.eval_freq)),
@@ -387,7 +408,10 @@ def _build_callbacks(args, run_name: str, checkpoint_dir: Path):
     callbacks.extend(
         [
             AirSimHealthCallback(check_freq=max(1, int(getattr(args, "steps_per_update", 100)))),
-            CSVLoggerCallback(Path("results") / run_name / "progress.csv", log_freq=max(1, int(args.log_interval))),
+            CSVLoggerCallback(
+                training_results_dir / "progress.csv",
+                log_freq=max(1, int(args.log_interval)),
+            ),
         ]
     )
     if bool(getattr(args, "render_window", False)):
@@ -412,8 +436,12 @@ def run_one(base_args, algorithm_name: str, seed: int) -> None:
 
     configure_reproducibility(int(args.seed), bool(args.cuda_deterministic))
 
-    run_name = f"{args.algorithm_name}_seed{args.seed}"
+    output_algorithm_name = to_output_algorithm_name(args.algorithm_name)
+    run_name = f"{output_algorithm_name}_seed{args.seed}"
     args.run_name = run_name
+    training_results_dir = training_run_dir(output_algorithm_name, args.seed)
+    training_results_dir.mkdir(parents=True, exist_ok=True)
+    args.training_results_dir = training_results_dir
     extractor_name = FEATURE_EXTRACTORS[algo_name].__name__
     if args.use_curriculum:
         curriculum_desc = f"ON(start_level={args.curriculum_start_level})"
@@ -432,7 +460,12 @@ def run_one(base_args, algorithm_name: str, seed: int) -> None:
 
     checkpoint_dir = Path("models") / args.algorithm_name
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
-    callbacks = _build_callbacks(args, run_name, checkpoint_dir)
+    callbacks = _build_callbacks(
+        args,
+        run_name,
+        checkpoint_dir,
+        training_results_dir,
+    )
 
     try:
         if str(getattr(args, "load_model", "")).strip():
@@ -442,7 +475,7 @@ def run_one(base_args, algorithm_name: str, seed: int) -> None:
             total_timesteps=int(args.max_timesteps),
             callback=callbacks,
             log_interval=int(args.log_interval),
-            tb_log_name=run_name,
+            tb_log_name="tensorboard",
         )
         model.save(str(checkpoint_dir / "final"))
     finally:
