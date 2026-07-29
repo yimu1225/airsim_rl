@@ -18,7 +18,6 @@ import copy
 import collections
 import gc
 import csv
-import shutil
 import numpy as np
 import torch
 import cv2
@@ -28,6 +27,7 @@ from tqdm import tqdm
 from config import get_config
 from algorithm.LSTM_SAC.agent import LSTMSACAgent
 from gym_airsim.envs import AirSimEnv
+from result_paths import initialize_training_log_csv, reset_training_run_dir
 
 
 # ──────────────────────────────────────────────
@@ -130,20 +130,13 @@ def _train_single_seed(args, seed: int):
     agent = LSTMSACAgent(base_dim, model_depth_shape, action_space, seed_args, device=device, seed=seed)
 
     # Logging
-    run_name = f"LSTM_SAC_seed{seed}"
-    log_dir = f"./results/{run_name}"
-    model_dir = os.path.join("./models", run_name)
+    algorithm_name = "LSTM-SAC"
+    log_dir = os.fspath(reset_training_run_dir(algorithm_name, seed))
+    model_dir = os.path.join("./models", f"LSTM_SAC_seed{seed}")
     os.makedirs(model_dir, exist_ok=True)
-    if os.path.exists(log_dir):
-        shutil.rmtree(log_dir)
-    os.makedirs(log_dir)
 
     writer = SummaryWriter(log_dir=log_dir)
-    csv_path = os.path.join(log_dir, f"{run_name}_log.csv")
-    with open(csv_path, "w", newline="") as f:
-        w = csv.writer(f)
-        w.writerow(["episode", "total_timesteps", "reward", "episode_length",
-                     "success_rate"])
+    csv_path = os.fspath(initialize_training_log_csv(algorithm_name, seed))
 
     print(f"[LSTM-SAC] Logging to {log_dir}")
     print(f"[LSTM-SAC] Models saved to {model_dir}")

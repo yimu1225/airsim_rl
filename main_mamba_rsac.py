@@ -19,12 +19,17 @@ from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 
 import gym_airsim  # noqa: F401
-from algo_name_utils import to_internal_core_algorithm_name, to_internal_algorithm_name
+from algo_name_utils import (
+    to_internal_algorithm_name,
+    to_internal_core_algorithm_name,
+    to_output_algorithm_name,
+)
 from algorithm.config_loader import apply_algorithm_params
 from algorithm.Mamba_RSAC.agent import MambaRSACAgent
 from algorithm.PL_Mamba_RSAC.agent import PLMambaRSACAgent
 from config import get_config
 from gym_airsim.envs import AirSimEnv
+from result_paths import initialize_training_log_csv, reset_training_run_dir
 
 
 AGENTS = {
@@ -160,6 +165,7 @@ def train_one(seed_args, algo_name, core_name):
     _configure_reproducibility(int(seed_args.seed), seed_args)
     params_path, loaded_keys = apply_algorithm_params(seed_args, core_name)
     seed_args.algorithm_name = algo_name
+    output_algo_name = to_output_algorithm_name(algo_name)
 
     print(f"\n{'=' * 50}")
     print(f"Training algorithm: {algo_name} (seed={seed_args.seed})")
@@ -185,21 +191,15 @@ def train_one(seed_args, algo_name, core_name):
         print(f"Loading model: {seed_args.load_model}")
         agent.load(seed_args.load_model)
 
-    os.makedirs("./results", exist_ok=True)
     os.makedirs("./models", exist_ok=True)
     model_dir = os.path.join("./models", algo_name, f"seed{seed_args.seed}")
     os.makedirs(model_dir, exist_ok=True)
-    log_dir = os.path.join("./results", f"{algo_name}_seed{seed_args.seed}")
-    if os.path.exists(log_dir):
-        import shutil
-
-        shutil.rmtree(log_dir)
-    os.makedirs(log_dir, exist_ok=True)
+    log_dir = os.fspath(reset_training_run_dir(output_algo_name, seed_args.seed))
 
     writer = SummaryWriter(log_dir=log_dir)
-    csv_filename = os.path.join(log_dir, f"{algo_name}_seed{seed_args.seed}_log.csv")
-    with open(csv_filename, mode="w", newline="") as f:
-        csv.writer(f).writerow(["episode", "total_timesteps", "reward", "episode_length", "success_rate"])
+    csv_filename = os.fspath(
+        initialize_training_log_csv(output_algo_name, seed_args.seed)
+    )
 
     print(f"Observation shapes: Depth {depth_shape}, Base {base_dim}")
     print(f"Action space: {action_space}")

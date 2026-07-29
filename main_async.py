@@ -38,6 +38,7 @@ from algo_name_utils import (
     to_internal_core_algorithm_name,
     to_output_algorithm_name,
 )
+from result_paths import initialize_training_log_csv, reset_training_run_dir
 import gymnasium as gym
 import gym_airsim  # noqa: F401 - ensure env ids are registered
 from gym_airsim.envs import AirSimEnv
@@ -626,31 +627,22 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, in
     next_restart = restart_interval
 
     # Logging
-    if not os.path.exists("./results"): os.makedirs("./results")
     if not os.path.exists("./models"): os.makedirs("./models")
 
     # Save checkpoints by algorithm and seed: ./models/<algorithm>/seed<seed>/
     model_dir = os.path.join("./models", display_algo_name, f"seed{args.seed}")
     os.makedirs(model_dir, exist_ok=True)
     
-    # 移除时间戳，固定文件夹名称以实现覆盖 (Remove timestamp to use fixed folder for overwriting)
-    # 使用 display_algo_name（带 CL- 前缀）用于日志目录和文件名
-    run_name = f"{display_algo_name}_seed{args.seed}"
-    log_dir = f"./results/{run_name}"
-    
-    # 如果文件夹已存在，则清理内容实现真正覆盖 (Clean directory if exists for true overwrite)
-    if os.path.exists(log_dir):
-        import shutil
-        shutil.rmtree(log_dir)
-    os.makedirs(log_dir)
+    # Keep training results parallel to models:
+    # ./results/<algorithm>/seed<seed>/
+    log_dir = os.fspath(reset_training_run_dir(display_algo_name, args.seed))
         
     writer = SummaryWriter(log_dir=log_dir)
     
     # Initialize CSV logger
-    csv_filename = os.path.join(log_dir, f"{display_algo_name}_seed{args.seed}_log.csv")
-    with open(csv_filename, mode='w', newline='') as f:
-        csv_writer = csv.writer(f)
-        csv_writer.writerow(['episode', 'total_timesteps', 'reward', 'episode_length', 'success_rate'])
+    csv_filename = os.fspath(
+        initialize_training_log_csv(display_algo_name, args.seed)
+    )
     
     print(f"Logging to {csv_filename}")
     print(f"Model checkpoints will be saved to {model_dir}")

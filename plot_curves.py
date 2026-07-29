@@ -1,9 +1,9 @@
 import os
-import glob
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from config import get_config
+from result_paths import discover_training_logs
 from algo_name_utils import (
     expand_algorithm_spec,
     split_curriculum_prefix,
@@ -251,13 +251,13 @@ def plot_curves(algorithms, seeds_to_plot=None, save_path="learning_curves.png",
         
         csv_files = []
         for algo_variant in algo_variants:
-            search_patterns = [
-                os.path.join(results_dir, f"{algo_variant}*", f"{algo_variant}_seed*_log.csv"),
-                os.path.join(results_dir, f"{algo_variant}*", "**", f"{algo_variant}_seed*_log.csv"),
-                os.path.join(results_dir, f"{algo_variant}*", "*_log.csv"),
-            ]
-            for pattern in search_patterns:
-                csv_files.extend(glob.glob(pattern, recursive=True))
+            csv_files.extend(
+                os.fspath(path)
+                for path in discover_training_logs(
+                    algo_variant,
+                    results_root=results_dir,
+                )
+            )
         csv_files = sorted(set(csv_files))
         
         if not csv_files:
