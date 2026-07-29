@@ -116,13 +116,10 @@ CaMeRL 的图同样把多维策略输出呈现为一张 Grad-CAM 图，但论文
 宣称这是官方完整 MambaLRP 的逐算子复现。图例和 metadata 均标为
 `MambaLRP core adaptation`。
 
-seed25 checkpoint 实际只包含单向 Mamba 权重。不同 `PYTHONPATH` 下，
-`VisionMamba` 可能因安装的 Mamba 构造签名而误建成 BiMamba-v2；脚本会在
-严格加载前检查 checkpoint 键，并在必要时把 actor encoder 中的双向 mixer
-重建为同形状的单向 mixer，避免随机反向分支参与策略。可视化只严格加载
-`actor_encoder` 和 `actor`，不会加载无关的训练优化器。脚本本身也实现了
-BiMamba-v2 的正反 MambaLRP 扫描；若 checkpoint 需要双向权重而当前 Mamba
-库只能构造单向结构，则直接报告环境不兼容。
+脚本只接受与当前 BiMamba-v2 actor 结构完全一致的 checkpoint，并严格加载
+`actor_encoder` 和 `actor`，不会加载无关的训练优化器。旧的单向 seed25
+checkpoint 缺少反向权重，不能用于该脚本；应使用重新训练得到的双向模型。
+脚本的 MambaLRP 适配同时覆盖 BiMamba-v2 的正向与反向扫描。
 
 ## 自检
 

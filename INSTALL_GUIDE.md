@@ -39,110 +39,44 @@ pip install torch==2.7.0 torchvision==0.22.0 torchaudio==2.7.0 --index-url https
 
 ```
 
-## 4. 编译安装 Causal Conv1d
+## 4. 编译安装 Vim 配套 CUDA 依赖
 
-由于 `causal-conv1d` 需要从源码编译，且对环境变量敏感，请严格按照以下步骤操作。
+VSSM 的空间编码器需要仓库内的 BiMamba-v2 定制实现。必须使用
+`causal-conv1d 1.4.0` 与 `mamba_ssm 1.1.1` 这一组配套源码；不要用
+通用的 `causal-conv1d 1.6.x` 或 `mamba_ssm 2.x` 替换。
 
-### 4.1 清理干扰环境变量
-某些 Conda 环境设置可能会干扰 `nvcc` 编译器。
-
-```bash
-unset NVCC_PREPEND_FLAGS
-unset CC
-unset CXX
-
-export CUDA_HOME=$CONDA_PREFIX
-export PATH=$CUDA_HOME/bin:$PATH
-export LD_LIBRARY_PATH=$CUDA_HOME/lib:$LD_LIBRARY_PATH
-```
-
-### 4.2 安装库
-使用 `--no-build-isolation` 标志，强制使用当前环境中的 PyTorch 和 Ninja 进行编译，避免版本冲突。
+Conda CUDA 12.8 的完整 toolkit 根目录位于
+`targets/x86_64-linux`。RTX 50 系列（Blackwell）的计算能力为 12.0。
 
 ```bash
-# 确保 CUDA 架构列表包含你的 GPU 算力 (例如 RTX 30/40 系列通常包含 8.6, 8.9, 9.0)
-export TORCH_CUDA_ARCH_LIST="7.5 8.0 8.6 9.0"
-
-pip install causal-conv1d>=1.4.0 --no-build-isolation --verbose
-```
-
-## 5. 修复 Python 3.9 兼容性问题 (重要)
-
-如果你使用的是 Python 3.9，`causal-conv1d` (v1.6.0) 的源码包含 Python 3.10+ 的语法 (`|` 联合类型)，会导致 `RuntimeError` 或 `TypeError`。安装完成后，**必须**运行以下修复脚本。
-
-创建一个修复脚本 `patch_causal_conv1d.sh`:
-
-```bash
-#!/bin/bash
-# 获取 site-packages 路径
-SITE_PACKAGES=$(python -c "import site; print(site.getsitepackages()[0])")
-TARGET_DIR="$SITE_PACKAGES/causal_conv1d"
-
-echo "正在修复文件路径: $TARGET_DIR"
-
-FILES=("cpp_functions.py" "causal_conv1d_interface.py" "causal_conv1d_varlen.py")
-
-for f in "${FILES[@]}"; do
-    FILE_PATH="$TARGET_DIR/$f"
-    if [ -f "$FILE_PATH" ]; then
-        echo "正在修复: $f"
-        # 1. 在文件头部添加 future import
-        sed -i '1s/^/from __future__ import annotations\n/' "$FILE_PATH"
-        # 2. 引入 Optional
-        sed -i '2i from typing import Optional' "$FILE_PATH"
-        # 3. 替换新语法为旧语法
-        sed -i 's/torch.Tensor | None/Optional[torch.Tensor]/g' "$FILE_PATH"
-        sed -i 's/int | None/Optional[int]/g' "$FILE_PATH"
-    else
-        echo "警告: 未找到文件 $FILE_PATH"
-    fi
-done
-
-echo "修复完成！"
-```
-
-运行修复：
-
-```bash
-chmod +x patch_causal_conv1d.sh
-./patch_causal_conv1d.sh
-```
-
-## 6. 安装 Mamba SSM
-
-Mamba SSM 的安装需要特殊的编译配置，特别是在 Conda 环境下，编译器可能找不到 CUDA 头文件。
-
-```bash
-# 1. 设置 CUDA 编译器路径和库路径 (解决 fatal error: cuda_runtime_api.h: No such file)
-# 注意：Conda 的 cuda-toolkit 12.8 将头文件放在 targets/x86_64-linux/include 下
-export CONDA_CUDA_ROOT="$CONDA_PREFIX/targets/x86_64-linux"
-export CPATH="$CONDA_CUDA_ROOT/include:$CPATH"
-export LIBRARY_PATH="$CONDA_CUDA_ROOT/lib:$LIBRARY_PATH"
-export LD_LIBRARY_PATH="$CONDA_CUDA_ROOT/lib:$LD_LIBRARY_PATH"
-
-# 2. 设置其他必要的环境变量
 unset NVCC_PREPEND_FLAGS CC CXX
-export TORCH_CUDA_ARCH_LIST="8.0 8.6 9.0 10.0"  # 根据你的显卡调整，RTX 50 系列需要 10.0
-export MAMBA_FORCE_BUILD=TRUE  # 强制本地编译，跳过 GitHub 轮子下载（解决网络超时）
-export MAX_JOBS=4              # 限制并发数防止 OOM
+export CUDA_HOME="$CONDA_PREFIX/targets/x86_64-linux"
+export PATH="$CONDA_PREFIX/bin:$CONDA_PREFIX/nvvm/bin:$PATH"
+export TORCH_CUDA_ARCH_LIST="12.0"  # 其他显卡请改成实际计算能力
+export MAX_JOBS="$(nproc)"
 
-# 3. 安装
-pip install mamba-ssm --no-build-isolation --no-cache-dir --verbose
+# 使用与 Vim 兼容、且已针对当前 GPU 架构调整过的 v1.4.0 源码。
+cd /home/yimu/airsim_rl/Vim/causal-conv1d
+CAUSAL_CONV1D_FORCE_BUILD=TRUE \
+  python -m pip install -e . --no-build-isolation
+
+cd /home/yimu/airsim_rl/Vim/mamba-1p1p1
+python -m pip install -e . --no-build-isolation
 ```
 
-## 7. 验证安装
+当前机器已按要求使用全部 32 核成功编译；若其他机器内存不足，可在安装前将
+`MAX_JOBS` 调低为 4。
+
+## 5. 验证安装
 
 ```bash
-python -c "import torch; print(f'Torch: {torch.__version__}, CUDA: {torch.version.cuda}'); import causal_conv1d; print(f'Causal Conv1d: {causal_conv1d.__version__}'); import mamba_ssm; print(f'Mamba SSM: {mamba_ssm.__version__}')"
+python -c "import inspect, causal_conv1d, mamba_ssm; from mamba_ssm import Mamba; print('causal-conv1d:', causal_conv1d.__version__); print('mamba-ssm:', mamba_ssm.__version__); print(inspect.signature(Mamba.__init__))"
 ```
 
-如果输出类似以下内容，说明安装成功：
-- Torch: 2.7.0+cu128
-- CUDA: 12.8
-- Causal Conv1d: 1.6.0
-- Mamba SSM: 2.3.0
+正确结果应为 `causal-conv1d 1.4.0`、`mamba-ssm 1.1.1`，且构造签名中
+包含 `bimamba_type`、`if_divide_out` 和 `init_layer_scale`。
 
-## 8. 安装 Selective Scan (VMamba 依赖)
+## 6. 安装 Selective Scan (VMamba 依赖)
 
 Selective Scan 是 VMamba 模型的核心组件，需要从源码编译。如果遇到 CUDA 版本不匹配或 CUB 库兼容性问题，请按照以下步骤修复。
 

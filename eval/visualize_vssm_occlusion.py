@@ -20,7 +20,6 @@ from __future__ import annotations
 import argparse
 import copy
 import datetime as dt
-import inspect
 import json
 import os
 import sys
@@ -604,56 +603,8 @@ def _looks_like_mamba(module: nn.Module) -> bool:
     )
 
 
-def _has_reverse_mamba_weights(keys: Sequence[str]) -> bool:
-    reverse_parts = ("A_b_log", "conv1d_b.", "x_proj_b.", "dt_proj_b.", "D_b")
-    return any(any(part in key for part in reverse_parts) for key in keys)
-
-
-def _new_unidirectional_mamba(source: nn.Module) -> nn.Module:
-    """Recreate a BiMamba mixer as the checkpoint's single-direction Mamba."""
-
-    constructor = type(source)
-    candidates = {
-        "d_model": int(source.d_model),
-        "d_state": int(source.d_state),
-        "d_conv": int(source.d_conv),
-        "expand": int(source.expand),
-        "dt_rank": int(source.dt_rank),
-        "conv_bias": source.conv1d.bias is not None,
-        "bias": source.in_proj.bias is not None,
-        "use_fast_path": bool(getattr(source, "use_fast_path", True)),
-        "layer_idx": getattr(source, "layer_idx", None),
-        "device": source.in_proj.weight.device,
-        "dtype": source.in_proj.weight.dtype,
-        "bimamba_type": "none",
-        "if_divide_out": False,
-        "init_layer_scale": getattr(source, "init_layer_scale", None),
-    }
-    parameters = inspect.signature(constructor.__init__).parameters
-    kwargs = {
-        key: value for key, value in candidates.items() if key in parameters
-    }
-    replacement = constructor(**kwargs)
-    return replacement.train(source.training)
-
-
-def _replace_reverse_mambas(root: nn.Module) -> int:
-    replacements: list[tuple[nn.Module, str, nn.Module]] = []
-    for parent in list(root.modules()):
-        for name, child in list(parent.named_children()):
-            if _looks_like_mamba(child) and _has_reverse_mamba_weights(
-                child.state_dict().keys()
-            ):
-                replacements.append(
-                    (parent, name, _new_unidirectional_mamba(child))
-                )
-    for parent, name, replacement in replacements:
-        setattr(parent, name, replacement)
-    return len(replacements)
-
-
-def _load_actor_for_evaluation(agent, checkpoint_path: str) -> int:
-    """Align Mamba construction and strictly load only inference modules."""
+def _load_actor_for_evaluation(agent, checkpoint_path: str) -> None:
+    """Strictly load the bidirectional actor inference modules."""
 
     checkpoint = torch.load(
         checkpoint_path, map_location="cpu", weights_only=False
@@ -661,31 +612,12 @@ def _load_actor_for_evaluation(agent, checkpoint_path: str) -> int:
     checkpoint_actor = checkpoint.get("actor_encoder")
     if not isinstance(checkpoint_actor, dict):
         raise ValueError("Checkpoint has no actor_encoder state dictionary")
-    checkpoint_has_reverse = _has_reverse_mamba_weights(checkpoint_actor.keys())
-    built_has_reverse = _has_reverse_mamba_weights(
-        agent.actor_encoder.state_dict().keys()
-    )
-
-    if checkpoint_has_reverse and not built_has_reverse:
-        raise RuntimeError(
-            "The checkpoint requires BiMamba-v2 reverse weights, but the "
-            "installed mamba_ssm only constructed single-direction mixers."
-        )
-    converted = 0
-    if not checkpoint_has_reverse and built_has_reverse:
-        converted = _replace_reverse_mambas(agent.actor_encoder)
-        if _has_reverse_mamba_weights(agent.actor_encoder.state_dict().keys()):
-            raise RuntimeError(
-                "Failed to align actor encoder with checkpoint Mamba"
-            )
-
     agent.actor_encoder.load_state_dict(checkpoint_actor, strict=True)
     actor = checkpoint.get("actor")
     if not isinstance(actor, dict):
         raise ValueError("Checkpoint has no actor state dictionary")
     agent.actor.load_state_dict(actor, strict=True)
     del checkpoint
-    return converted
 
 
 @contextmanager
@@ -1192,15 +1124,7 @@ def run_visualization(script_args, args) -> Path:
             device=torch.device("cuda"),
             seed=model_seed,
         )
-        converted_mamba_mixers = _load_actor_for_evaluation(
-            agent, checkpoint
-        )
-        if converted_mamba_mixers:
-            print(
-                "[Attribution] Rebuilt "
-                f"{converted_mamba_mixers} BiMamba mixers as single-direction "
-                "mixers to match the seed checkpoint."
-            )
+        _load_actor_for_evaluation(agent, checkpoint)
         print(f"[Attribution] Loaded actor model: {checkpoint}")
         set_agent_eval_mode(agent)
         predictor = BatchedDeterministicActor(agent)
@@ -1314,9 +1238,6 @@ def run_visualization(script_args, args) -> Path:
             "algorithm": "CL-VSSM-SAC",
             "model_seed": model_seed,
             "checkpoint": os.path.abspath(checkpoint),
-            "mamba_mixers_rebuilt_to_match_checkpoint": (
-                converted_mamba_mixers
-            ),
             "environment": "static_test_environment",
             "episode_seed": int(script_args.episode_seed),
             "termination": termination,
@@ -1528,10 +1449,6 @@ def run_self_tests() -> None:
         actual = MambaLRPMixer(bidirectional)(sequence)
     torch.testing.assert_close(actual, expected, rtol=1e-5, atol=1e-6)
 
-    holder = nn.Module()
-    holder.mamba = bidirectional
-    assert _replace_reverse_mambas(holder) == 1
-    assert not _has_reverse_mamba_weights(holder.state_dict().keys())
     print("All internal attribution tests passed.")
 
 
