@@ -245,6 +245,8 @@ class AirSimEnv(gym.Env):
             self.prev_action = 0  # For discrete actions
         self.prev_velocity = np.zeros(3, dtype=np.float32)
         self.prev_pos_xy = None
+        self.episode_path_length = 0.0
+        self.previous_path_position = None
         # 进度奖励：跟踪到目标的上一步距离
         self.prev_goal_dist = 0.0
 
@@ -736,6 +738,7 @@ class AirSimEnv(gym.Env):
                 "altitude_violation": False,
                 "is_success": False,
                 "ue4_restarted": True,
+                "path_length": float(self.episode_path_length),
                 "distance_sensor_obstacle_log_penalty": float(self.last_distance_sensor_obstacle_penalty),
             }
             return state, 0.0, True, False, info
@@ -797,6 +800,12 @@ class AirSimEnv(gym.Env):
         # Get observation
         state = self.get_obs()
         now = self.airgym.drone_pos()
+        current_path_position = np.asarray(now, dtype=np.float64)
+        if self.previous_path_position is not None:
+            self.episode_path_length += float(
+                np.linalg.norm(current_path_position - self.previous_path_position)
+            )
+        self.previous_path_position = current_path_position
 
         distance = np.sqrt(np.power((self.goal[0] - now[0]), 2)
                            +np.power((self.goal[1] - now[1]), 2)
@@ -878,6 +887,7 @@ class AirSimEnv(gym.Env):
             "has_collided": bool(collided),
             "altitude_violation": bool(altitude_violation),
             "is_success": bool(self.success),
+            "path_length": float(self.episode_path_length),
             "distance_sensor_obstacle_log_penalty": float(self.last_distance_sensor_obstacle_penalty),
         }
         return state, reward, done, False, info
@@ -1126,6 +1136,8 @@ class AirSimEnv(gym.Env):
         if abs(now[2] - self.airgym.z) > 0.1:
             self.airgym.client.moveToZAsync(self.airgym.z, 3).join()
             now = self.airgym.drone_pos()
+        self.episode_path_length = 0.0
+        self.previous_path_position = np.asarray(now, dtype=np.float64)
 
         # 5. 暂停仿真以同步获取初始状态
         self.airgym.client.simPause(True)

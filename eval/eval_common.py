@@ -18,8 +18,37 @@ class EpisodeResult:
     episode: int
     reward: float
     length: int
+    path_length: float
     success: bool
     碰撞率: bool
+    termination_reason: str
+
+    @property
+    def is_timeout(self) -> bool:
+        return self.termination_reason == "timeout"
+
+
+def classify_termination(
+    *,
+    success: bool,
+    collided: bool,
+    truncated: bool,
+    episode_length: int,
+    max_episode_length: Optional[int],
+    info: Dict,
+) -> str:
+    """Return one mutually exclusive terminal status for an evaluation episode."""
+    if success:
+        return "success"
+    if collided:
+        return "collision"
+    if bool(info.get("ue4_restarted", False)):
+        return "environment_restart"
+    if truncated:
+        return "timeout"
+    if max_episode_length is not None and episode_length >= max_episode_length:
+        return "timeout"
+    return "other_failure"
 
 
 def seeds_from_args(args) -> List[int]:
@@ -155,6 +184,7 @@ def run_eval_episodes(
         episode_length = 0
         done = False
         last_info: Dict = {}
+        last_truncated = False
 
         while not done:
             base, depth, critic_priv = prepare_action_inputs(obs)
@@ -169,6 +199,7 @@ def run_eval_episodes(
 
             next_obs, reward, terminated, truncated, step_info = env.step(action)
             done = bool(terminated or truncated)
+            last_truncated = bool(truncated)
             last_info = step_info if isinstance(step_info, dict) else {}
             episode_reward += float(reward)
             episode_length += 1
@@ -182,26 +213,56 @@ def run_eval_episodes(
 
         success = bool(last_info.get("is_success", False))
         碰撞率 = bool(last_info.get("has_collided", False))
+        if "path_length" not in last_info:
+            raise RuntimeError(
+                "Evaluation environment did not report path_length; "
+                "real travelled distance cannot be reconstructed from episode steps."
+            )
+        path_length = float(last_info["path_length"])
+        if not np.isfinite(path_length) or path_length < 0.0:
+            raise ValueError(f"Invalid episode path_length: {path_length}")
+        configured_max_length = getattr(args, "episode_length", None)
+        max_episode_length = (
+            int(configured_max_length)
+            if configured_max_length is not None
+            else None
+        )
+        termination_reason = classify_termination(
+            success=success,
+            collided=碰撞率,
+            truncated=last_truncated,
+            episode_length=episode_length,
+            max_episode_length=max_episode_length,
+            info=last_info,
+        )
         results.append(
             EpisodeResult(
                 episode=episode,
                 reward=episode_reward,
                 length=episode_length,
+                path_length=path_length,
                 success=success,
                 碰撞率=碰撞率,
+                termination_reason=termination_reason,
             )
         )
         # 实时累计统计
         cum_rewards = [r.reward for r in results]
         cum_successes = [r.success for r in results]
         cum_collisions = [r.碰撞率 for r in results]
-        cum_lengths = [r.length for r in results]
+        successful_path_lengths = [r.path_length for r in results if r.success]
+        path_length_summary = (
+            f", avg_success_path_length={np.mean(successful_path_lengths):.2f}m"
+            if successful_path_lengths
+            else ""
+        )
         print(
             f"[Eval][{label}] Episode {episode}: "
             f"avg_reward={np.mean(cum_rewards):.2f}, "
-            f"avg_length={np.mean(cum_lengths):.1f}, "
             f"success_rate={np.mean(cum_successes):.3f}, "
             f"collision_rate={np.mean(cum_collisions):.3f}"
+            f"{path_length_summary}, "
+            f"termination={termination_reason}"
         )
         # 增量写入 CSV，防止中途崩溃丢失数据
         if csv_path is not None:
@@ -216,7 +277,18 @@ def write_eval_csv(results: List[EpisodeResult], path: str) -> None:
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, mode="w", newline="") as f:
         writer = csv.writer(f)
-        writer.writerow(["episode", "reward", "episode_length", "success_rate", "collision_rate"])
+        writer.writerow([
+            "episode",
+            "reward",
+            "episode_length",
+            "path_length",
+            "is_success",
+            "has_collided",
+            "is_timeout",
+            "termination_reason",
+            "success_rate",
+            "collision_rate",
+        ])
         success_count = 0
         collision_count = 0
         for idx, row in enumerate(results, start=1):
@@ -226,6 +298,11 @@ def write_eval_csv(results: List[EpisodeResult], path: str) -> None:
                 row.episode,
                 row.reward,
                 row.length,
+                f"{row.path_length:.2f}",
+                int(row.success),
+                int(row.碰撞率),
+                int(row.is_timeout),
+                row.termination_reason,
                 success_count / idx,
                 collision_count / idx,
             ])
@@ -233,17 +310,25 @@ def write_eval_csv(results: List[EpisodeResult], path: str) -> None:
 
 def print_eval_summary(results: List[EpisodeResult], *, label: str, csv_path: str) -> None:
     rewards = np.asarray([row.reward for row in results], dtype=np.float32)
-    lengths = np.asarray([row.length for row in results], dtype=np.float32)
     successes = np.asarray([row.success for row in results], dtype=np.float32)
     collisions = np.asarray([row.碰撞率 for row in results], dtype=np.float32)
+    successful_path_lengths = np.asarray(
+        [row.path_length for row in results if row.success],
+        dtype=np.float32,
+    )
+    path_length_summary = (
+        f", mean_success_path_length={float(successful_path_lengths.mean()):.2f}m"
+        if successful_path_lengths.size
+        else ""
+    )
     print(
         f"[Eval][{label}] Summary: "
         f"episodes={len(results)}, "
         f"mean_reward={float(rewards.mean()):.2f}, "
         f"std_reward={float(rewards.std()):.2f}, "
-        f"mean_length={float(lengths.mean()):.2f}, "
         f"success_rate={float(successes.mean()):.3f}, "
         f"collision_rate={float(collisions.mean()):.3f}"
+        f"{path_length_summary}"
     )
     print(f"[Eval][{label}] CSV saved to {csv_path}")
 
