@@ -352,19 +352,6 @@ airsim_rl/
 │   ├── utils.py                   # 工具函数
 │   └── file_handling.py           # 文件处理
 │
-├── sb3_algorithms/                # Stable-Baselines3 包装器
-│   ├── config_loader.py           # SB3 参数加载
-│   ├── params/                    # SB3 算法参数
-│   ├── td3_wrappers.py            # TD3/DDPG 包装
-│   ├── sac_wrappers.py            # SAC 包装
-│   └── ppo_wrappers.py            # PPO 包装
-│
-├── sb3_extensions/                # SB3 扩展组件
-│   ├── buffers/                   # 自定义经验池
-│   ├── feature_extractors/        # 特征提取器
-│   ├── policies/                  # 自定义策略
-│   └── callbacks/                 # 训练回调
-│
 ├── environment_randomization/     # 环境参数随机化
 ├── game_handling/                 # UE4 游戏进程管理
 ├── scripts/                       # 辅助脚本
@@ -373,7 +360,6 @@ airsim_rl/
 │   └── <algorithm>/seed<seed>/   # 与 models/ 相同的算法/种子分层
 │
 ├── main_async.py                  # 主训练入口 (异步架构)
-├── main_sb3.py                    # SB3 风格训练入口
 ├── main_ppo.py                    # PPO 专用训练入口
 ├── main_mamba_rsac.py             # Mamba RSAC 训练入口
 ├── train_lstm_sac.py              # LSTM-SAC 专用训练脚本
