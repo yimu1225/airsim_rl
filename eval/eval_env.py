@@ -158,6 +158,8 @@ class SceneEvalAirSimEnv(AirSimEnv):
         self.prev_action = np.zeros(self.action_space.shape, dtype=np.float32) if hasattr(self.action_space, "shape") and self.action_space.shape else 0
         self.prev_velocity = np.zeros(3, dtype=np.float32)
         self.prev_pos_xy = None
+        self.episode_path_length = 0.0
+        self.previous_path_position = None
         self.prev_goal_dist = 0.0
 
         self.init_state_f()
@@ -223,6 +225,8 @@ class SceneEvalAirSimEnv(AirSimEnv):
         if abs(now[2] - self.airgym.z) > 0.1:
             self.airgym.client.moveToZAsync(self.airgym.z, 3).join()
             now = self.airgym.drone_pos()
+        self.episode_path_length = 0.0
+        self.previous_path_position = np.asarray(now, dtype=np.float64)
 
         self.airgym.client.simPause(True)
         self.on_episode_start()

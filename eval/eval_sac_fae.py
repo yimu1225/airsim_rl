@@ -113,7 +113,7 @@ def main(argv=None) -> None:
     except ValueError:
         core_name = ""
     if core_name != "SAC_FAE":
-        args.algorithm_name = "SAC_FAE"
+        args.algorithm_name = "CL-SAC_FAE"
     for seed in seeds_from_args(args):
         evaluate_seed(args, int(seed))
 
