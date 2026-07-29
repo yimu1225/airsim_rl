@@ -2,6 +2,9 @@
     "python-envs.defaultEnvManager": "ms-python.python:conda",
     "python-envs.defaultPackageManager": "ms-python.python:conda",
     "python.defaultInterpreterPath": "/home/yimu/miniconda3/envs/AirSim/bin/python",
+    "python.analysis.extraPaths": [
+        "/home/yimu/airsim_rl/Vim/mamba-1p1p1"
+    ],
     "python.condaPath": "/home/yimu/miniconda3/bin/conda",
     "python.terminal.activateEnvironment": true,
     "python.terminal.activateEnvInCurrentTerminal": false
