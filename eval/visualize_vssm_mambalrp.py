@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Paper-faithful MambaLRP explanations for CL-VSSM-SAC.
+"""Input-level MambaLRP adaptation for CL-VSSM-SAC.
 
 This standalone script adapts Jafari et al. (NeurIPS 2024) to a continuous
 VSSM-SAC policy.  It follows the authors' public Vision-Mamba implementation:
@@ -11,7 +11,7 @@ VSSM-SAC policy.  It follows the authors' public Vision-Mamba implementation:
 * normalization denominators are detached and residual additions are explicit;
 * patch embedding uses the paper's generalized LRP-gamma convolution rule;
 * relevance continues through patch embedding to the raw depth input;
-* displayed 128x128 maps are input-pixel relevance without interpolation.
+* displayed maps retain the input depth resolution without interpolation.
 
 The ImageNet paper explains a predicted class logit.  A continuous policy has
 no predicted class, so the primary scalar target is the L2 norm of the
@@ -27,6 +27,7 @@ import datetime as dt
 import json
 import os
 import sys
+import warnings
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -61,7 +62,8 @@ DEFAULT_NUM_SAMPLES = 6
 DEFAULT_MIN_SAMPLE_GAP = 10
 LRP_GAMMA = 0.25
 STABILIZER = 1e-6
-CONSERVATION_RELATIVE_TOLERANCE = 0.25
+CONSERVATION_DIAGNOSTIC_RTOL = 1e-3
+CONSERVATION_DIAGNOSTIC_ATOL = 1e-6
 OFFICIAL_MAMBALRP_COMMIT = "b4462a5f6d55ec38a1251683f7ca0f4d2a576e98"
 ACTION_LABELS = ("Forward velocity", "Yaw rate", "Vertical velocity")
 ACTION_KEYS = ("forward_velocity", "yaw_rate", "vertical_velocity")
@@ -483,8 +485,10 @@ class MambaLRPActor(nn.Module):
             self.source.input_norm, observation
         )
         for layer in self.source.trunk:
-            if isinstance(layer, nn.SiLU):
-                latent = _mambalrp_silu(latent)
+            if isinstance(layer, (nn.SiLU, nn.ReLU)):
+                latent = _mambalrp_identity_activation(
+                    latent, layer(latent)
+                )
             else:
                 latent = layer(latent)
         mean = self.source.mean_linear(latent)
@@ -1047,10 +1051,17 @@ def _single_target_relevance(
         if cls_parameter is not None and cls_parameter.grad is not None
         else 0.0
     )
-    attributed_sum = pixel_sum + base_sum
-    absolute_error = abs(target_value - attributed_sum)
+    variable_input_sum = pixel_sum + base_sum
+    all_root_sum = (
+        variable_input_sum + position_sum + learned_cls_sum
+    )
+    absolute_error = abs(target_value - all_root_sum)
     relative_error = absolute_error / max(
         abs(target_value), STABILIZER
+    )
+    numerical_tolerance = (
+        CONSERVATION_DIAGNOSTIC_ATOL
+        + CONSERVATION_DIAGNOSTIC_RTOL * abs(target_value)
     )
 
     details = {
@@ -1069,12 +1080,19 @@ def _single_target_relevance(
         "sum_position_embedding_relevance": position_sum,
         "sum_learned_cls_parameter_relevance": learned_cls_sum,
         "sum_base_state_relevance": base_sum,
-        "sum_attributed_input_relevance": attributed_sum,
+        "sum_variable_input_relevance": variable_input_sum,
+        "sum_all_root_relevance": all_root_sum,
         "conservation_absolute_error": absolute_error,
         "conservation_relative_error": relative_error,
-        "conservation_tolerance": CONSERVATION_RELATIVE_TOLERANCE,
-        "conservation_pass": (
-            relative_error <= CONSERVATION_RELATIVE_TOLERANCE
+        "conservation_diagnostic_rtol": CONSERVATION_DIAGNOSTIC_RTOL,
+        "conservation_diagnostic_atol": CONSERVATION_DIAGNOSTIC_ATOL,
+        "conservation_numerically_close": (
+            absolute_error <= numerical_tolerance
+        ),
+        "conservation_note": (
+            "This is a numerical diagnostic, not a paper-defined "
+            "acceptance threshold. Nonzero learned biases can retain "
+            "relevance not assigned to observation inputs."
         ),
         "forward_equivalence_max_normalized_action_error": forward_error,
         "mamba_mixers_replaced": replacements["mamba_mixers"],
@@ -1092,6 +1110,17 @@ def _single_target_relevance(
         ),
         "actor_wrappers_replaced": replacements["actor_wrappers"],
     }
+    if not details["conservation_numerically_close"]:
+        warnings.warn(
+            "MambaLRP conservation diagnostic is not numerically close for "
+            f"{details['target']}: target={target_value:.6g}, "
+            f"all_roots={all_root_sum:.6g}, "
+            f"relative_error={relative_error:.6g}. The relevance map is "
+            "saved with these diagnostics and must not be presented as "
+            "strictly conservative.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
     return (
         pixel_relevance,
         patch_relevance,
@@ -1160,7 +1189,7 @@ def compute_mambalrp(
             "multiplicative_gate_rule": "half_relevance",
             "normalization_rule": "denominator_detach",
             "residual_rule": "explicit_addition_LRP-0",
-            "actor_activation_rule": "identity_backward",
+            "actor_activation_rule": "identity_backward_SiLU_ReLU_tanh",
             "relevance_root": "input_depth_pixels",
             "signed_relevance": True,
         },
@@ -1185,7 +1214,10 @@ def compute_mambalrp(
         "display_interpolation": {
             "method": "none",
             "output_shape": list(map(int, pixel_relevance.shape)),
-            "note": "The displayed map is the raw 128x128 input relevance.",
+            "note": (
+                "The displayed map is raw input-pixel relevance at the "
+                "model's actual depth resolution."
+            ),
         },
         "policy": policy_details,
         "actions": action_details,
@@ -1722,6 +1754,8 @@ def run_visualization(script_args, args) -> Path:
 def run_self_tests() -> None:
     """Paper-rule tests kept in this standalone script."""
 
+    torch.manual_seed(20260730)
+
     assert select_spaced_top_indices(
         [3.0, 2.0, 1.0], count=3, min_gap=10
     ) == [0, 1, 2]
@@ -2195,6 +2229,60 @@ def run_self_tests() -> None:
             return torch.cat((base, encoder(depth)), dim=1)
 
     tiny_agent = TinyAgent()
+    original_actor = tiny_agent.actor
+    original_patch_projection = tiny_agent.actor_encoder.vim.patch_embed.proj
+    original_spatial_mixers = tuple(
+        block.mixer for block in tiny_agent.actor_encoder.vim.layers
+    )
+    original_spatial_norms = tuple(
+        block.norm for block in tiny_agent.actor_encoder.vim.layers
+    )
+    original_final_norm = tiny_agent.actor_encoder.vim.norm_f
+    original_temporal_mixers = tuple(
+        block.mamba
+        for block in tiny_agent.actor_encoder.temporal_mamba.mamba_layers
+    )
+    original_temporal_norms = tuple(
+        block.norm
+        for block in tiny_agent.actor_encoder.temporal_mamba.mamba_layers
+    )
+    original_fused_flags = (
+        tiny_agent.actor_encoder.vim.fused_add_norm,
+        tuple(
+            block.fused_add_norm
+            for block in tiny_agent.actor_encoder.vim.layers
+        ),
+    )
+
+    def assert_tiny_context_restored():
+        assert tiny_agent.actor is original_actor
+        assert (
+            tiny_agent.actor_encoder.vim.patch_embed.proj
+            is original_patch_projection
+        )
+        assert tuple(
+            block.mixer for block in tiny_agent.actor_encoder.vim.layers
+        ) == original_spatial_mixers
+        assert tuple(
+            block.norm for block in tiny_agent.actor_encoder.vim.layers
+        ) == original_spatial_norms
+        assert tiny_agent.actor_encoder.vim.norm_f is original_final_norm
+        assert tuple(
+            block.mamba
+            for block in tiny_agent.actor_encoder.temporal_mamba.mamba_layers
+        ) == original_temporal_mixers
+        assert tuple(
+            block.norm
+            for block in tiny_agent.actor_encoder.temporal_mamba.mamba_layers
+        ) == original_temporal_norms
+        assert (
+            tiny_agent.actor_encoder.vim.fused_add_norm,
+            tuple(
+                block.fused_add_norm
+                for block in tiny_agent.actor_encoder.vim.layers
+            ),
+        ) == original_fused_flags
+
     tiny_depth = np.linspace(
         0.2, 1.8, num=2 * 4 * 4, dtype=np.float32
     ).reshape(2, 4, 4)
@@ -2208,7 +2296,7 @@ def run_self_tests() -> None:
     assert tiny_result.patch_relevance.shape == (2, 2, 2)
     assert tiny_result.action_pixel_relevance.shape == (3, 2, 4, 4)
     assert tiny_result.details["display_interpolation"]["method"] == "none"
-    assert tiny_result.details["policy"]["conservation_pass"], (
+    assert tiny_result.details["policy"]["conservation_numerically_close"], (
         tiny_result.details["policy"]
     )
     np.testing.assert_allclose(
@@ -2217,7 +2305,19 @@ def run_self_tests() -> None:
         rtol=1e-5,
         atol=1e-6,
     )
-    assert isinstance(tiny_agent.actor, TinyPolicy)
+    assert_tiny_context_restored()
+
+    class ExpectedContextError(Exception):
+        pass
+
+    try:
+        with _paper_lrp_modules(tiny_agent):
+            assert isinstance(tiny_agent.actor, MambaLRPActor)
+            assert not tiny_agent.actor_encoder.vim.fused_add_norm
+            raise ExpectedContextError
+    except ExpectedContextError:
+        pass
+    assert_tiny_context_restored()
 
     print("All standalone MambaLRP tests passed.")
 
