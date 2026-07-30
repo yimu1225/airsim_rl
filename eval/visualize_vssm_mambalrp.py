@@ -1261,12 +1261,19 @@ def _render_overlay(
     *,
     alpha: float,
 ) -> None:
-    axis.imshow(depth, cmap="gray", vmin=0, vmax=255)
+    axis.imshow(
+        depth,
+        cmap="gray",
+        vmin=0,
+        vmax=255,
+        interpolation="nearest",
+    )
     axis.imshow(
         relevance,
         cmap="jet",
         norm=Normalize(vmin=-1.0, vmax=1.0),
         alpha=float(alpha),
+        interpolation="nearest",
     )
     axis.set_xticks([])
     axis.set_yticks([])
@@ -1291,7 +1298,13 @@ def _render_four_frames(
     )
     for frame in range(frames):
         lag = frames - frame - 1
-        axes[0, frame].imshow(depth[frame], cmap="gray", vmin=0, vmax=255)
+        axes[0, frame].imshow(
+            depth[frame],
+            cmap="gray",
+            vmin=0,
+            vmax=255,
+            interpolation="nearest",
+        )
         axes[0, frame].set_title("t" if lag == 0 else f"t-{lag}")
         axes[0, frame].set_xticks([])
         axes[0, frame].set_yticks([])
@@ -1343,7 +1356,13 @@ def _render_action_frames(
     )
     for frame in range(frames):
         lag = frames - frame - 1
-        axes[0, frame].imshow(depth[frame], cmap="gray", vmin=0, vmax=255)
+        axes[0, frame].imshow(
+            depth[frame],
+            cmap="gray",
+            vmin=0,
+            vmax=255,
+            interpolation="nearest",
+        )
         axes[0, frame].set_title("t" if lag == 0 else f"t-{lag}")
         axes[0, frame].set_xticks([])
         axes[0, frame].set_yticks([])
@@ -1395,7 +1414,13 @@ def _render_summary(
         relevance = _normalize_signed_maps(
             record.result.pixel_relevance
         )[-1]
-        axes[0, column].imshow(depth, cmap="gray", vmin=0, vmax=255)
+        axes[0, column].imshow(
+            depth,
+            cmap="gray",
+            vmin=0,
+            vmax=255,
+            interpolation="nearest",
+        )
         axes[0, column].set_title(
             f"Step {record.sample.step}\n"
             f"proximity={record.sample.obstacle_proximity:.1f}"
