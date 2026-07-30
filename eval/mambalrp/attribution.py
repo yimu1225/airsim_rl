@@ -18,6 +18,7 @@ ACTION_LABELS = ("Forward velocity", "Yaw rate", "Vertical velocity")
 ACTION_KEYS = ("forward_velocity", "yaw_rate", "vertical_velocity")
 
 
+@dataclass
 class TrajectoryStep:
     step: int
     base_state: np.ndarray
