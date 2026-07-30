@@ -1879,6 +1879,15 @@ def _parse_args(argv=None):
         )
     )
     parser.add_argument("--model_seed", type=int, default=DEFAULT_MODEL_SEED)
+    parser.add_argument(
+        "--environment_seed",
+        type=int,
+        default=1,
+        help=(
+            "Deterministic obstacle-layout and mutable-goal seed; must "
+            "differ from --model_seed."
+        ),
+    )
     parser.add_argument("--episode_seed", type=int, default=DEFAULT_EPISODE_SEED)
     parser.add_argument("--checkpoint", type=str, default=None)
     parser.add_argument("--capture_steps", type=int, nargs="+", default=None)
@@ -1911,6 +1920,8 @@ def _parse_args(argv=None):
         parser.error("--min_sample_gap must be non-negative")
     if not 0.0 <= script_args.overlay_alpha <= 1.0:
         parser.error("--overlay_alpha must be in [0, 1]")
+    if script_args.environment_seed == script_args.model_seed:
+        parser.error("--environment_seed must differ from --model_seed")
     if script_args.capture_steps is not None:
         script_args.capture_steps = sorted(set(script_args.capture_steps))
         if script_args.capture_steps[0] < 0:
@@ -1918,7 +1929,7 @@ def _parse_args(argv=None):
 
     args = get_config(remaining)
     args.algorithm_name = "CL-VSSM-SAC"
-    args.seed = int(script_args.model_seed)
+    args.seed = int(script_args.environment_seed)
     params_path = (
         REPO_ROOT / "algorithm" / "SB_PER_VSSM_SAC" / "params.yaml"
     )
@@ -1970,6 +1981,9 @@ def run_visualization(script_args, args) -> Path:
                 f"Expected depth {expected}, got {depth_shape}"
             )
 
+        # The environment captured its independent base seed at construction.
+        # Restore the model seed before constructing the evaluation agent.
+        args.seed = model_seed
         agent_class = get_agent_class(args.algorithm_name)
         agent = agent_class(
             obs["base"].shape[0],
@@ -2083,6 +2097,7 @@ def run_visualization(script_args, args) -> Path:
             "algorithm": "CL-VSSM-SAC",
             "method": "MambaLRP",
             "model_seed": model_seed,
+            "environment_seed": int(script_args.environment_seed),
             "checkpoint": os.path.abspath(checkpoint),
             "environment": "static_test_environment",
             "episode_seed": int(script_args.episode_seed),
