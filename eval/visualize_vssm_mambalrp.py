@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Input-level MambaLRP adaptation for CL-VSSM-SAC.
+"""Paper-style Vision MambaLRP adaptation for CL-VSSM-SAC.
 
 This standalone script adapts Jafari et al. (NeurIPS 2024) to a continuous
 VSSM-SAC policy.  It follows the authors' public Vision-Mamba implementation:
@@ -9,9 +9,10 @@ VSSM-SAC policy.  It follows the authors' public Vision-Mamba implementation:
 * every Mamba mixer uses the paper's SiLU, selective-SSM and half-gate rules;
 * spatial Mamba Conv1d and patch-embedding Conv2d use LRP-gamma (γ=0.25);
 * normalization denominators are detached and residual additions are explicit;
-* patch embedding uses the paper's generalized LRP-gamma convolution rule;
-* relevance continues through patch embedding to the raw depth input;
-* displayed maps retain the input depth resolution without interpolation.
+* affine biases stay in the native forward and are audited separately;
+* official figures use post-position-embedding patch-token relevance;
+* patch-token maps are interpolated only for continuous visualization;
+* extended input-pixel relevance is saved separately for auditing.
 
 The ImageNet paper explains a predicted class logit.  A continuous policy has
 no predicted class, so the primary scalar target is the L2 norm of the
@@ -60,10 +61,12 @@ DEFAULT_MODEL_SEED = 25
 DEFAULT_EPISODE_SEED = 25
 DEFAULT_NUM_SAMPLES = 6
 DEFAULT_MIN_SAMPLE_GAP = 10
+DEFAULT_DPI = 600
 LRP_GAMMA = 0.25
 STABILIZER = 1e-6
 CONSERVATION_DIAGNOSTIC_RTOL = 1e-3
 CONSERVATION_DIAGNOSTIC_ATOL = 1e-6
+DISPLAY_ABS_PERCENTILE = 99.0
 OFFICIAL_MAMBALRP_COMMIT = "b4462a5f6d55ec38a1251683f7ca0f4d2a576e98"
 ACTION_LABELS = ("Forward velocity", "Yaw rate", "Vertical velocity")
 ACTION_KEYS = ("forward_velocity", "yaw_rate", "vertical_velocity")
@@ -82,21 +85,11 @@ class TrajectoryStep:
 class MambaLRPResult:
     pixel_relevance: np.ndarray
     patch_relevance: np.ndarray
+    display_relevance: np.ndarray
     action_pixel_relevance: np.ndarray
     action_patch_relevance: np.ndarray
+    action_display_relevance: np.ndarray
     details: dict
-
-    @property
-    def display_relevance(self) -> np.ndarray:
-        """Backward-compatible alias; values are raw pixels, not interpolated."""
-
-        return self.pixel_relevance
-
-    @property
-    def action_display_relevance(self) -> np.ndarray:
-        """Backward-compatible alias for raw per-action pixel relevance."""
-
-        return self.action_pixel_relevance
 
 
 @dataclass
@@ -134,6 +127,26 @@ def _forward_value_with_surrogate(
     """Use ``native`` in the forward pass and ``surrogate`` for propagation."""
 
     return surrogate + (native - surrogate).detach()
+
+
+def _unique_affine_bias_parameters(
+    *roots: nn.Module,
+) -> list[nn.Parameter]:
+    """Collect each affine bias parameter once for relevance accounting."""
+
+    parameters: list[nn.Parameter] = []
+    seen: set[int] = set()
+    for root in roots:
+        for module in root.modules():
+            bias = getattr(module, "bias", None)
+            if (
+                isinstance(bias, nn.Parameter)
+                and bias.requires_grad
+                and id(bias) not in seen
+            ):
+                parameters.append(bias)
+                seen.add(id(bias))
+    return parameters
 
 
 def _mambalrp_layer_norm(
@@ -231,7 +244,6 @@ def _mambalrp_gamma_conv1d(
             layer.bias, gamma=gamma, positive=False
         )
         zero_bias = torch.zeros_like(layer.bias)
-
     positive_output = _conv1d_with_parameters(
         layer, positive_value, weight_positive, bias_positive
     ) + _conv1d_with_parameters(
@@ -486,8 +498,13 @@ class MambaLRPActor(nn.Module):
         )
         for layer in self.source.trunk:
             if isinstance(layer, (nn.SiLU, nn.ReLU)):
+                preactivation = (
+                    latent.clone()
+                    if bool(getattr(layer, "inplace", False))
+                    else latent
+                )
                 latent = _mambalrp_identity_activation(
-                    latent, layer(latent)
+                    preactivation, layer(latent)
                 )
             else:
                 latent = layer(latent)
@@ -801,12 +818,27 @@ def _policy_scalar(
     return normalized_action[:, int(target_index)].sum()
 
 
-def _normalize_signed_maps(maps: np.ndarray) -> np.ndarray:
+def _relevance_display_scale(
+    maps: np.ndarray,
+    *,
+    percentile: float = DISPLAY_ABS_PERCENTILE,
+) -> float:
+    values = np.abs(np.asarray(maps, dtype=np.float32))
+    if not values.size:
+        return 0.0
+    return float(np.percentile(values, float(percentile)))
+
+
+def _normalize_signed_maps(
+    maps: np.ndarray,
+    *,
+    percentile: float = DISPLAY_ABS_PERCENTILE,
+) -> np.ndarray:
     values = np.asarray(maps, dtype=np.float32)
-    maximum = float(np.max(np.abs(values))) if values.size else 0.0
-    if maximum <= 0:
+    scale = _relevance_display_scale(values, percentile=percentile)
+    if scale <= 0:
         return np.zeros_like(values)
-    return values / maximum
+    return np.clip(values / scale, -1.0, 1.0)
 
 
 def _mask_ranked_patches(
@@ -924,6 +956,23 @@ def _sum_pixel_relevance_by_patch(
     ).sum(axis=(2, 4))
 
 
+def _interpolate_patch_maps(
+    patch_maps: np.ndarray,
+    *,
+    output_size: tuple[int, int],
+) -> np.ndarray:
+    """Continuously render the official patch-token relevance grid."""
+
+    tensor = torch.as_tensor(patch_maps, dtype=torch.float32)
+    resized = F.interpolate(
+        tensor[:, None],
+        size=tuple(map(int, output_size)),
+        mode="bilinear",
+        align_corners=False,
+    )[:, 0]
+    return resized.cpu().numpy().astype(np.float32)
+
+
 def _single_target_relevance(
     agent,
     base_state: np.ndarray,
@@ -948,13 +997,30 @@ def _single_target_relevance(
         )
 
     captured_embeddings: list[torch.Tensor] = []
+    captured_vim_outputs: list[torch.Tensor] = []
+    captured_temporal_outputs: list[torch.Tensor] = []
+    captured_temporal_norm_outputs: list[torch.Tensor] = []
+    captured_temporal_mixer_outputs: list[torch.Tensor] = []
+    temporal_internal_hooks = []
+
+    def capture_tensor(target: list[torch.Tensor], output, label: str):
+        if not isinstance(output, torch.Tensor):
+            raise TypeError(f"{label} output must be a tensor")
+        target.append(output)
+        return output
 
     def retain_post_position_embeddings(_module, _inputs, output):
-        if not isinstance(output, torch.Tensor):
-            raise TypeError("Vim position embedding output must be a tensor")
-        output.retain_grad()
-        captured_embeddings.append(output)
-        return output
+        return capture_tensor(
+            captured_embeddings, output, "Vim position embedding"
+        )
+
+    def retain_vim_output(_module, _inputs, output):
+        return capture_tensor(captured_vim_outputs, output, "Vim")
+
+    def retain_temporal_output(_module, _inputs, output):
+        return capture_tensor(
+            captured_temporal_outputs, output, "Temporal Mamba"
+        )
 
     vim = agent.actor_encoder.vim
     if not hasattr(vim, "pos_drop"):
@@ -962,14 +1028,50 @@ def _single_target_relevance(
             "Input-level Vision MambaLRP requires absolute position "
             "embeddings and vim.pos_drop"
         )
-    hook = vim.pos_drop.register_forward_hook(
-        retain_post_position_embeddings
-    )
-    agent.actor_encoder.zero_grad(set_to_none=True)
-    agent.actor.zero_grad(set_to_none=True)
+    top_level_hooks = []
+    gradient_by_id: dict[int, torch.Tensor | None] = {}
+    bias_parameters: list[nn.Parameter] = []
+    bias_parameter_groups: dict[str, list[nn.Parameter]] = {}
     try:
+        top_level_hooks.append(
+            vim.pos_drop.register_forward_hook(
+                retain_post_position_embeddings
+            )
+        )
+        top_level_hooks.append(
+            vim.register_forward_hook(retain_vim_output)
+        )
+        top_level_hooks.append(
+            agent.actor_encoder.temporal_mamba.register_forward_hook(
+                retain_temporal_output
+            )
+        )
         with _paper_lrp_modules(agent) as replacements:
-            lrp_action = _normalized_action(agent, base, depth)
+            for block in (
+                agent.actor_encoder.temporal_mamba.mamba_layers
+            ):
+                temporal_internal_hooks.append(
+                    block.norm.register_forward_hook(
+                        lambda _module, _inputs, output: capture_tensor(
+                            captured_temporal_norm_outputs,
+                            output,
+                            "Temporal normalization",
+                        )
+                    )
+                )
+                temporal_internal_hooks.append(
+                    block.mamba.register_forward_hook(
+                        lambda _module, _inputs, output: capture_tensor(
+                            captured_temporal_mixer_outputs,
+                            output,
+                            "Temporal Mamba mixer",
+                        )
+                    )
+                )
+            actor_input = agent._encode_state(
+                base, depth, agent.actor_encoder
+            )
+            lrp_action = agent.actor(actor_input, deterministic=True)
             forward_error = float(
                 (lrp_action.detach() - native_action).abs().max().item()
             )
@@ -979,9 +1081,56 @@ def _single_target_relevance(
                     f"max normalized action error={forward_error:.6g}"
                 )
             target = _policy_scalar(lrp_action, target_index)
-            target.backward()
+            bias_parameters = _unique_affine_bias_parameters(
+                agent.actor_encoder, agent.actor
+            )
+            bias_parameter_groups = {
+                "actor": _unique_affine_bias_parameters(agent.actor),
+                "temporal_mamba": _unique_affine_bias_parameters(
+                    agent.actor_encoder.temporal_mamba
+                ),
+                "spatial_vim": _unique_affine_bias_parameters(vim),
+            }
+            requested: list[torch.Tensor] = []
+            seen_requested: set[int] = set()
+
+            def request_gradient(value):
+                if (
+                    isinstance(value, torch.Tensor)
+                    and value.requires_grad
+                    and id(value) not in seen_requested
+                ):
+                    requested.append(value)
+                    seen_requested.add(id(value))
+
+            for value in (
+                base,
+                depth,
+                actor_input,
+                *captured_embeddings,
+                *captured_vim_outputs,
+                *captured_temporal_outputs,
+                *captured_temporal_norm_outputs,
+                *captured_temporal_mixer_outputs,
+                getattr(vim, "pos_embed", None),
+                getattr(vim, "cls_token", None),
+                *bias_parameters,
+            ):
+                request_gradient(value)
+            gradients = torch.autograd.grad(
+                target,
+                requested,
+                allow_unused=True,
+            )
+            gradient_by_id = {
+                id(value): gradient
+                for value, gradient in zip(requested, gradients)
+            }
     finally:
-        hook.remove()
+        for internal_hook in temporal_internal_hooks:
+            internal_hook.remove()
+        for top_level_hook in top_level_hooks:
+            top_level_hook.remove()
 
     if len(captured_embeddings) != 1:
         raise RuntimeError(
@@ -989,21 +1138,53 @@ def _single_target_relevance(
             f"captured {len(captured_embeddings)}"
         )
     embeddings = captured_embeddings[0]
-    if embeddings.grad is None:
-        raise RuntimeError("MambaLRP did not reach patch embeddings")
-    if depth.grad is None:
-        raise RuntimeError("MambaLRP did not reach input depth pixels")
+    if len(captured_vim_outputs) != 1:
+        raise RuntimeError(
+            f"Expected one Vim output, captured {len(captured_vim_outputs)}"
+        )
+    if len(captured_temporal_outputs) != 1:
+        raise RuntimeError(
+            "Expected one temporal Mamba output, captured "
+            f"{len(captured_temporal_outputs)}"
+        )
+    vim_output = captured_vim_outputs[0]
+    temporal_output = captured_temporal_outputs[0]
 
-    token_relevance = (embeddings * embeddings.grad).sum(dim=-1)
+    def required_gradient(
+        value: torch.Tensor, label: str
+    ) -> torch.Tensor:
+        gradient = gradient_by_id.get(id(value))
+        if gradient is None:
+            raise RuntimeError(f"MambaLRP did not reach {label}")
+        return gradient
+
+    embeddings_gradient = required_gradient(
+        embeddings, "patch embeddings"
+    )
+    depth_gradient = required_gradient(depth, "input depth pixels")
+    actor_input_gradient = required_gradient(
+        actor_input, "the Actor input"
+    )
+    vim_output_gradient = required_gradient(vim_output, "the Vim output")
+    temporal_output_gradient = required_gradient(
+        temporal_output, "the temporal Mamba output"
+    )
+
+    token_relevance = (
+        embeddings * embeddings_gradient
+    ).sum(dim=-1)
     token_patch_relevance, cls_relevance = _remove_middle_cls_relevance(
         token_relevance,
         grid_size=tuple(vim.patch_embed.grid_size),
     )
+    patch_relevance = (
+        token_patch_relevance.detach().cpu().numpy().astype(np.float32)
+    )
     pixel_relevance = (
-        depth * depth.grad
+        depth * depth_gradient
     )[0].detach().cpu().numpy().astype(np.float32)
     patch_size = tuple(map(int, vim.patch_embed.patch_size))
-    patch_relevance = _sum_pixel_relevance_by_patch(
+    pixel_patch_relevance = _sum_pixel_relevance_by_patch(
         pixel_relevance,
         patch_size=patch_size,
     )
@@ -1017,46 +1198,133 @@ def _single_target_relevance(
         raise RuntimeError("Input-pixel relevance contains non-finite values")
 
     target_value = float(target.detach().item())
+    actor_input_sum = float(
+        (actor_input * actor_input_gradient).detach().sum().item()
+    )
+    base_width = int(base.shape[1])
+    actor_visual_input_sum = float(
+        (
+            actor_input[:, base_width:]
+            * actor_input_gradient[:, base_width:]
+        )
+        .detach()
+        .sum()
+        .item()
+    )
+    vim_output_sum = float(
+        (vim_output * vim_output_gradient).detach().sum().item()
+    )
+    temporal_output_sum = float(
+        (temporal_output * temporal_output_gradient)
+        .detach()
+        .sum()
+        .item()
+    )
+    temporal_norm_output_sums = [
+        float(
+            (
+                value
+                * required_gradient(
+                    value, "a temporal normalization output"
+                )
+            )
+            .detach()
+            .sum()
+            .item()
+        )
+        for value in captured_temporal_norm_outputs
+    ]
+    temporal_mixer_output_sums = [
+        float(
+            (
+                value
+                * required_gradient(value, "a temporal mixer output")
+            )
+            .detach()
+            .sum()
+            .item()
+        )
+        for value in captured_temporal_mixer_outputs
+    ]
     token_sum = float(token_relevance.detach().sum().item())
     token_patch_sum = float(
         token_patch_relevance.detach().sum().item()
     )
     patch_sum = float(patch_relevance.sum(dtype=np.float64))
+    pixel_patch_sum = float(
+        pixel_patch_relevance.sum(dtype=np.float64)
+    )
     cls_sum = float(cls_relevance.detach().sum().item())
     pixel_sum = float(pixel_relevance.sum(dtype=np.float64))
-    base_sum = (
-        float((base * base.grad).detach().sum().item())
-        if base.grad is not None
-        else 0.0
+    base_gradient = required_gradient(base, "the base-state input")
+    base_sum = float(
+        (base * base_gradient).detach().sum().item()
+    )
+    position_embedding = getattr(vim, "pos_embed", None)
+    position_gradient = (
+        gradient_by_id.get(id(position_embedding))
+        if position_embedding is not None
+        else None
     )
     position_sum = (
         float(
-            (vim.pos_embed * vim.pos_embed.grad)
+            (position_embedding * position_gradient)
             .detach()
             .sum()
             .item()
         )
-        if getattr(vim, "pos_embed", None) is not None
-        and vim.pos_embed.grad is not None
+        if position_embedding is not None
+        and position_gradient is not None
         else 0.0
     )
     cls_parameter = getattr(vim, "cls_token", None)
+    cls_gradient = (
+        gradient_by_id.get(id(cls_parameter))
+        if cls_parameter is not None
+        else None
+    )
     learned_cls_sum = (
         float(
-            (cls_parameter * cls_parameter.grad)
+            (cls_parameter * cls_gradient)
             .detach()
             .sum()
             .item()
         )
-        if cls_parameter is not None and cls_parameter.grad is not None
+        if cls_parameter is not None and cls_gradient is not None
         else 0.0
     )
     variable_input_sum = pixel_sum + base_sum
     all_root_sum = (
         variable_input_sum + position_sum + learned_cls_sum
     )
+    affine_bias_sum = float(
+        sum(
+            (
+                parameter * gradient_by_id[id(parameter)]
+            ).detach().sum().item()
+            for parameter in bias_parameters
+            if gradient_by_id.get(id(parameter)) is not None
+        )
+    )
+    affine_bias_group_sums = {
+        name: float(
+            sum(
+                (
+                    parameter * gradient_by_id[id(parameter)]
+                ).detach().sum().item()
+                for parameter in parameters
+                if gradient_by_id.get(id(parameter)) is not None
+            )
+        )
+        for name, parameters in bias_parameter_groups.items()
+    }
+    accounted_sum = all_root_sum + affine_bias_sum
     absolute_error = abs(target_value - all_root_sum)
     relative_error = absolute_error / max(
+        abs(target_value), STABILIZER
+    )
+    accounting_absolute_error = abs(target_value - accounted_sum)
+    accounting_relative_error = accounting_absolute_error / max(
         abs(target_value), STABILIZER
     )
     numerical_tolerance = (
@@ -1072,15 +1340,32 @@ def _single_target_relevance(
         ),
         "target_value": target_value,
         "normalized_action": native_action[0].detach().cpu().tolist(),
+        "sum_actor_input_relevance": actor_input_sum,
+        "sum_actor_visual_input_relevance": actor_visual_input_sum,
+        "sum_temporal_mamba_output_relevance": temporal_output_sum,
+        "temporal_norm_output_relevance_sums": (
+            temporal_norm_output_sums
+        ),
+        "temporal_mixer_output_relevance_sums": (
+            temporal_mixer_output_sums
+        ),
+        "sum_vim_output_relevance": vim_output_sum,
         "sum_post_position_token_relevance": token_sum,
         "sum_post_position_patch_relevance": token_patch_sum,
         "sum_patch_relevance": patch_sum,
+        "sum_input_pixel_relevance_by_patch": pixel_patch_sum,
         "sum_input_depth_relevance": pixel_sum,
         "sum_cls_relevance": cls_sum,
         "sum_position_embedding_relevance": position_sum,
         "sum_learned_cls_parameter_relevance": learned_cls_sum,
         "sum_base_state_relevance": base_sum,
         "sum_variable_input_relevance": variable_input_sum,
+        "sum_all_input_root_relevance": all_root_sum,
+        "sum_non_attributable_affine_bias_relevance": affine_bias_sum,
+        "non_attributable_affine_bias_relevance_by_subsystem": (
+            affine_bias_group_sums
+        ),
+        "sum_all_accounted_relevance": accounted_sum,
         "sum_all_root_relevance": all_root_sum,
         "conservation_absolute_error": absolute_error,
         "conservation_relative_error": relative_error,
@@ -1089,10 +1374,17 @@ def _single_target_relevance(
         "conservation_numerically_close": (
             absolute_error <= numerical_tolerance
         ),
+        "accounting_absolute_error": accounting_absolute_error,
+        "accounting_relative_error": accounting_relative_error,
+        "accounting_numerically_close": (
+            accounting_absolute_error <= numerical_tolerance
+        ),
         "conservation_note": (
             "This is a numerical diagnostic, not a paper-defined "
-            "acceptance threshold. Nonzero learned biases can retain "
-            "relevance not assigned to observation inputs."
+            "acceptance threshold. Following the MambaLRP paper, "
+            "affine biases are treated as non-attributable and are not "
+            "painted onto input pixels. The separate accounting check "
+            "adds their relevance to the input roots."
         ),
         "forward_equivalence_max_normalized_action_error": forward_error,
         "mamba_mixers_replaced": replacements["mamba_mixers"],
@@ -1110,12 +1402,12 @@ def _single_target_relevance(
         ),
         "actor_wrappers_replaced": replacements["actor_wrappers"],
     }
-    if not details["conservation_numerically_close"]:
+    if not details["accounting_numerically_close"]:
         warnings.warn(
-            "MambaLRP conservation diagnostic is not numerically close for "
+            "MambaLRP relevance accounting is not numerically close for "
             f"{details['target']}: target={target_value:.6g}, "
-            f"all_roots={all_root_sum:.6g}, "
-            f"relative_error={relative_error:.6g}. The relevance map is "
+            f"accounted={accounted_sum:.6g}, "
+            f"relative_error={accounting_relative_error:.6g}. The map is "
             "saved with these diagnostics and must not be presented as "
             "strictly conservative.",
             RuntimeWarning,
@@ -1167,14 +1459,30 @@ def compute_mambalrp(
         action_details[key] = details
     action_pixel_relevance = np.stack(action_pixel_maps, axis=0)
     action_patch_relevance = np.stack(action_patch_maps, axis=0)
+    display_relevance = _interpolate_patch_maps(
+        patch_relevance,
+        output_size=depth_np.shape[-2:],
+    )
+    action_display_relevance = np.stack(
+        [
+            _interpolate_patch_maps(
+                action_patch_relevance[index],
+                output_size=depth_np.shape[-2:],
+            )
+            for index in range(action_count)
+        ],
+        axis=0,
+    )
 
     details = {
         "definition": (
-            "Signed input-depth-pixel relevance using Gradient x Input / "
-            "LRP-0, detached-denominator LayerNorm/RMSNorm, explicit "
-            "residual addition, MambaLRP SiLU/selective-SSM/half-gate "
-            "rules, Actor identity-backward SiLU/tanh, and generalized "
-            "LRP-gamma for Vision-Mamba Conv1d and patch Conv2d"
+            "Official-style signed post-position-embedding patch-token "
+            "relevance using Gradient x Input / LRP-0, "
+            "detached-denominator LayerNorm/RMSNorm, explicit residual "
+            "addition, MambaLRP SiLU/selective-SSM/half-gate rules, and "
+            "Actor identity-backward SiLU/tanh. Input-pixel relevance is "
+            "saved separately as an extended audit and is not used by "
+            "the paper-style figures."
         ),
         "paper_configuration": {
             "gamma": LRP_GAMMA,
@@ -1185,12 +1493,27 @@ def compute_mambalrp(
             ],
             "temporal_mamba_conv1d_rule": "LRP-0",
             "lrp_zero_layers": ["in_proj", "out_proj", "x_proj", "dt_proj"],
+            "affine_bias_rule": (
+                "native_forward_bias_audited_as_non_attributable"
+            ),
+            "model_parameters_modified": False,
+            "temporary_explanation_wrappers": True,
+            "forward_equivalence_max_allowed_action_error": 5e-4,
             "ssm_detached_quantities": ["discrete_A", "discrete_B", "C"],
             "multiplicative_gate_rule": "half_relevance",
             "normalization_rule": "denominator_detach",
             "residual_rule": "explicit_addition_LRP-0",
             "actor_activation_rule": "identity_backward_SiLU_ReLU_tanh",
-            "relevance_root": "input_depth_pixels",
+            "input_relevance_roots": [
+                "depth_pixels",
+                "base_state",
+                "position_embedding",
+                "learned_cls_token",
+            ],
+            "official_vision_display_root": (
+                "post_position_embedding_patch_tokens"
+            ),
+            "separate_non_attributable_root": "affine_biases",
             "signed_relevance": True,
         },
         "continuous_policy_adaptation": {
@@ -1212,12 +1535,28 @@ def compute_mambalrp(
         ),
         "patch_relevance_shape": list(map(int, patch_relevance.shape)),
         "display_interpolation": {
-            "method": "none",
-            "output_shape": list(map(int, pixel_relevance.shape)),
+            "method": "bilinear",
+            "align_corners": False,
+            "input_shape": list(map(int, patch_relevance.shape)),
+            "output_shape": list(map(int, display_relevance.shape)),
             "note": (
-                "The displayed map is raw input-pixel relevance at the "
-                "model's actual depth resolution."
+                "The official patch-token relevance grid is interpolated "
+                "only for continuous visualization. Interpolation does "
+                "not create additional attribution resolution."
             ),
+        },
+        "display_normalization": {
+            "primary_policy_map": (
+                "signed_post_position_patch_token_relevance"
+            ),
+            "per_action_maps": (
+                "signed_post_position_patch_token_relevance"
+            ),
+            "absolute_percentile_clip": DISPLAY_ABS_PERCENTILE,
+            "scope": "per_sample_or_per_action_across_all_frames",
+            "raw_npz_values_modified": False,
+            "patch_to_input_renderer": "bilinear",
+            "matplotlib_renderer": "bicubic_continuous_color_rendering",
         },
         "policy": policy_details,
         "actions": action_details,
@@ -1233,8 +1572,10 @@ def compute_mambalrp(
     return MambaLRPResult(
         pixel_relevance=pixel_relevance,
         patch_relevance=patch_relevance,
+        display_relevance=display_relevance,
         action_pixel_relevance=action_pixel_relevance,
         action_patch_relevance=action_patch_relevance,
+        action_display_relevance=action_display_relevance,
         details=details,
     )
 
@@ -1260,6 +1601,8 @@ def _render_overlay(
     relevance: np.ndarray,
     *,
     alpha: float,
+    signed: bool,
+    heatmap_interpolation: str,
 ) -> None:
     axis.imshow(
         depth,
@@ -1271,9 +1614,12 @@ def _render_overlay(
     axis.imshow(
         relevance,
         cmap="jet",
-        norm=Normalize(vmin=-1.0, vmax=1.0),
+        norm=Normalize(
+            vmin=-1.0 if signed else 0.0,
+            vmax=1.0,
+        ),
         alpha=float(alpha),
-        interpolation="nearest",
+        interpolation=heatmap_interpolation,
     )
     axis.set_xticks([])
     axis.set_yticks([])
@@ -1287,7 +1633,9 @@ def _render_four_frames(
     dpi: int,
 ) -> None:
     depth = record.sample.depth
-    normalized = _normalize_signed_maps(record.result.pixel_relevance)
+    normalized = _normalize_signed_maps(
+        record.result.display_relevance
+    )
     frames = depth.shape[0]
     figure, axes = plt.subplots(
         2,
@@ -1313,6 +1661,8 @@ def _render_four_frames(
             depth[frame],
             normalized[frame],
             alpha=alpha,
+            signed=True,
+            heatmap_interpolation="bicubic",
         )
     axes[0, 0].set_ylabel("Original")
     axes[1, 0].set_ylabel("MambaLRP")
@@ -1322,16 +1672,20 @@ def _render_four_frames(
     scalar.set_array([])
     figure.colorbar(
         scalar,
-        ax=axes[1, :],
+        ax=axes.ravel().tolist(),
         shrink=0.78,
-        label="Signed relevance (normalized for display)",
+        label=(
+            f"Signed relevance (clipped at abs p"
+            f"{DISPLAY_ABS_PERCENTILE:g})"
+        ),
     )
-    resolution = "x".join(
-        map(str, record.result.pixel_relevance.shape[-2:])
+    grid = "x".join(
+        map(str, record.result.patch_relevance.shape[-2:])
     )
     figure.suptitle(
-        "CL-VSSM-SAC input-level MambaLRP "
-        f"— step {record.sample.step} — raw input {resolution}"
+        "CL-VSSM-SAC paper-style MambaLRP "
+        f"— step {record.sample.step} — raw patch grid {grid} — "
+        "continuous display"
     )
     figure.savefig(output_path, dpi=int(dpi), bbox_inches="tight")
     plt.close(figure)
@@ -1345,7 +1699,7 @@ def _render_action_frames(
     dpi: int,
 ) -> None:
     depth = record.sample.depth
-    action_maps = record.result.action_pixel_relevance
+    action_maps = record.result.action_display_relevance
     frames = depth.shape[0]
     figure, axes = plt.subplots(
         len(ACTION_LABELS) + 1,
@@ -1376,6 +1730,8 @@ def _render_action_frames(
                 depth[frame],
                 normalized[frame],
                 alpha=alpha,
+                signed=True,
+                heatmap_interpolation="bicubic",
             )
         axes[row, 0].set_ylabel(label)
     scalar = ScalarMappable(
@@ -1384,9 +1740,9 @@ def _render_action_frames(
     scalar.set_array([])
     figure.colorbar(
         scalar,
-        ax=axes[1:, :],
+        ax=axes.ravel().tolist(),
         shrink=0.72,
-        label="Signed relevance (normalized per target)",
+        label="Signed pixel relevance (normalized per target)",
     )
     figure.suptitle(
         f"CL-VSSM-SAC per-action MambaLRP — step {record.sample.step}"
@@ -1412,7 +1768,7 @@ def _render_summary(
     for column, record in enumerate(records):
         depth = record.sample.depth[-1]
         relevance = _normalize_signed_maps(
-            record.result.pixel_relevance
+            record.result.display_relevance
         )[-1]
         axes[0, column].imshow(
             depth,
@@ -1428,7 +1784,12 @@ def _render_summary(
         axes[0, column].set_xticks([])
         axes[0, column].set_yticks([])
         _render_overlay(
-            axes[1, column], depth, relevance, alpha=alpha
+            axes[1, column],
+            depth,
+            relevance,
+            alpha=alpha,
+            signed=True,
+            heatmap_interpolation="bicubic",
         )
     axes[0, 0].set_ylabel("Original")
     axes[1, 0].set_ylabel("MambaLRP")
@@ -1438,11 +1799,14 @@ def _render_summary(
     scalar.set_array([])
     figure.colorbar(
         scalar,
-        ax=axes[1, :],
+        ax=axes.ravel().tolist(),
         shrink=0.78,
-        label="Signed relevance (normalized per sample)",
+        label=(
+            f"Signed relevance (clipped at abs p"
+            f"{DISPLAY_ABS_PERCENTILE:g} per sample)"
+        ),
     )
-    figure.suptitle("CL-VSSM-SAC input-level MambaLRP summary")
+    figure.suptitle("CL-VSSM-SAC paper-style MambaLRP summary")
     figure.savefig(output_path, dpi=int(dpi), bbox_inches="tight")
     plt.close(figure)
 
@@ -1459,7 +1823,7 @@ def _save_record(record: CaptureRecord, output_dir: Path) -> None:
         obstacle_proximity=np.float32(sample.obstacle_proximity),
         pixel_relevance=result.pixel_relevance.astype(np.float32),
         patch_relevance=result.patch_relevance.astype(np.float32),
-        display_relevance=result.pixel_relevance.astype(np.float32),
+        display_relevance=result.display_relevance.astype(np.float32),
         action_pixel_relevance=(
             result.action_pixel_relevance.astype(np.float32)
         ),
@@ -1467,7 +1831,7 @@ def _save_record(record: CaptureRecord, output_dir: Path) -> None:
             result.action_patch_relevance.astype(np.float32)
         ),
         action_display_relevance=(
-            result.action_pixel_relevance.astype(np.float32)
+            result.action_display_relevance.astype(np.float32)
         ),
     )
 
@@ -1537,7 +1901,7 @@ def _parse_args(argv=None):
         action="store_true",
         help="Skip the paper-style MoRF/LeRF patch-flipping evaluation.",
     )
-    parser.add_argument("--dpi", type=int, default=220)
+    parser.add_argument("--dpi", type=int, default=DEFAULT_DPI)
     parser.add_argument("--output_dir", type=str, default=None)
     parser.add_argument("--self_test", action="store_true")
     script_args, remaining = parser.parse_known_args(argv)
@@ -1732,10 +2096,25 @@ def run_visualization(script_args, args) -> Path:
             "effective_min_sample_gap": _minimum_pair_gap(selected_steps),
             "gamma": LRP_GAMMA,
             "signed_relevance": True,
-            "raw_relevance_unit": "input_depth_pixel",
+            "raw_relevance_unit": (
+                "post_position_embedding_patch_token"
+            ),
+            "extended_audit_relevance_unit": "input_depth_pixel",
             "display_colormap": "jet",
-            "display_range": [-1.0, 1.0],
-            "display_interpolation": "none",
+            "display_range": {
+                "primary_policy_signed": [-1.0, 1.0],
+                "per_action_signed": [-1.0, 1.0],
+            },
+            "display_absolute_percentile_clip": DISPLAY_ABS_PERCENTILE,
+            "display_spatial_aggregation": (
+                "none_on_raw_patch_token_relevance"
+            ),
+            "display_interpolation": (
+                "bilinear_patch_to_input_then_bicubic_rendering"
+            ),
+            "raw_relevance_interpolation": (
+                "none_for_patch_tokens_and_input_pixel_audit"
+            ),
             "faithfulness_evaluation": (
                 "disabled"
                 if script_args.skip_faithfulness
@@ -1780,6 +2159,18 @@ def run_self_tests() -> None:
     """Paper-rule tests kept in this standalone script."""
 
     torch.manual_seed(20260730)
+
+    def bias_relevance(module: nn.Module) -> torch.Tensor:
+        terms = [
+            (parameter * parameter.grad).sum()
+            for parameter in _unique_affine_bias_parameters(module)
+            if parameter.grad is not None
+        ]
+        return (
+            torch.stack(terms).sum()
+            if terms
+            else torch.tensor(0.0)
+        )
 
     assert select_spaced_top_indices(
         [3.0, 2.0, 1.0], count=3, min_gap=10
@@ -1846,6 +2237,12 @@ def run_self_tests() -> None:
     gamma_output.sum().backward()
     assert value.grad is not None
     assert torch.all(torch.isfinite(value.grad))
+    torch.testing.assert_close(
+        (value * value.grad).sum() + bias_relevance(conv),
+        gamma_output.detach().sum(),
+        rtol=2e-4,
+        atol=1e-6,
+    )
 
     conv2d = nn.Conv2d(1, 3, kernel_size=2, stride=2, bias=True)
     image = torch.randn(2, 1, 4, 4, requires_grad=True)
@@ -1858,6 +2255,12 @@ def run_self_tests() -> None:
     gamma_image_output.sum().backward()
     assert image.grad is not None
     assert torch.all(torch.isfinite(image.grad))
+    torch.testing.assert_close(
+        (image * image.grad).sum() + bias_relevance(conv2d),
+        gamma_image_output.detach().sum(),
+        rtol=2e-4,
+        atol=1e-6,
+    )
 
     pixels = np.arange(2 * 4 * 4, dtype=np.float32).reshape(2, 4, 4)
     pooled = _sum_pixel_relevance_by_patch(
@@ -1877,17 +2280,30 @@ def run_self_tests() -> None:
         def __init__(self):
             super().__init__()
             self.input_norm = nn.LayerNorm(
-                4, elementwise_affine=True, bias=False
+                4, elementwise_affine=True, bias=True
             )
             self.trunk = nn.Sequential(
-                nn.Linear(4, 3, bias=False),
-                nn.SiLU(),
-                nn.Linear(3, 3, bias=False),
-                nn.SiLU(),
+                nn.Linear(4, 3, bias=True),
+                nn.SiLU(inplace=True),
+                nn.Linear(3, 3, bias=True),
+                nn.SiLU(inplace=True),
             )
-            self.mean_linear = nn.Linear(3, 2, bias=False)
-            self.log_std_linear = nn.Linear(3, 2, bias=False)
+            self.mean_linear = nn.Linear(3, 2, bias=True)
+            self.log_std_linear = nn.Linear(3, 2, bias=True)
             self.action_dim = 2
+            with torch.no_grad():
+                self.input_norm.bias.copy_(
+                    torch.tensor([0.2, -0.1, 0.3, -0.25])
+                )
+                self.trunk[0].bias.copy_(
+                    torch.tensor([0.3, -0.2, 0.1])
+                )
+                self.trunk[2].bias.copy_(
+                    torch.tensor([-0.25, 0.15, 0.35])
+                )
+                self.mean_linear.bias.copy_(
+                    torch.tensor([0.4, -0.3])
+                )
 
         def forward(self, observation, deterministic=False):
             latent = self.trunk(self.input_norm(observation))
@@ -1907,7 +2323,10 @@ def run_self_tests() -> None:
     actor_target.backward()
     actor_input_relevance = (actor_input * actor_input.grad).sum()
     torch.testing.assert_close(
-        actor_input_relevance, actor_target.detach(), rtol=2e-4, atol=1e-6
+        actor_input_relevance + bias_relevance(toy_actor),
+        actor_target.detach(),
+        rtol=2e-4,
+        atol=1e-6,
     )
 
     token_relevance = torch.arange(
@@ -1926,9 +2345,14 @@ def run_self_tests() -> None:
     )
 
     signed = np.array([[[-2.0, 1.0], [0.0, 0.5]]], dtype=np.float32)
-    normalized = _normalize_signed_maps(signed)
+    normalized = _normalize_signed_maps(signed, percentile=100.0)
     np.testing.assert_allclose(normalized.min(), -1.0)
     np.testing.assert_allclose(normalized.max(), 0.5)
+    outlier = np.ones(100, dtype=np.float32)
+    outlier[-1] = 100.0
+    robust = _normalize_signed_maps(outlier)
+    assert robust[0] > 0.4
+    np.testing.assert_allclose(robust[-1], 1.0)
 
     toy_depth = np.zeros((1, 4, 4), dtype=np.float32)
     masked = _mask_ranked_patches(
@@ -2060,6 +2484,25 @@ def run_self_tests() -> None:
         )
         actual = MambaLRPMixer(source)(sequence)
     torch.testing.assert_close(actual, expected, rtol=1e-5, atol=1e-6)
+    lrp_sequence = sequence.detach().requires_grad_(True)
+    lrp_output = MambaLRPMixer(source)(lrp_sequence)
+    lrp_target = (
+        lrp_output
+        * torch.tensor(
+            [
+                [[0.3, -0.7], [0.2, 0.9], [-0.4, 0.6]],
+                [[-0.5, 0.8], [0.7, -0.2], [0.1, -0.9]],
+            ]
+        )
+    ).sum()
+    lrp_target.backward()
+    torch.testing.assert_close(
+        (lrp_sequence * lrp_sequence.grad).sum()
+        + bias_relevance(source),
+        lrp_target.detach(),
+        rtol=2e-4,
+        atol=1e-6,
+    )
 
     bidirectional = Mamba()
     bidirectional.bimamba_type = "v2"
@@ -2098,6 +2541,27 @@ def run_self_tests() -> None:
         )
         actual = MambaLRPMixer(bidirectional)(sequence)
     torch.testing.assert_close(actual, expected, rtol=1e-5, atol=1e-6)
+    bidirectional_sequence = sequence.detach().requires_grad_(True)
+    bidirectional_output = MambaLRPMixer(bidirectional)(
+        bidirectional_sequence
+    )
+    bidirectional_target = (
+        bidirectional_output
+        * torch.tensor(
+            [
+                [[0.3, -0.7], [0.2, 0.9], [-0.4, 0.6]],
+                [[-0.5, 0.8], [0.7, -0.2], [0.1, -0.9]],
+            ]
+        )
+    ).sum()
+    bidirectional_target.backward()
+    torch.testing.assert_close(
+        (bidirectional_sequence * bidirectional_sequence.grad).sum()
+        + bias_relevance(bidirectional),
+        bidirectional_target.detach(),
+        rtol=2e-4,
+        atol=1e-6,
+    )
 
     class TinyRMSNorm(nn.Module):
         def __init__(self, size):
@@ -2133,7 +2597,7 @@ def run_self_tests() -> None:
             self.patch_size = (2, 2)
             self.grid_size = (2, 2)
             self.proj = nn.Conv2d(
-                1, 2, kernel_size=2, stride=2, bias=False
+                1, 2, kernel_size=2, stride=2, bias=True
             )
 
         def forward(self, image):
@@ -2166,8 +2630,12 @@ def run_self_tests() -> None:
         def __init__(self):
             super().__init__()
             self.patch_embed = TinyPatchEmbed()
-            self.cls_token = nn.Parameter(torch.zeros(1, 1, 2))
-            self.pos_embed = nn.Parameter(torch.zeros(1, 5, 2))
+            self.cls_token = nn.Parameter(
+                torch.tensor([[[0.1, -0.2]]])
+            )
+            self.pos_embed = nn.Parameter(
+                torch.linspace(-0.15, 0.2, steps=10).reshape(1, 5, 2)
+            )
             self.pos_drop = nn.Identity()
             self.layers = nn.ModuleList([TinyVimBlock()])
             self.norm_f = TinyRMSNorm(2)
@@ -2192,7 +2660,9 @@ def run_self_tests() -> None:
     class TinyTemporalLayer(nn.Module):
         def __init__(self):
             super().__init__()
-            self.norm = nn.LayerNorm(2, bias=False)
+            self.norm = nn.LayerNorm(2, bias=True)
+            with torch.no_grad():
+                self.norm.bias.copy_(torch.tensor([0.2, -0.15]))
             self.mamba = Mamba()
 
         def forward(self, sequence):
@@ -2229,16 +2699,25 @@ def run_self_tests() -> None:
     class TinyPolicy(nn.Module):
         def __init__(self):
             super().__init__()
-            self.input_norm = nn.LayerNorm(5, bias=False)
+            self.input_norm = nn.LayerNorm(5, bias=True)
             self.trunk = nn.Sequential(
-                nn.Linear(5, 4, bias=False),
+                nn.Linear(5, 4, bias=True),
                 nn.SiLU(),
-                nn.Linear(4, 4, bias=False),
+                nn.Linear(4, 4, bias=True),
                 nn.SiLU(),
             )
-            self.mean_linear = nn.Linear(4, 3, bias=False)
-            self.log_std_linear = nn.Linear(4, 3, bias=False)
+            self.mean_linear = nn.Linear(4, 3, bias=True)
+            self.log_std_linear = nn.Linear(4, 3, bias=True)
             self.action_dim = 3
+            with torch.no_grad():
+                self.input_norm.bias.copy_(
+                    torch.tensor([0.1, -0.2, 0.3, -0.1, 0.25])
+                )
+                self.trunk[0].bias.fill_(0.2)
+                self.trunk[2].bias.fill_(-0.15)
+                self.mean_linear.bias.copy_(
+                    torch.tensor([0.3, -0.25, 0.1])
+                )
 
         def forward(self, observation, deterministic=False):
             latent = self.trunk(self.input_norm(observation))
@@ -2254,6 +2733,14 @@ def run_self_tests() -> None:
             return torch.cat((base, encoder(depth)), dim=1)
 
     tiny_agent = TinyAgent()
+    tiny_actor_state = {
+        key: value.detach().clone()
+        for key, value in tiny_agent.actor.state_dict().items()
+    }
+    tiny_encoder_state = {
+        key: value.detach().clone()
+        for key, value in tiny_agent.actor_encoder.state_dict().items()
+    }
     original_actor = tiny_agent.actor
     original_patch_projection = tiny_agent.actor_encoder.vim.patch_embed.proj
     original_spatial_mixers = tuple(
@@ -2320,17 +2807,59 @@ def run_self_tests() -> None:
     assert tiny_result.pixel_relevance.shape == (2, 4, 4)
     assert tiny_result.patch_relevance.shape == (2, 2, 2)
     assert tiny_result.action_pixel_relevance.shape == (3, 2, 4, 4)
-    assert tiny_result.details["display_interpolation"]["method"] == "none"
-    assert tiny_result.details["policy"]["conservation_numerically_close"], (
-        tiny_result.details["policy"]
+    assert tiny_result.display_relevance.shape == (2, 4, 4)
+    assert tiny_result.action_display_relevance.shape == (3, 2, 4, 4)
+    np.testing.assert_allclose(
+        tiny_result.display_relevance,
+        _interpolate_patch_maps(
+            tiny_result.patch_relevance,
+            output_size=(4, 4),
+        ),
+    )
+    assert (
+        tiny_result.details["display_interpolation"]["method"]
+        == "bilinear"
+    )
+    target_details = [
+        tiny_result.details["policy"],
+        *tiny_result.details["actions"].values(),
+    ]
+    for target_details_item in target_details:
+        assert target_details_item["accounting_numerically_close"], (
+            target_details_item
+        )
+        np.testing.assert_allclose(
+            target_details_item["target_value"]
+            - target_details_item["sum_all_input_root_relevance"],
+            target_details_item[
+                "sum_non_attributable_affine_bias_relevance"
+            ],
+            rtol=2e-4,
+            atol=1e-6,
+        )
+    np.testing.assert_allclose(
+        tiny_result.patch_relevance.sum(),
+        tiny_result.details["policy"][
+            "sum_post_position_patch_relevance"
+        ],
+        rtol=1e-5,
+        atol=1e-6,
     )
     np.testing.assert_allclose(
         tiny_result.pixel_relevance.sum(),
-        tiny_result.patch_relevance.sum(),
+        tiny_result.details["policy"]["sum_input_depth_relevance"],
         rtol=1e-5,
         atol=1e-6,
     )
     assert_tiny_context_restored()
+    for key, expected in tiny_actor_state.items():
+        torch.testing.assert_close(
+            tiny_agent.actor.state_dict()[key], expected
+        )
+    for key, expected in tiny_encoder_state.items():
+        torch.testing.assert_close(
+            tiny_agent.actor_encoder.state_dict()[key], expected
+        )
 
     class ExpectedContextError(Exception):
         pass
