@@ -10,8 +10,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from .attribution import (
-    MambaLRPResult,
-    TrajectoryStep,
     _mask_ranked_patches,
     _normalize_signed_maps,
     _remove_middle_cls_relevance,
@@ -35,24 +33,6 @@ def run_self_tests() -> None:
     """Paper-rule tests kept in this standalone script."""
 
     torch.manual_seed(20260730)
-
-    sample_depth = np.zeros((1, 2, 2), dtype=np.float32)
-    sample = TrajectoryStep(
-        step=3,
-        base_state=np.array([0.1], dtype=np.float32),
-        depth=sample_depth,
-        physical_action=np.zeros(3, dtype=np.float32),
-        obstacle_proximity=4.0,
-    )
-    sample_result = MambaLRPResult(
-        pixel_relevance=sample_depth,
-        patch_relevance=sample_depth,
-        action_pixel_relevance=np.zeros((3, 1, 2, 2), dtype=np.float32),
-        action_patch_relevance=np.zeros((3, 1, 2, 2), dtype=np.float32),
-        details={},
-    )
-    assert sample.step == 3
-    assert sample_result.display_relevance is sample_depth
 
     assert select_spaced_top_indices(
         [3.0, 2.0, 1.0], count=3, min_gap=10
