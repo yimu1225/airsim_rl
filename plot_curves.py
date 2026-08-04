@@ -229,9 +229,19 @@ def plot_curves(algorithms, seeds_to_plot=None, save_path="learning_curves.png",
     """
     results_dir = "./results"
     
-    # Set font to Arial
-    plt.rcParams['font.family'] = 'Arial'
-    plt.rcParams['font.size'] = 12
+    # Use a larger, bold Times New Roman style throughout the figures.
+    plt.rcParams.update({
+        'font.family': 'Times New Roman',
+        'font.size': 16,
+        'font.weight': 'bold',
+        'axes.titleweight': 'bold',
+        'axes.labelweight': 'bold',
+        'axes.titlesize': 24,
+        'axes.labelsize': 22,
+        'xtick.labelsize': 20,
+        'ytick.labelsize': 20,
+        'legend.fontsize': 20,
+    })
     
     # 收集所有数据
     all_data = []
@@ -378,13 +388,31 @@ def plot_curves(algorithms, seeds_to_plot=None, save_path="learning_curves.png",
         # baselines 风格：均值曲线 + 组内离散度阴影
         ax_reward.fill_between(x_common, lower, upper, color=color, alpha=0.2)
     
-    ax_reward.set_xlabel("Environment Steps", fontfamily='Arial', fontsize=20)
-    ax_reward.set_ylabel("Reward", fontfamily='Arial', fontsize=20)
-    ax_reward.set_title("Learning Curves - Reward Comparison", fontfamily='Arial', fontsize=20, fontweight='bold')
+    ax_reward.set_xlabel(
+        "Environment Steps",
+        fontfamily='Times New Roman',
+        fontsize=24,
+        fontweight='bold',
+    )
+    ax_reward.set_ylabel(
+        "Reward",
+        fontfamily='Times New Roman',
+        fontsize=24,
+        fontweight='bold',
+    )
+    ax_reward.set_title(
+        "Learning Curves - Reward Comparison",
+        fontfamily='Times New Roman',
+        fontsize=24,
+        fontweight='bold',
+    )
     _set_environment_step_axis(ax_reward, max_timesteps)
-    ax_reward.legend(prop={'family': 'Arial', 'size': 20}, loc='best')
+    ax_reward.legend(
+        prop={'family': 'Times New Roman', 'size': 22, 'weight': 'bold'},
+        loc='best',
+    )
     ax_reward.grid(True, alpha=0.3)
-    ax_reward.tick_params(axis='both', labelsize=18)  # 设置坐标轴刻度文字大小
+    ax_reward.tick_params(axis='both', labelsize=20)  # 设置坐标轴刻度文字大小
     
     plt.tight_layout()
     reward_save_path = os.path.join(results_dir, "combined_reward_curves.png")
@@ -443,14 +471,32 @@ def plot_curves(algorithms, seeds_to_plot=None, save_path="learning_curves.png",
         ax_success.fill_between(x_common, lower, upper,
                                color=color, alpha=0.2)
     
-    ax_success.set_xlabel("Environment Steps", fontfamily='Arial', fontsize=20)
-    ax_success.set_ylabel("Success Rate", fontfamily='Arial', fontsize=20)
-    # ax_success.set_title("Learning Curves - Success Rate Comparison", fontfamily='Arial', fontsize=20, fontweight='bold')
+    ax_success.set_xlabel(
+        "Environment Steps",
+        fontfamily='Times New Roman',
+        fontsize=24,
+        fontweight='bold',
+    )
+    ax_success.set_ylabel(
+        "Success Rate",
+        fontfamily='Times New Roman',
+        fontsize=24,
+        fontweight='bold',
+    )
+    # ax_success.set_title(
+    #     "Learning Curves - Success Rate Comparison",
+    #     fontfamily='Times New Roman',
+    #     fontsize=24,
+    #     fontweight='bold',
+    # )
     ax_success.set_ylim(0, 1.05)
     _set_environment_step_axis(ax_success, max_timesteps)
-    ax_success.legend(prop={'family': 'Arial', 'size': 20}, loc='best')
+    ax_success.legend(
+        prop={'family': 'Times New Roman', 'size': 22, 'weight': 'bold'},
+        loc='best',
+    )
     ax_success.grid(True, alpha=0.3)
-    ax_success.tick_params(axis='both', labelsize=18)  # 设置坐标轴刻度文字大小
+    ax_success.tick_params(axis='both', labelsize=20)  # 设置坐标轴刻度文字大小
     
     plt.tight_layout()
     success_save_path = os.path.join(results_dir, "combined_success_rate_curves.png")
