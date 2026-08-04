@@ -41,25 +41,39 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import yaml
-
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.cm import ScalarMappable
 from matplotlib.colors import Normalize
 
+matplotlib.rcParams.update(
+    {
+        "font.family": "Times New Roman",
+        "font.size": 13,
+        "font.weight": "bold",
+        "axes.titlesize": 14,
+        "axes.titleweight": "bold",
+        "axes.labelsize": 13,
+        "axes.labelweight": "bold",
+        "xtick.labelsize": 11,
+        "ytick.labelsize": 11,
+    }
+)
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from algorithm.config_loader import apply_algorithm_params
 from config import get_config
 from eval.eval_common import close_env, resolve_checkpoint, set_agent_eval_mode
 from eval.eval_env import SceneEvalAirSimEnv
 
 
 DEFAULT_MODEL_SEED = 25
+DEFAULT_ENVIRONMENT_SEED = 46
 DEFAULT_EPISODE_SEED = 25
-DEFAULT_NUM_SAMPLES = 6
+DEFAULT_NUM_SAMPLES = 20
 DEFAULT_MIN_SAMPLE_GAP = 10
 DEFAULT_DPI = 600
 LRP_GAMMA = 0.25
@@ -1625,6 +1639,24 @@ def _render_overlay(
     axis.set_yticks([])
 
 
+def _add_horizontal_colorbar(figure, axes, scalar) -> None:
+    """Add an unlabeled, bold horizontal relevance scale."""
+
+    colorbar = figure.colorbar(
+        scalar,
+        ax=axes.ravel().tolist(),
+        orientation="horizontal",
+        location="bottom",
+        shrink=0.55,
+        pad=0.03,
+        aspect=45,
+    )
+    for tick_label in colorbar.ax.get_xticklabels():
+        tick_label.set_fontfamily("Times New Roman")
+        tick_label.set_fontsize(11)
+        tick_label.set_fontweight("bold")
+
+
 def _render_four_frames(
     record: CaptureRecord,
     output_path: Path,
@@ -1640,7 +1672,7 @@ def _render_four_frames(
     figure, axes = plt.subplots(
         2,
         frames,
-        figsize=(3.05 * frames, 5.7),
+        figsize=(2.60 * frames, 5.7),
         squeeze=False,
         constrained_layout=True,
     )
@@ -1670,23 +1702,7 @@ def _render_four_frames(
         norm=Normalize(vmin=-1.0, vmax=1.0), cmap="jet"
     )
     scalar.set_array([])
-    figure.colorbar(
-        scalar,
-        ax=axes.ravel().tolist(),
-        shrink=0.78,
-        label=(
-            f"Signed relevance (clipped at abs p"
-            f"{DISPLAY_ABS_PERCENTILE:g})"
-        ),
-    )
-    grid = "x".join(
-        map(str, record.result.patch_relevance.shape[-2:])
-    )
-    figure.suptitle(
-        "CL-VSSM-SAC paper-style MambaLRP "
-        f"— step {record.sample.step} — raw patch grid {grid} — "
-        "continuous display"
-    )
+    _add_horizontal_colorbar(figure, axes, scalar)
     figure.savefig(output_path, dpi=int(dpi), bbox_inches="tight")
     plt.close(figure)
 
@@ -1704,7 +1720,7 @@ def _render_action_frames(
     figure, axes = plt.subplots(
         len(ACTION_LABELS) + 1,
         frames,
-        figsize=(3.05 * frames, 2.65 * (len(ACTION_LABELS) + 1)),
+        figsize=(2.60 * frames, 2.65 * (len(ACTION_LABELS) + 1)),
         squeeze=False,
         constrained_layout=True,
     )
@@ -1738,15 +1754,7 @@ def _render_action_frames(
         norm=Normalize(vmin=-1.0, vmax=1.0), cmap="jet"
     )
     scalar.set_array([])
-    figure.colorbar(
-        scalar,
-        ax=axes.ravel().tolist(),
-        shrink=0.72,
-        label="Signed pixel relevance (normalized per target)",
-    )
-    figure.suptitle(
-        f"CL-VSSM-SAC per-action MambaLRP — step {record.sample.step}"
-    )
+    _add_horizontal_colorbar(figure, axes, scalar)
     figure.savefig(output_path, dpi=int(dpi), bbox_inches="tight")
     plt.close(figure)
 
@@ -1761,7 +1769,7 @@ def _render_summary(
     figure, axes = plt.subplots(
         2,
         len(records),
-        figsize=(3.05 * len(records), 5.7),
+        figsize=(2.60 * len(records), 5.7),
         squeeze=False,
         constrained_layout=True,
     )
@@ -1797,16 +1805,7 @@ def _render_summary(
         norm=Normalize(vmin=-1.0, vmax=1.0), cmap="jet"
     )
     scalar.set_array([])
-    figure.colorbar(
-        scalar,
-        ax=axes.ravel().tolist(),
-        shrink=0.78,
-        label=(
-            f"Signed relevance (clipped at abs p"
-            f"{DISPLAY_ABS_PERCENTILE:g} per sample)"
-        ),
-    )
-    figure.suptitle("CL-VSSM-SAC paper-style MambaLRP summary")
+    _add_horizontal_colorbar(figure, axes, scalar)
     figure.savefig(output_path, dpi=int(dpi), bbox_inches="tight")
     plt.close(figure)
 
@@ -1850,7 +1849,7 @@ def _default_checkpoint(model_seed: int) -> str:
         / "models"
         / "CL-VSSM-SAC"
         / f"seed{int(model_seed)}"
-        / "async_final.pth"
+        / "test.pth"
     )
 
 
@@ -1882,7 +1881,7 @@ def _parse_args(argv=None):
     parser.add_argument(
         "--environment_seed",
         type=int,
-        default=1,
+        default=DEFAULT_ENVIRONMENT_SEED,
         help=(
             "Deterministic obstacle-layout and mutable-goal seed; must "
             "differ from --model_seed."
@@ -1930,17 +1929,7 @@ def _parse_args(argv=None):
     args = get_config(remaining)
     args.algorithm_name = "CL-VSSM-SAC"
     args.seed = int(script_args.environment_seed)
-    params_path = (
-        REPO_ROOT / "algorithm" / "SB_PER_VSSM_SAC" / "params.yaml"
-    )
-    with params_path.open("r", encoding="utf-8") as handle:
-        params = yaml.safe_load(handle) or {}
-    params = params.get("params", params)
-    if not isinstance(params, dict):
-        raise ValueError(f"Algorithm params must be a mapping: {params_path}")
-    args.algorithm_params = dict(params)
-    for key, value in params.items():
-        setattr(args, key, value)
+    apply_algorithm_params(args, "CL-VSSM-SAC")
     return script_args, args
 
 
@@ -1964,9 +1953,11 @@ def run_visualization(script_args, args) -> Path:
         script_args.checkpoint, _default_checkpoint(model_seed)
     )
 
+    env_config = copy.deepcopy(args)
+    env_config.seed = int(script_args.environment_seed)
     env = SceneEvalAirSimEnv(
         takeoff_height=args.takeoff_height,
-        config=args,
+        config=env_config,
         stack_frames=int(args.n_frames),
     )
     trajectory: list[TrajectoryStep] = []

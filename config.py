@@ -29,7 +29,7 @@ def get_config(argv=None):
     parser.add_argument("--env_name", type=str, default='AirSimEnv-v42', help="要训练的环境名称")
 
     # 算法选择 (Algorithm Selection)
-    parser.add_argument("--algorithm_name", type=str, default='CL-VSSM-SAC',
+    parser.add_argument("--algorithm_name", type=str, default='CL-VSSM-SAC,CL-DDPG,CL-TD3,CL-Transformer-SAC,CL-SAC_FAE',
                         help="要训练的算法。支持: TD3, DDPG, SB-PER-TD3, VSSM-TD3, STV-Patch-TD3, Vim-TD3, ST-Seq-Vim-TD3, STV-Seq-Vim-TD3, SB-PER-VSSM-TD3, SAFE-VSSM-TD3, Mamba-TD3, ST-DualVim-TD3, AETD3, SAC, SAC_FAE, SAC-Beta, LSTM-SAC, VSSM-SAC, no-SB-PER, no-VSSM, SVSSM-SAC, MM-VSSM-SAC, PER-VSSM-SAC, SAFE-VSSM-SAC, VSSM-SAC-Beta, SB-PER-VSSM-SAC-Beta, SB-PER-SVSSM-SAC, Mamba-SAC, Transformer-SAC, Mamba-RSAC, PL-Mamba-RSAC, MambaCSJA-SAC, SB-PER-MambaCSJA-SAC, PER-Mamba-SAC, PPO, VSSM-PPO, PL-VSSM-PPO, PL-TD3, PL-SB-PER-TD3, PL-VSSM-TD3, PL-SAC, PL-SAC-Beta, PL-VSSM-SAC, PL-PER-VSSM-SAC, PL-SB-PER-VSSM-SAC, PL-SB-PER-VSSM-SAC-Beta, PL-SB-PER-VSSM-TD3, SDDPG。算法组: all, base, seq, vssm_sac_ablation。消融组 vssm_sac_ablation = VSSM-SAC, no-SB-PER, no-VSSM, SAC。")
     parser.add_argument("--plot_cl", action='store_true', default=True, help="绘图时是否检索带 CL- 前缀的算法 (默认: True)")
     parser.add_argument("--plot_non_cl", action='store_true', default=True, help="绘图时是否检索常规算法 (默认: True)")
@@ -55,8 +55,8 @@ def get_config(argv=None):
     parser.add_argument("--cuda_deterministic", action='store_false', default=True, help="CUDA是否确定性")
     parser.add_argument("--max_timesteps", type=int, default=150000, help='要训练的环境步数 (默认: 10e6)')
     parser.add_argument("--buffer_size", type=int, default=40000, help='经验池大小 (注意内存占用: 30000步约占用4GB)')
-    parser.add_argument("--learning_starts", type=int, default=3000, help="训练开始前的时间步数 (兼容 start_timesteps)。在此步数之前使用随机动作探索，之后改用策略网络采样。")
-    parser.add_argument("--update_after", type=int, default=3000, help="开始网络更新的时间步数。默认与 learning_starts 相同。在 learning_starts 之后、update_after 之前，将使用策略网络采集经验，但仍不进行训练更新。")
+    parser.add_argument("--learning_starts", type=int, default=300, help="训练开始前的时间步数 (兼容 start_timesteps)。在此步数之前使用随机动作探索，之后改用策略网络采样。")
+    parser.add_argument("--update_after", type=int, default=300, help="开始网络更新的时间步数。默认与 learning_starts 相同。在 learning_starts 之后、update_after 之前，将使用策略网络采集经验，但仍不进行训练更新。")
     parser.add_argument("--gradient_steps", type=float, default=0.5, help="每次收集数据后的梯度更新倍数")
     parser.add_argument("--episode_length", type=int, default=300, help='每个环境中的最大回合长度 ')
     parser.add_argument("--eval_freq", type=int, default=5000, help="评估频率")
