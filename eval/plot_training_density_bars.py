@@ -71,7 +71,7 @@ PLOT_SPECS = {
         "filename": "mean_reward.png",
     },
     "mean_path_length": {
-        "ylabel": "Average Path Length",
+        "ylabel": "Average Path Length /m",
         "percentage": False,
         "filename": "mean_path_length.png",
     },
@@ -313,19 +313,19 @@ def plot_metric(
                     ha="center",
                     va="bottom",
                     rotation=90,
-                    fontsize=5.8,
+                    fontsize=6.5,
                     fontweight="bold",
                 )
     group_half_width = float(np.max(np.abs(offsets))) + bar_width / 2.0
-    horizontal_padding = 0.35 * bar_width
+    horizontal_padding = 0.20 * bar_width
     axis.set_xlim(
         x_positions[0] - group_half_width - horizontal_padding,
         x_positions[-1] + group_half_width + horizontal_padding,
     )
-    axis.set_xlabel("Number of obstacles", fontsize=8.2, fontweight="bold", labelpad=2.0)
-    axis.set_ylabel(str(spec["ylabel"]), fontsize=8.2, fontweight="bold", labelpad=3.0)
+    axis.set_xlabel("Number of obstacles", fontsize=9.0, fontweight="bold", labelpad=1.0)
+    axis.set_ylabel(str(spec["ylabel"]), fontsize=9.0, fontweight="bold", labelpad=1.5)
     axis.set_xticks(x_positions, [str(value) for value in obstacle_counts])
-    axis.tick_params(axis="both", labelsize=7.5, pad=2.0)
+    axis.tick_params(axis="both", labelsize=8.5, pad=1.0)
     for tick_label in (*axis.get_xticklabels(), *axis.get_yticklabels()):
         tick_label.set_fontweight("bold")
     finite_values = np.asarray(plotted_values, dtype=float)
@@ -361,16 +361,16 @@ def plot_metric(
         [labels[index] for index in legend_order],
         frameon=False,
         ncols=legend_columns,
-        prop={"family": "Times New Roman", "weight": "bold", "size": 6.0},
+        prop={"family": "Times New Roman", "weight": "bold", "size": 7.0},
         loc="upper center",
-        bbox_to_anchor=(0.5, 0.995),
-        borderaxespad=0.12,
-        columnspacing=0.65,
-        handlelength=1.3,
-        handletextpad=0.3,
-        labelspacing=0.15,
+        bbox_to_anchor=(0.5, 0.99),
+        borderaxespad=0.08,
+        columnspacing=0.50,
+        handlelength=1.2,
+        handletextpad=0.25,
+        labelspacing=0.10,
     )
-    fig.tight_layout(pad=0.15)
+    fig.tight_layout(pad=0.08)
 
     output_dir.mkdir(parents=True, exist_ok=True)
     output_path = output_dir / str(spec["filename"])
