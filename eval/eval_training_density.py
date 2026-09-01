@@ -53,7 +53,7 @@ from settings_folder import settings
 
 
 DEFAULT_OBSTACLE_COUNTS = (160, 180, 200)
-DEFAULT_LAYOUT_SEED = 20260722
+DEFAULT_LAYOUT_SEED = 12
 DEFAULT_RESULTS_ROOT = os.path.join(
     REPO_ROOT, "results", "eval", "training_density_path_length"
 )

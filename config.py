@@ -29,7 +29,7 @@ def get_config(argv=None):
     parser.add_argument("--env_name", type=str, default='AirSimEnv-v42', help="要训练的环境名称")
 
     # 算法选择 (Algorithm Selection)
-    parser.add_argument("--algorithm_name", type=str, default='CL-VSSM-SAC,CL-DDPG,CL-TD3,CL-Transformer-SAC,CL-SAC_FAE',
+    parser.add_argument("--algorithm_name", type=str, default='CL-VSSM-SAC, CL-no-SB-PER, CL-no-VSSM, CL-SAC',
                         help="要训练的算法。支持: TD3, DDPG, SB-PER-TD3, VSSM-TD3, STV-Patch-TD3, Vim-TD3, ST-Seq-Vim-TD3, STV-Seq-Vim-TD3, SB-PER-VSSM-TD3, SAFE-VSSM-TD3, Mamba-TD3, ST-DualVim-TD3, AETD3, SAC, SAC_FAE, SAC-Beta, LSTM-SAC, VSSM-SAC, no-SB-PER, no-VSSM, SVSSM-SAC, MM-VSSM-SAC, PER-VSSM-SAC, SAFE-VSSM-SAC, VSSM-SAC-Beta, SB-PER-VSSM-SAC-Beta, SB-PER-SVSSM-SAC, Mamba-SAC, Transformer-SAC, Mamba-RSAC, PL-Mamba-RSAC, MambaCSJA-SAC, SB-PER-MambaCSJA-SAC, PER-Mamba-SAC, PPO, VSSM-PPO, PL-VSSM-PPO, PL-TD3, PL-SB-PER-TD3, PL-VSSM-TD3, PL-SAC, PL-SAC-Beta, PL-VSSM-SAC, PL-PER-VSSM-SAC, PL-SB-PER-VSSM-SAC, PL-SB-PER-VSSM-SAC-Beta, PL-SB-PER-VSSM-TD3, SDDPG。算法组: all, base, seq, vssm_sac_ablation。消融组 vssm_sac_ablation = VSSM-SAC, no-SB-PER, no-VSSM, SAC。")
     parser.add_argument("--plot_cl", action='store_true', default=True, help="绘图时是否检索带 CL- 前缀的算法 (默认: True)")
     parser.add_argument("--plot_non_cl", action='store_true', default=True, help="绘图时是否检索常规算法 (默认: True)")
