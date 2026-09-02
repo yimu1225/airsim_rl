@@ -64,8 +64,8 @@ LRP_EPSILON = 1e-6
 STABILIZER = 1e-6
 DISPLAY_ABS_PERCENTILE = 99.0
 ALGORITHM_NAME = "CL-SAC"
-ACTION_LABELS = ("Forward velocity", "Yaw rate", "Vertical velocity")
-ACTION_KEYS = ("forward_velocity", "yaw_rate", "vertical_velocity")
+ACTION_LABELS = ("Body x velocity", "Body y velocity", "Body z velocity")
+ACTION_KEYS = ("body_vx", "body_vy", "body_vz")
 
 
 @dataclass
@@ -1161,7 +1161,7 @@ def run_visualization(script_args, args) -> Path:
         low=np.array(
             [
                 args.min_forward_speed,
-                -args.max_yaw_rate,
+                -args.max_lateral_speed,
                 -args.max_vertical_speed,
             ],
             dtype=np.float32,
@@ -1169,7 +1169,7 @@ def run_visualization(script_args, args) -> Path:
         high=np.array(
             [
                 args.max_forward_speed,
-                args.max_yaw_rate,
+                args.max_lateral_speed,
                 args.max_vertical_speed,
             ],
             dtype=np.float32,

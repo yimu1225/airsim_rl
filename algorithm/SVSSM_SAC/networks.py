@@ -163,7 +163,7 @@ class VisualSubNetwork(nn.Module):
 
 # ================================================================
 #  BaseSubNetwork - 基础状态分支
-#  基础状态 (11维) → MLP → Tanh → ao_base (基础子动作)
+#  7维基础状态 → MLP → Tanh → ao_base (基础子动作)
 # ================================================================
 
 class BaseSubNetwork(nn.Module):

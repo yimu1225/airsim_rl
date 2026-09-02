@@ -109,9 +109,9 @@ class TrajectoryPoint:
     roll_rad: float
     pitch_rad: float
     yaw_rad: float
-    action_forward_m_s: float
-    action_yaw_rate_rad_s: float
-    action_vertical_m_s: float
+    action_body_vx_m_s: float
+    action_body_vy_m_s: float
+    action_body_vz_m_s: float
     reward: float
     cumulative_reward: float
     distance_to_goal_m: float

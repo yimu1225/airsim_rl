@@ -1,6 +1,5 @@
 import os
 import argparse
-import numpy as np
 from algo_name_utils import normalize_algorithm_name_for_config
 
 # Set CUDA memory allocator configuration to reduce fragmentation
@@ -29,7 +28,7 @@ def get_config(argv=None):
     parser.add_argument("--env_name", type=str, default='AirSimEnv-v42', help="要训练的环境名称")
 
     # 算法选择 (Algorithm Selection)
-    parser.add_argument("--algorithm_name", type=str, default='CL-VSSM-SAC, CL-no-SB-PER, CL-no-VSSM, CL-SAC',
+    parser.add_argument("--algorithm_name", type=str, default='CL-VSSM-SAC',
                         help="要训练的算法。支持: TD3, DDPG, SB-PER-TD3, VSSM-TD3, STV-Patch-TD3, Vim-TD3, ST-Seq-Vim-TD3, STV-Seq-Vim-TD3, SB-PER-VSSM-TD3, SAFE-VSSM-TD3, Mamba-TD3, ST-DualVim-TD3, AETD3, SAC, SAC_FAE, SAC-Beta, LSTM-SAC, VSSM-SAC, no-SB-PER, no-VSSM, SVSSM-SAC, MM-VSSM-SAC, PER-VSSM-SAC, SAFE-VSSM-SAC, VSSM-SAC-Beta, SB-PER-VSSM-SAC-Beta, SB-PER-SVSSM-SAC, Mamba-SAC, Transformer-SAC, Mamba-RSAC, PL-Mamba-RSAC, MambaCSJA-SAC, SB-PER-MambaCSJA-SAC, PER-Mamba-SAC, PPO, VSSM-PPO, PL-VSSM-PPO, PL-TD3, PL-SB-PER-TD3, PL-VSSM-TD3, PL-SAC, PL-SAC-Beta, PL-VSSM-SAC, PL-PER-VSSM-SAC, PL-SB-PER-VSSM-SAC, PL-SB-PER-VSSM-SAC-Beta, PL-SB-PER-VSSM-TD3, SDDPG。算法组: all, base, seq, vssm_sac_ablation。消融组 vssm_sac_ablation = VSSM-SAC, no-SB-PER, no-VSSM, SAC。")
     parser.add_argument("--plot_cl", action='store_true', default=True, help="绘图时是否检索带 CL- 前缀的算法 (默认: True)")
     parser.add_argument("--plot_non_cl", action='store_true', default=True, help="绘图时是否检索常规算法 (默认: True)")
@@ -45,7 +44,7 @@ def get_config(argv=None):
     parser.add_argument("--curve_smooth_step", type=float, default=1.0, help="baselines 风格 EMA 重采样 smooth_step")
 
     # 训练设置 (Training Setup)
-    parser.add_argument("--seed", type=str, default="25,26,27,28,29", help="随机种子 (支持逗号分隔多个种子)")
+    parser.add_argument("--seed", type=str, default="42", help="随机种子 (支持逗号分隔多个种子)")
     parser.add_argument("--curriculum_start_level", type=int, default=0, choices=[0, 1, 2, 3], help="课程学习起始等级 (0-3, 默认: 0)。注意：算法名以 'CL-' 前缀开头时自动启用课程学习")
     parser.add_argument("--curriculum_mode", type=str, default="progress", choices=["progress", "success"], help="课程学习模式: progress=按训练进度连续增加难度, success=按成功率离散切换难度")
     parser.add_argument("--curriculum_progress_max_ratio", type=float, default=0.9, help="progress课程达到最大难度所需的训练进度比例")
@@ -97,10 +96,10 @@ def get_config(argv=None):
     # 连续控制参数 (Continuous Control Parameters)
     parser.add_argument("--min_forward_speed", type=float, default=-2.0, help="最小机体系x轴速度 (m/s)")
     parser.add_argument("--max_forward_speed", type=float, default=2.0, help="最大机体系x轴速度 (m/s)")
-    parser.add_argument("--max_vertical_speed", type=float, default=0.3, help="最大垂直速度 (m/s)")
-    parser.add_argument("--max_yaw_rate", type=float, default=np.pi/3, help="最大偏航角速度 (rad/s)")
+    parser.add_argument("--max_lateral_speed", type=float, default=2.0, help="最大机体系y轴速度绝对值 (m/s)")
+    parser.add_argument("--max_vertical_speed", type=float, default=2.0, help="最大机体系z轴速度绝对值 (m/s，NED中向下为正)")
     parser.add_argument("--takeoff_height", type=float, default=-1.0, help="起飞目标高度 (NED坐标系中负值为向上)")
-    parser.add_argument("--action_duration", type=float, default=0.15, help="每个速度指令的仿真持续时间 (秒)")
+    parser.add_argument("--action_duration", type=float, default=0.10, help="每个速度指令的仿真持续时间 (秒)")
 
     # 飞行高度限制 (Flight Altitude Limits)
     parser.add_argument("--max_flight_altitude", type=float, default=2.5, help="最大飞行高度 (米, 正值为向上)")

@@ -39,12 +39,12 @@ class SDDPGAgent:
       - SubNetwork2: sg(4维)     -> [32,16] + Tanh -> ag
       - GlobalActor: [ao, ag, S] -> [400,300] + Tanh -> action
       - Critic:      独立 CNN 编码 depth,  concat[so_repr, sg, su, action] -> [400,300] -> Q
-      其中 S = [so_repr(256), sg(4), su(7)] 为完整状态表征
+      其中 S = [so_repr(256), sg(4), su(3)] 为完整状态表征
     """
 
-    # Indices within the 11-D base vector
-    SG_RAW_INDICES = [0, 1, 2, 10]   # x_dist, y_dist, z_dist, r_yaw
-    SU_INDICES = [3, 4, 5, 6, 7, 8, 9]  # altitude, body_x_vel, z_vel, yaw_rate, pitch, roll, yaw
+    # Indices within the 7-D navigation-state vector.
+    SG_RAW_INDICES = [0, 2, 4, 6]  # log_d_hor, target_bearing, delta_z, yaw
+    SU_INDICES = [1, 3, 5]         # v_hor, body_velocity_direction, body_vz
 
     def __init__(self, base_dim: int, depth_shape, action_space, args, device=None, seed=None):
         self.device = torch.device(device if device is not None else ("cuda" if torch.cuda.is_available() else "cpu"))
@@ -95,9 +95,9 @@ class SDDPGAgent:
         self.use_smooth_l1 = bool(getattr(args, "use_smooth_l1", True))
 
         # ---- Dimensions ----
-        self.sg_raw_dim = len(self.SG_RAW_INDICES)   # 4: x_dist, y_dist, z_dist, r_yaw
-        self.su_dim = len(self.SU_INDICES)           # 7
-        self.sg_dim = 4                              # x_dist, y_dist, z_dist, r_yaw
+        self.sg_raw_dim = len(self.SG_RAW_INDICES)
+        self.su_dim = len(self.SU_INDICES)
+        self.sg_dim = self.sg_raw_dim
 
         # ---- Networks ----
         # SubNetwork1 (perception / so): shared for actor & critic
@@ -128,7 +128,7 @@ class SDDPGAgent:
         ).to(self.device)
         self.sub2_target.load_state_dict(self.sub2.state_dict())
 
-        # 完整状态 S = [so_repr(256), sg(4), su(7)] = 267 维
+        # 完整状态 S = [so_repr(256), sg(4), su(3)] = 263 维
         self.so_repr_dim = self.sub1.cat_repr_dim          # 256 (4帧×64)
         self.state_repr_dim = self.so_repr_dim + self.sg_dim + self.su_dim  # 267
         self.global_actor_input_dim = self.sub1_out_dim + self.sub2_out_dim + self.state_repr_dim
@@ -192,8 +192,8 @@ class SDDPGAgent:
         if base.dim() == 1:
             base = base.unsqueeze(0)
 
-        su = base[:, self.SU_INDICES]        # (B, 7)
-        sg = base[:, self.SG_RAW_INDICES]    # (B, 4): x_dist, y_dist, z_dist, r_yaw
+        su = base[:, self.SU_INDICES]
+        sg = base[:, self.SG_RAW_INDICES]
         return su, sg
 
     # ------------------------------------------------------------------ #

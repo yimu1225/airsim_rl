@@ -61,8 +61,8 @@ METHOD_LABELS = {
     "ig_smoothgrad": "IG + SmoothGrad",
     "mambalrp": "MambaLRP core adaptation",
 }
-ACTION_LABELS = ("Forward velocity", "Yaw rate", "Vertical velocity")
-ACTION_UNITS = ("m/s", "rad/s", "m/s")
+ACTION_LABELS = ("Body x velocity", "Body y velocity", "Body z velocity")
+ACTION_UNITS = ("m/s", "m/s", "m/s")
 
 
 @dataclass

@@ -82,8 +82,8 @@ CONSERVATION_DIAGNOSTIC_RTOL = 1e-3
 CONSERVATION_DIAGNOSTIC_ATOL = 1e-6
 DISPLAY_ABS_PERCENTILE = 99.0
 OFFICIAL_MAMBALRP_COMMIT = "b4462a5f6d55ec38a1251683f7ca0f4d2a576e98"
-ACTION_LABELS = ("Forward velocity", "Yaw rate", "Vertical velocity")
-ACTION_KEYS = ("forward_velocity", "yaw_rate", "vertical_velocity")
+ACTION_LABELS = ("Body x velocity", "Body y velocity", "Body z velocity")
+ACTION_KEYS = ("body_vx", "body_vy", "body_vz")
 
 
 @dataclass

@@ -35,7 +35,7 @@ def _set_requires_grad(module: nn.Module, enabled: bool) -> None:
 
 
 class SACFAEAgent:
-    """SAC_FAE adapted to 4x128x128 depth, 11-D base state, and 3-D actions."""
+    """SAC_FAE adapted to 4x128x128 depth, 7-D base state, and 3-D actions."""
 
     def __init__(self, base_dim, depth_shape, action_space, args, device=None, seed=None) -> None:
         self.args = args

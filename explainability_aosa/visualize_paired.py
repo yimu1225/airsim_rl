@@ -51,8 +51,8 @@ from config import get_config  # noqa: E402
 from eval.eval_common import resolve_checkpoint, set_agent_eval_mode  # noqa: E402
 
 
-ACTION_KEYS = ("forward_velocity", "yaw_rate", "vertical_velocity")
-ACTION_LABELS = (r"$v_x$", r"$\omega$", r"$v_z$")
+ACTION_KEYS = ("body_vx", "body_vy", "body_vz")
+ACTION_LABELS = (r"$v_x^b$", r"$v_y^b$", r"$v_z^b$")
 MODEL_LABELS = ("VSSM-SAC", "SAC")
 DEFAULT_MODEL_SEED = 25
 DEFAULT_DPI = 300
@@ -258,7 +258,7 @@ def _action_space(args) -> spaces.Box:
         low=np.array(
             [
                 args.min_forward_speed,
-                -args.max_yaw_rate,
+                -args.max_lateral_speed,
                 -args.max_vertical_speed,
             ],
             dtype=np.float32,
@@ -266,7 +266,7 @@ def _action_space(args) -> spaces.Box:
         high=np.array(
             [
                 args.max_forward_speed,
-                args.max_yaw_rate,
+                args.max_lateral_speed,
                 args.max_vertical_speed,
             ],
             dtype=np.float32,
@@ -1157,12 +1157,12 @@ def run(script_args, common_args) -> Path | None:
             "frames_shown_per_step": ["t-3", "t-2", "t-1", "t"],
             "row_order": [
                 "depth image",
-                "CL-VSSM-SAC forward velocity",
-                "CL-VSSM-SAC yaw rate",
-                "CL-VSSM-SAC vertical velocity",
-                "CL-SAC forward velocity",
-                "CL-SAC yaw rate",
-                "CL-SAC vertical velocity",
+                "CL-VSSM-SAC body x velocity",
+                "CL-VSSM-SAC body y velocity",
+                "CL-VSSM-SAC body z velocity",
+                "CL-SAC body x velocity",
+                "CL-SAC body y velocity",
+                "CL-SAC body z velocity",
             ],
             "map": "absolute influence",
             "colormap": "turbo",

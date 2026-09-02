@@ -37,7 +37,7 @@ class SceneEvalAirSimEnv(AirSimEnv):
         self.config = config
         self.stack_frames = int(stack_frames)
         self.episode_reward = 0.0
-        self.base_dim = 11
+        self.base_dim = 7
         self.depth_shape = None
         self.observation_space = None
         self.depth_stack = collections.deque(maxlen=self.stack_frames)
@@ -65,8 +65,8 @@ class SceneEvalAirSimEnv(AirSimEnv):
             )
         elif settings.control_mode == "Continuous":
             self.action_space = spaces.Box(
-                low=np.array([config.min_forward_speed, -config.max_yaw_rate, -config.max_vertical_speed], dtype=np.float32),
-                high=np.array([config.max_forward_speed, config.max_yaw_rate, config.max_vertical_speed], dtype=np.float32),
+                low=np.array([config.min_forward_speed, -config.max_lateral_speed, -config.max_vertical_speed], dtype=np.float32),
+                high=np.array([config.max_forward_speed, config.max_lateral_speed, config.max_vertical_speed], dtype=np.float32),
                 dtype=np.float32,
             )
         else:
@@ -161,6 +161,7 @@ class SceneEvalAirSimEnv(AirSimEnv):
         self.episode_path_length = 0.0
         self.previous_path_position = None
         self.prev_goal_dist = 0.0
+        self.last_reward_components = {}
 
         self.init_state_f()
         self.prev_state = self.get_obs()

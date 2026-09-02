@@ -30,7 +30,7 @@ class AirSimEnv(gym.Env):
     def __init__(self, takeoff_height=-0.9, config=None, stack_frames=4):
         """
         初始化 AirSim 环境。
-        
+
         Args:
             takeoff_height (float): 起飞高度 (NED坐标，负数为高度)。
             config: 配置对象，包含高度限制等参数。
@@ -57,7 +57,7 @@ class AirSimEnv(gym.Env):
         self.stack_frames = stack_frames
         self.episode_reward = 0
 
-        self.base_dim = 11
+        self.base_dim = 7
         self.depth_shape = None  # 将在创建AirSim客户端后根据实际分辨率设置
         self.observation_space = None  # 延迟设置
 
@@ -73,15 +73,15 @@ class AirSimEnv(gym.Env):
                                            np.array([+0.3, +0.3], dtype=np.float32),
                                            dtype=np.float32)
         elif (settings.control_mode == "Continuous"):
-            # Continuous action space: [body_x_velocity, yaw_rate, z_velocity]
+            # Continuous action space: [body_vx, body_vy, body_vz].
             body_x_min = config.min_forward_speed
             body_x_max = config.max_forward_speed
-            z_max = config.max_vertical_speed
-            yaw_max = config.max_yaw_rate
+            body_y_max = config.max_lateral_speed
+            body_z_max = config.max_vertical_speed
 
             self.action_space = spaces.Box(
-                low=np.array([body_x_min, -yaw_max, -z_max], dtype=np.float32),
-                high=np.array([body_x_max, yaw_max, z_max], dtype=np.float32),
+                low=np.array([body_x_min, -body_y_max, -body_z_max], dtype=np.float32),
+                high=np.array([body_x_max, body_y_max, body_z_max], dtype=np.float32),
                 dtype=np.float32
             )
         else:
@@ -249,6 +249,7 @@ class AirSimEnv(gym.Env):
         self.previous_path_position = None
         # 进度奖励：跟踪到目标的上一步距离
         self.prev_goal_dist = 0.0
+        self.last_reward_components = {}
 
     def _reconnect_airsim_client(self, reason=""):
         """
@@ -470,57 +471,64 @@ class AirSimEnv(gym.Env):
 
     def state(self):
         """
-        更新并获取当前的辅助状态信息 (inform)。
-        (注意：此方法仅返回 inform 向量，不处理图像堆叠，图像堆叠在 step 方法中维护)。
-        
+        返回 7 维无人机/目标状态。
+
         Returns:
-            np.array: inform 向量 [相对距离xyz, 高度, 机体系x轴速度, z速度, 偏航角速度, 俯仰角, 横滚角, 偏航角, 朝向目标角度]
+            np.array: [log_d_hor, v_hor, target_bearing_world,
+                       velocity_direction_body, delta_z, body_vz, yaw]
         """
         drone_pos = self.airgym.drone_pos()
-        now = drone_pos[:2]
-        altitude = -drone_pos[2]  # NED coordinate system, negative z is altitude
-        
-        # 获取完整姿态角: [pitch, roll, yaw]
-        pitch, roll, yaw = self.airgym.get_ryp()
-        
-        # 新的状态向量组成
-        self.r_yaw = self.airgym.goal_direction(self.goal, now)
-        self.relative_position = self.airgym.get_distance(self.goal)  # [x, y]
-        self.relative_z_distance = float(self.goal[2] - drone_pos[2])
-        body_x_velocity = self.airgym.get_body_x_velocity()  # 无人机机体系x轴速度
-        z_velocity = self.airgym.get_z_velocity()  # z轴速度
-        yaw_rate = self.airgym.get_yaw_rate()  # 偏航角速度
-        
-        # 为了向后兼容，仍保留这些属性
-        self.velocity = np.array([body_x_velocity, z_velocity, yaw_rate])  # 用新的速度信息
-        self.speed = body_x_velocity  # 机体系x轴速度作为主要速度指标
-        
-        # 组合新的状态向量: [相对距离xyz(3), 高度(1), 机体系x轴速度(1), z速度(1), 偏航角速度(1), 俯仰角(1), 横滚角(1), 偏航角(1), 朝向目标角度(1)]
-        inform = np.concatenate((
-            self.relative_position,  # [x_dist, y_dist]
-            [self.relative_z_distance],  # [z_dist]
-            [altitude],              # [altitude]
-            [body_x_velocity],       # 机体系x轴速度
-            [z_velocity],            # z轴速度
-            [yaw_rate],              # 偏航角速度
-            [pitch],                # [pitch] 俯仰角
-            [roll],                 # [roll] 横滚角
-            [yaw],                  # [yaw] 偏航角
-            self.r_yaw              # [relative_angle_to_target]
-        ))
-        
-        return inform
+        body_velocity = self.airgym.get_body_velocity()
+        _, _, yaw = self.airgym.get_ryp()
+
+        base_state = self._navigation_base_state(
+            goal=self.goal,
+            position=drone_pos,
+            body_velocity=body_velocity,
+            yaw=yaw,
+        )
+
+        # 保留常用运动属性，便于日志与兼容现有工具。
+        self.velocity = body_velocity.copy()
+        self.speed = float(np.linalg.norm(body_velocity))
+
+        return base_state
+
+    @staticmethod
+    def _navigation_base_state(goal, position, body_velocity, yaw):
+        """按 AirSim NED 坐标语义构造 7 维导航状态。"""
+        goal = np.asarray(goal, dtype=np.float32)[:3]
+        position = np.asarray(position, dtype=np.float32)[:3]
+        body_velocity = np.asarray(body_velocity, dtype=np.float32)[:3]
+        delta = goal - position
+
+        log_horizontal_distance = float(np.log(np.hypot(delta[0], delta[1]) + 1.0))
+        horizontal_speed = float(np.hypot(body_velocity[0], body_velocity[1]))
+        target_bearing_world = float(np.arctan2(delta[1], delta[0]))
+        velocity_direction_body = float(np.arctan2(body_velocity[1], body_velocity[0]))
+
+        return np.array(
+            [
+                log_horizontal_distance,
+                horizontal_speed,
+                target_bearing_world,
+                velocity_direction_body,
+                float(delta[2]),
+                float(body_velocity[2]),
+                float(yaw),
+            ],
+            dtype=np.float32,
+        )
 
     def normalize_base_state(self, inform):
         """
-        将base state归一化到[0, 1]范围
-        基于当前环境的实际参数（从 config 和 game_config_handler 获取）
+        保留基础状态原值，不做固定区间缩放。
         
         Args:
-            inform: 11维状态向量 [rel_x, rel_y, rel_z, altitude, body_x_vel, z_vel, yaw_rate, pitch, roll, yaw, angle_to_goal]
+            inform: 7维状态向量
         
         Returns:
-            归一化后的11维向量，每个值在[0, 1]范围内
+            原始 7 维向量（不做固定区间缩放）
         """
         return inform
 
@@ -606,104 +614,138 @@ class AirSimEnv(gym.Env):
 
     def computeReward(self, now, action, velocity_after=None):
         """
-        计算每一步的奖励。
-        
-        奖励函数组成：
-        1. reward_vel：NavRL风格速度投影奖励（可为负值）。
-        2. distance_penalty：到目标点距离惩罚 (-goal_dist * 0.03)。
-        3. smooth_penalty：NavRL风格速度平滑惩罚 ||v_t - v_{t-1}||。
-        4. curvature_penalty：轨迹离散曲率平方惩罚 (r_curv = -alpha * kappa^2)。
-        5. step_penalty：每步惩罚（沿用你的配置）。
-        6. step_count_penalty：步数惩罚，当前步数 × 0.05。
-        
+        计算当前启用的稠密奖励。
+
+        启用的项：对数水平距离、垂直距离、水平方向误差、前向飞行，
+        以及现有的三维速度变化平滑惩罚。超速项不启用。
+        原有的速度投影、曲率、步惩罚、停滞、近障和进度项仍然计算，
+        但只写入 ``last_reward_components``，不计入总奖励。
+
         Args:
-            now (np.array): 当前位置·
+            now (np.array): 当前世界系位置
             action: 当前动作
-            velocity_after: 动作执行后的速度 (vx, vy, speed)
-            
+            velocity_after: 动作执行后的世界系速度 (vx, vy, vz)
+
         Returns:
             float: 计算出的奖励值
         """
+        now = np.asarray(now, dtype=np.float32)[:3]
+        goal_vec = np.asarray(self.goal, dtype=np.float32)[:3] - now
+        goal_dist_3d = float(np.linalg.norm(goal_vec))
+        pitch, _, yaw = self.airgym.get_ryp()
+        body_velocity = np.asarray(self.airgym.get_body_velocity(), dtype=np.float32)[:3]
+        navigation_state = self._navigation_base_state(self.goal, now, body_velocity, yaw)
 
-        # NavRL-style velocity reward (r_vel): projection of velocity on goal direction.
-        goal_vec = np.array([self.goal[0] - now[0], self.goal[1] - now[1]], dtype=np.float32)
-        goal_dist = float(np.linalg.norm(goal_vec))
-        # 3D distance penalty
-        goal_dist_3d = float(np.linalg.norm(
-            np.array([self.goal[0] - now[0], self.goal[1] - now[1], self.goal[2] - now[2]], dtype=np.float32)
-        ))
-        # distance_penalty = -goal_dist_3d * 0.03
+        log_horizontal_distance = float(navigation_state[0])
+        target_bearing_world = float(navigation_state[2])
+        velocity_direction_body = float(navigation_state[3])
+        vertical_distance = abs(float(navigation_state[4]))
 
-        if goal_dist > 1e-6:
-            goal_dir = goal_vec / goal_dist
-        else:
-            goal_dir = np.zeros(2, dtype=np.float32)
+        direction_error = abs(
+            self._wrap_angle(velocity_direction_body + float(yaw) - target_bearing_world)
+        )
+        forward_error = abs(self._wrap_angle(velocity_direction_body))
 
-        vel_xy = np.asarray(velocity_after[:2], dtype=np.float32)
-        reward_vel = float(np.dot(vel_xy, goal_dir))
+        # 原项目参考权重（当前暂不应用，以下各项使用单位权重）：
+        # 距离 -0.001，垂直距离 -0.002，方向误差 -0.003，
+        # 前向误差 -0.003，平滑项 -0.0005，超速项 0。
+        goal_penalty = -log_horizontal_distance
+        vertical_penalty = -vertical_distance
+        direction_penalty = -direction_error
+        forward_penalty = -forward_error
 
-        # 逻辑门控：使用符号函数直接相乘，结合 min 取小防止背向且远离目标时（负负得正）产生异常的正奖励
-        _, _, yaw = self.airgym.get_ryp()
-        head_dir = np.array([np.cos(yaw), np.sin(yaw)], dtype=np.float32)
-        alignment = float(np.dot(head_dir, goal_dir))
-        
-        reward_vel = float(np.minimum(reward_vel, reward_vel * np.sign(alignment)))
-
-        # Match NavRL base term: reward_vel 
-        r = 3 * reward_vel 
-
-        # NavRL-style smoothness penalty: ||v_t - v_{t-1}||
-
+        # 平滑项沿用本项目已有的世界系三维速度变化量计算方式。
         if velocity_after is not None:
-            curr_v = np.asarray(velocity_after, dtype=np.float32)
-            prev_v = np.asarray(self.prev_velocity, dtype=np.float32)
-            smooth_penalty =  float(np.linalg.norm(curr_v - prev_v))
+            current_velocity = np.asarray(velocity_after, dtype=np.float32)[:3]
+            previous_velocity = np.asarray(self.prev_velocity, dtype=np.float32)[:3]
+            smooth_penalty = float(np.linalg.norm(current_velocity - previous_velocity))
         else:
+            current_velocity = np.zeros(3, dtype=np.float32)
+            previous_velocity = np.asarray(self.prev_velocity, dtype=np.float32)[:3]
             smooth_penalty = 0.0
-        
+        smoothness_penalty = -smooth_penalty
 
-        # Curvature penalty with speed gating and angle deadzone.
+        reward = (
+            goal_penalty
+            + vertical_penalty
+            + direction_penalty
+            + forward_penalty
+            + smoothness_penalty
+        )
+
+        # ------------------------------------------------------------------
+        # Legacy reward diagnostics: retained, but intentionally inactive.
+        # ------------------------------------------------------------------
+        if goal_dist_3d > 1e-6:
+            goal_dir = goal_vec / goal_dist_3d
+        else:
+            goal_dir = np.zeros(3, dtype=np.float32)
+
+        legacy_reward_vel = float(np.dot(current_velocity, goal_dir))
+
+        head_dir = np.array(
+            [
+                np.cos(yaw) * np.cos(pitch),
+                np.sin(yaw) * np.cos(pitch),
+                -np.sin(pitch),
+            ],
+            dtype=np.float32,
+        )
+        alignment = float(np.dot(head_dir, goal_dir))
+        legacy_reward_vel = float(
+            np.minimum(
+                legacy_reward_vel,
+                legacy_reward_vel * np.sign(alignment),
+            )
+        )
+
         curvature_penalty = 0.0
         if velocity_after is not None:
-             v_xy_before = float(self.prev_velocity[2]) # speed is at index 2
-             v_xy_after = float(velocity_after[2])
-             
-             dot_product = np.dot(velocity_after[:2], self.prev_velocity[:2])
-             cos_theta = dot_product / (v_xy_before * v_xy_after + 1e-6)
-             cos_theta = np.clip(cos_theta, -1.0, 1.0)
-             angle_change = float(np.arccos(cos_theta))
+            speed_before = float(np.linalg.norm(previous_velocity))
+            speed_after = float(np.linalg.norm(current_velocity))
+            dot_product = float(np.dot(current_velocity, previous_velocity))
+            cos_theta = dot_product / (speed_before * speed_after + 1e-6)
+            cos_theta = np.clip(cos_theta, -1.0, 1.0)
+            angle_change = float(np.arccos(cos_theta))
 
-             curvature_weight = 50.0
-             curvature_penalty = curvature_weight * (angle_change ** 2) 
-             curvature_penalty = float(np.clip(curvature_penalty, 0.0, 1.0))
+            curvature_weight = 50.0
+            curvature_penalty = curvature_weight * (angle_change ** 2)
+            curvature_penalty = float(np.clip(curvature_penalty, 0.0, 1.0))
 
-        # step_penalty = self.stepN * 0.005
         step_penalty = 0.2
-
-        # Stagnation penalty: penalize when total displacement in recent N steps is too small
         stagnation_penalty = 0.0
         if self.use_stagnation_penalty and len(self.displacement_window) >= self.stagnation_window:
             total_displacement = float(sum(self.displacement_window))
             stagnation_penalty = max(0.0, self.stagnation_window_threshold - total_displacement) * self.stagnation_weight
 
-        # Add penalties to reward
-        r -= smooth_penalty  + step_penalty
-
         distance_sensor_penalty = self._compute_distance_sensor_log_penalty(
             self.last_distance_sensor_scan_distance,
         )
         self.last_distance_sensor_obstacle_penalty = 5 * float(distance_sensor_penalty)
-        r += self.last_distance_sensor_obstacle_penalty
-
-        # 进度奖励：接近目标奖励，远离目标惩罚，不加系数
         progress_delta = self.prev_goal_dist - goal_dist_3d
-        # r += 5 * progress_delta
         self.prev_goal_dist = goal_dist_3d
-        # print(f"Reward components: r_vel={reward_vel:.3f}, smooth_penalty={smooth_penalty:.3f},    step_penalty={step_penalty:.3f}, distance_sensor_penalty={self.last_distance_sensor_obstacle_penalty:.3f}, progress_delta={progress_delta:.3f}, total_reward={r:.3f}")
-    
 
+        self.last_reward_components = {
+            "goal_penalty": float(goal_penalty),
+            "speed_penalty_disabled": 0.0,
+            "vertical_penalty": float(vertical_penalty),
+            "direction_penalty": float(direction_penalty),
+            "forward_penalty": float(forward_penalty),
+            "smoothness_penalty": float(smoothness_penalty),
+            "legacy_velocity_reward_inactive": float(3.0 * legacy_reward_vel),
+            "legacy_curvature_penalty_inactive": float(curvature_penalty),
+            "legacy_step_penalty_inactive": float(step_penalty),
+            "legacy_stagnation_penalty_inactive": float(stagnation_penalty),
+            "legacy_obstacle_penalty_inactive": float(self.last_distance_sensor_obstacle_penalty),
+            "legacy_progress_delta_inactive": float(progress_delta),
+            "total": float(reward),
+        }
+        return float(reward)
 
-        return r
+    @staticmethod
+    def _wrap_angle(angle):
+        """把弧度角限制到 [-pi, pi)，避免跨越边界时产生虚假大误差。"""
+        return float((angle + np.pi) % (2.0 * np.pi) - np.pi)
 
 
     #根据控制飞机飞的方式不同，动作空间和step会有不同
@@ -855,13 +897,15 @@ class AirSimEnv(gym.Env):
             done = False
             self.success = False
             
-            # 检查高度违规（施加惩罚但不终止）
+            # 旧的软高度惩罚保留为诊断量，但不再计入总奖励。
+            legacy_altitude_penalty = 0.0
             if current_altitude < self.min_altitude_penalty:
-                reward -= self.altitude_penalty_value  # 低于惩罚高度阈值，给予固定惩罚
-                # print(f"[最低惩罚高度违规] 当前高度: {current_altitude:.2f}m，惩罚高度: {self.min_altitude_penalty}m，惩罚: -{self.altitude_penalty_value}")
+                legacy_altitude_penalty -= self.altitude_penalty_value
             if current_altitude > self.max_altitude_penalty:
-                reward -= self.altitude_penalty_value  # 高于惩罚高度阈值，给予固定惩罚
-                # print(f"[最高惩罚高度违规] 当前高度: {current_altitude:.2f}m，惩罚高度: {self.max_altitude_penalty}m，惩罚: -{self.altitude_penalty_value}")
+                legacy_altitude_penalty -= self.altitude_penalty_value
+            self.last_reward_components["legacy_altitude_penalty_inactive"] = float(
+                legacy_altitude_penalty
+            )
         
         # Accumulate reward for episode
         self.episode_reward += reward
@@ -910,6 +954,7 @@ class AirSimEnv(gym.Env):
             dtype=np.float32,
         )
         self.distance_sensor_read_fail_count = 0
+        self.last_reward_components = {}
 
     def _get_number_of_objects_bounds(self, range_values):
         if not range_values:

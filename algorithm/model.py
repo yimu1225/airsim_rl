@@ -6,7 +6,7 @@ from utils.distributions import Categorical, DiagGaussian
 from utils.util import init
 
 
-INCORPORATE=11
+INCORPORATE=7
 
 class Flatten(nn.Module):
     def forward(self, x):

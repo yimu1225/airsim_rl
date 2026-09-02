@@ -514,17 +514,13 @@ class AirLearningClient(object):
 
     def drone_velocity(self):
         """
-        获取无人机当前的线速度。
+        获取无人机当前的世界系三维线速度。
         
         Returns:
-            np.array: [vx, vy, speed] 数组。其中 speed 是水平面上的合速度 (sqrt(vx^2 + vy^2))。
+            np.array: [vx, vy, vz] 数组（AirSim NED 世界坐标系）。
         """
         vel = self.client.getMultirotorState().kinematics_estimated.linear_velocity
-        v_x = vel.x_val
-        v_y = vel.y_val
-        v_z = vel.z_val
-        speed = np.sqrt(v_x ** 2 + v_y ** 2)
-        return np.array([v_x, v_y, speed])
+        return np.array([vel.x_val, vel.y_val, vel.z_val], dtype=np.float32)
 
     def get_distance(self, goal):
         """
@@ -562,13 +558,26 @@ class AirLearningClient(object):
         Returns:
             float: 机体系x轴速度 (m/s)
         """
-        # 获取当前速度和朝向
+        return float(self.get_body_velocity()[0])
+
+    def get_body_velocity(self):
+        """获取无人机机体系的 [vx, vy, vz] 线速度。"""
         vel = self.client.getMultirotorState().kinematics_estimated.linear_velocity
         pitch, roll, yaw = airsim.to_eularian_angles(self.client.simGetVehiclePose().orientation)
-        
-        # 将世界系水平速度投影到无人机机体系x轴。
-        body_x_velocity = vel.x_val * math.cos(yaw) + vel.y_val * math.sin(yaw)
-        return body_x_velocity
+
+        cp, sp = math.cos(pitch), math.sin(pitch)
+        cr, sr = math.cos(roll), math.sin(roll)
+        cy, sy = math.cos(yaw), math.sin(yaw)
+        body_to_world = np.array(
+            [
+                [cy * cp, cy * sp * sr - sy * cr, cy * sp * cr + sy * sr],
+                [sy * cp, sy * sp * sr + cy * cr, sy * sp * cr - cy * sr],
+                [-sp, cp * sr, cp * cr],
+            ],
+            dtype=np.float32,
+        )
+        world_velocity = np.array([vel.x_val, vel.y_val, vel.z_val], dtype=np.float32)
+        return body_to_world.T @ world_velocity
 
     def get_forward_speed(self):
         """
@@ -655,45 +664,31 @@ class AirLearningClient(object):
 
     def take_continuous_action_3d(self, action, duration=0.1):
         """
-        执行3D连续动作控制 [body_x_velocity, yaw_rate, z_velocity]。
+        执行3D连续动作控制 [body_vx, body_vy, body_vz]。
         
         Args:
-            action (np.array): [body_x_velocity, yaw_rate, z_velocity]
+            action (np.array): [body_vx, body_vy, body_vz]
             duration (float): 动作持续时间
             
         Returns:
             bool: 碰撞状态
         """
 
-        body_x_velocity = float(action[0])
-        yaw_rate = float(action[1]) # rad/s
-        v_z = float(action[2])
-
-        # 获取当前偏航角
-        pitch, roll, yaw = airsim.to_eularian_angles(self.client.simGetVehiclePose().orientation)
-
-        # 将无人机机体系x轴速度分解为世界坐标系的 vx, vy。
-        vx = math.cos(yaw) * body_x_velocity
-        vy = math.sin(yaw) * body_x_velocity
-
-        # 使用 moveByVelocityAsync
-        # yaw_mode: is_rate=True, yaw_or_rate=yaw_rate (deg/s)
-        # AirSim Python API expected degrees for yaw_or_rate
-
-        yaw_mode = airsim.YawMode(is_rate=True, yaw_or_rate=math.degrees(yaw_rate))
+        body_vx, body_vy, body_vz = map(float, action[:3])
+        yaw_mode = airsim.YawMode(is_rate=True, yaw_or_rate=0.0)
 
         # 分片执行并在动作中途检查碰撞，避免碰撞后被物理弹开导致最后一次查询漏检。
         remaining = max(0.0, float(duration))
         while remaining > 1e-6:
             step_duration = min(0.05, remaining)
             try:
-                self.client.moveByVelocityAsync(
-                    vx, vy, v_z, step_duration,
+                self.client.moveByVelocityBodyFrameAsync(
+                    body_vx, body_vy, body_vz, step_duration,
                     airsim.DrivetrainType.MaxDegreeOfFreedom,
                     yaw_mode,
                 ).join()
             except msgpackrpc.error.TimeoutError:
-                print("RPC TimeoutError during moveByVelocityAsync, ignoring and proceeding to collision check")
+                print("RPC TimeoutError during moveByVelocityBodyFrameAsync, ignoring and proceeding to collision check")
 
             try:
                 if self.client.simGetCollisionInfo().has_collided:
@@ -762,35 +757,28 @@ class AirLearningClient(object):
 
     def take_continuous_action_3d_precise_pause(self, action, duration=0.1):
         """
-        Execute [body_x_velocity, yaw_rate, z_velocity] while keeping the
+        Execute [body_vx, body_vy, body_vz] while keeping the
         simulator unpaused only for the actual velocity command.
 
         State queries and collision checks happen while paused, so AirSim
         ClockSpeed does not amplify RPC overhead into extra flight time.
         """
 
-        body_x_velocity = float(action[0])
-        yaw_rate = float(action[1])  # rad/s
-        v_z = float(action[2])
-
-        # Read yaw before unpausing; this is the state used to construct a_t.
-        pitch, roll, yaw = airsim.to_eularian_angles(self.client.simGetVehiclePose().orientation)
-        vx = math.cos(yaw) * body_x_velocity
-        vy = math.sin(yaw) * body_x_velocity
-        yaw_mode = airsim.YawMode(is_rate=True, yaw_or_rate=math.degrees(yaw_rate))
+        body_vx, body_vy, body_vz = map(float, action[:3])
+        yaw_mode = airsim.YawMode(is_rate=True, yaw_or_rate=0.0)
 
         remaining = max(0.0, float(duration))
         while remaining > 1e-6:
             step_duration = min(0.05, remaining)
             try:
                 self.client.simPause(False)
-                self.client.moveByVelocityAsync(
-                    vx, vy, v_z, step_duration,
+                self.client.moveByVelocityBodyFrameAsync(
+                    body_vx, body_vy, body_vz, step_duration,
                     airsim.DrivetrainType.MaxDegreeOfFreedom,
                     yaw_mode,
                 ).join()
             except msgpackrpc.error.TimeoutError:
-                print("RPC TimeoutError during moveByVelocityAsync, ignoring and proceeding to collision check")
+                print("RPC TimeoutError during moveByVelocityBodyFrameAsync, ignoring and proceeding to collision check")
             finally:
                 try:
                     self.client.simPause(True)
