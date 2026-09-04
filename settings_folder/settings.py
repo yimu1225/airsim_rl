@@ -99,7 +99,7 @@ hard_range_dic = { "End": ["Mutable"],
                                       "Seed": list(range(0, 10000)),
                                       "VelocityRange": [[0, 5]],
                                       "Name": ["Name"],
-                                      "NumberOfObjects": list(range(140, 150))}
+                                      "NumberOfObjects": list(range(160, 180))}
 dynamic_obstacles_dic = { "End": ["Mutable"],
                                       "MinimumDistance": [2,3],
                                       "EnvType": ["Indoor"],
