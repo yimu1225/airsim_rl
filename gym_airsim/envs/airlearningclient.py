@@ -579,6 +579,28 @@ class AirLearningClient(object):
         world_velocity = np.array([vel.x_val, vel.y_val, vel.z_val], dtype=np.float32)
         return body_to_world.T @ world_velocity
 
+    def body_to_world_velocity(self, body_velocity):
+        """把机体系 [vx, vy, vz] 线速度旋转到世界系（AirSim NED）。
+
+        旧版 AirSim 服务端没有 moveByVelocityBodyFrame RPC，只提供世界系的
+        moveByVelocity，因此需要把机体系动作先转到世界系再下发。
+        """
+        pitch, roll, yaw = airsim.to_eularian_angles(self.client.simGetVehiclePose().orientation)
+
+        cp, sp = math.cos(pitch), math.sin(pitch)
+        cr, sr = math.cos(roll), math.sin(roll)
+        cy, sy = math.cos(yaw), math.sin(yaw)
+        body_to_world = np.array(
+            [
+                [cy * cp, cy * sp * sr - sy * cr, cy * sp * cr + sy * sr],
+                [sy * cp, sy * sp * sr + cy * cr, sy * sp * cr - cy * sr],
+                [-sp, cp * sr, cp * cr],
+            ],
+            dtype=np.float32,
+        )
+        body_velocity = np.asarray(body_velocity, dtype=np.float32).reshape(-1)[:3]
+        return body_to_world @ body_velocity
+
     def get_forward_speed(self):
         """
         获取无人机在当前朝向上的前向速度。
@@ -675,20 +697,24 @@ class AirLearningClient(object):
         """
 
         body_vx, body_vy, body_vz = map(float, action[:3])
-        yaw_mode = airsim.YawMode(is_rate=True, yaw_or_rate=0.0)
+        body_yaw_rate = float(action[3])
+        world_vx, world_vy, world_vz = map(float, self.body_to_world_velocity([body_vx, body_vy, body_vz]))
+        # 旧版 SimpleFlight 固件把 YawMode 的 rate 当作 度/秒（内部再 degreesToRadians），
+        # 而动作/状态里偏航角速度是 rad/s，因此下发前转成 度/秒。
+        yaw_mode = airsim.YawMode(is_rate=True, yaw_or_rate=body_yaw_rate * (180.0 / math.pi))
 
         # 分片执行并在动作中途检查碰撞，避免碰撞后被物理弹开导致最后一次查询漏检。
         remaining = max(0.0, float(duration))
         while remaining > 1e-6:
             step_duration = min(0.05, remaining)
             try:
-                self.client.moveByVelocityBodyFrameAsync(
-                    body_vx, body_vy, body_vz, step_duration,
+                self.client.moveByVelocityAsync(
+                    world_vx, world_vy, world_vz, step_duration,
                     airsim.DrivetrainType.MaxDegreeOfFreedom,
                     yaw_mode,
                 ).join()
             except msgpackrpc.error.TimeoutError:
-                print("RPC TimeoutError during moveByVelocityBodyFrameAsync, ignoring and proceeding to collision check")
+                print("RPC TimeoutError during moveByVelocityAsync, ignoring and proceeding to collision check")
 
             try:
                 if self.client.simGetCollisionInfo().has_collided:
@@ -765,20 +791,24 @@ class AirLearningClient(object):
         """
 
         body_vx, body_vy, body_vz = map(float, action[:3])
-        yaw_mode = airsim.YawMode(is_rate=True, yaw_or_rate=0.0)
+        body_yaw_rate = float(action[3])
+        world_vx, world_vy, world_vz = map(float, self.body_to_world_velocity([body_vx, body_vy, body_vz]))
+        # 旧版 SimpleFlight 固件把 YawMode 的 rate 当作 度/秒（内部再 degreesToRadians），
+        # 而动作/状态里偏航角速度是 rad/s，因此下发前转成 度/秒。
+        yaw_mode = airsim.YawMode(is_rate=True, yaw_or_rate=body_yaw_rate * (180.0 / math.pi))
 
         remaining = max(0.0, float(duration))
         while remaining > 1e-6:
             step_duration = min(0.05, remaining)
             try:
                 self.client.simPause(False)
-                self.client.moveByVelocityBodyFrameAsync(
-                    body_vx, body_vy, body_vz, step_duration,
+                self.client.moveByVelocityAsync(
+                    world_vx, world_vy, world_vz, step_duration,
                     airsim.DrivetrainType.MaxDegreeOfFreedom,
                     yaw_mode,
                 ).join()
             except msgpackrpc.error.TimeoutError:
-                print("RPC TimeoutError during moveByVelocityBodyFrameAsync, ignoring and proceeding to collision check")
+                print("RPC TimeoutError during moveByVelocityAsync, ignoring and proceeding to collision check")
             finally:
                 try:
                     self.client.simPause(True)

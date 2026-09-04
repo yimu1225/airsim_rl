@@ -1160,7 +1160,7 @@ def run_visualization(script_args, args) -> Path:
     action_space = spaces.Box(
         low=np.array(
             [
-                args.min_forward_speed,
+                -args.max_forward_speed,
                 -args.max_lateral_speed,
                 -args.max_vertical_speed,
             ],

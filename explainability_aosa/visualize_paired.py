@@ -257,7 +257,7 @@ def _action_space(args) -> spaces.Box:
     return spaces.Box(
         low=np.array(
             [
-                args.min_forward_speed,
+                -args.max_forward_speed,
                 -args.max_lateral_speed,
                 -args.max_vertical_speed,
             ],

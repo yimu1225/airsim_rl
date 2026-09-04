@@ -73,15 +73,15 @@ class AirSimEnv(gym.Env):
                                            np.array([+0.3, +0.3], dtype=np.float32),
                                            dtype=np.float32)
         elif (settings.control_mode == "Continuous"):
-            # Continuous action space: [body_vx, body_vy, body_vz].
-            body_x_min = config.min_forward_speed
+            # Continuous action space: [body_vx, body_vy, body_vz, body_yaw_rate].
             body_x_max = config.max_forward_speed
             body_y_max = config.max_lateral_speed
             body_z_max = config.max_vertical_speed
+            yaw_rate_max = config.max_yaw_rate
 
             self.action_space = spaces.Box(
-                low=np.array([body_x_min, -body_y_max, -body_z_max], dtype=np.float32),
-                high=np.array([body_x_max, body_y_max, body_z_max], dtype=np.float32),
+                low=np.array([-body_x_max, -body_y_max, -body_z_max, -yaw_rate_max], dtype=np.float32),
+                high=np.array([body_x_max, body_y_max, body_z_max, yaw_rate_max], dtype=np.float32),
                 dtype=np.float32
             )
         else:
@@ -617,7 +617,7 @@ class AirSimEnv(gym.Env):
         计算当前启用的稠密奖励。
 
         启用的项：对数水平距离、垂直距离、水平方向误差、前向飞行，
-        以及现有的三维速度变化平滑惩罚。超速项不启用。
+        以及动作变化平滑惩罚（动作四维，含偏航角速度）。超速项不启用。
         原有的速度投影、曲率、步惩罚、停滞、近障和进度项仍然计算，
         但只写入 ``last_reward_components``，不计入总奖励。
 
@@ -645,25 +645,35 @@ class AirSimEnv(gym.Env):
             self._wrap_angle(velocity_direction_body + float(yaw) - target_bearing_world)
         )
         forward_error = abs(self._wrap_angle(velocity_direction_body))
-
         # 原项目参考权重（当前暂不应用，以下各项使用单位权重）：
         # 距离 -0.001，垂直距离 -0.002，方向误差 -0.003，
         # 前向误差 -0.003，平滑项 -0.0005，超速项 0。
-        goal_penalty = -log_horizontal_distance
-        vertical_penalty = -vertical_distance
-        direction_penalty = -direction_error
-        forward_penalty = -forward_error
+        goal_penalty = -0.03*log_horizontal_distance
+        vertical_penalty = -0.02*vertical_distance
+        direction_penalty = -0.04*direction_error
+        forward_penalty = -0.04*forward_error
 
-        # 平滑项沿用本项目已有的世界系三维速度变化量计算方式。
+        # 平滑项：对动作变化做惩罚 ||a_t - a_(t-1)||_2。
+        # 动作现在是四维 [body_vx, body_vy, body_vz, yaw_rate]，因此天然覆盖偏航角速度。
+        if action is not None:
+            current_action = np.asarray(action, dtype=np.float32).reshape(-1)
+            previous_action = np.asarray(self.prev_action, dtype=np.float32).reshape(-1)
+            smooth_penalty = (
+                float(np.linalg.norm(current_action - previous_action))
+                if current_action.size == previous_action.size
+                else 0.0
+            )
+        else:
+            smooth_penalty = 0.0
+        smoothness_penalty = -0.01*smooth_penalty
+
+        # 世界系速度仍保留，供下方 legacy 诊断量使用。
         if velocity_after is not None:
             current_velocity = np.asarray(velocity_after, dtype=np.float32)[:3]
             previous_velocity = np.asarray(self.prev_velocity, dtype=np.float32)[:3]
-            smooth_penalty = float(np.linalg.norm(current_velocity - previous_velocity))
         else:
             current_velocity = np.zeros(3, dtype=np.float32)
             previous_velocity = np.asarray(self.prev_velocity, dtype=np.float32)[:3]
-            smooth_penalty = 0.0
-        smoothness_penalty = -smooth_penalty
 
         reward = (
             goal_penalty
@@ -672,6 +682,10 @@ class AirSimEnv(gym.Env):
             + forward_penalty
             + smoothness_penalty
         )
+        reward = reward - 0.1
+        # print(f"Reward components: goal_penalty={goal_penalty:.4f}, vertical_penalty={vertical_penalty:.4f}, "
+        #       f"direction_penalty={direction_penalty:.4f}, forward_penalty={forward_penalty:.4f}, "
+        #       f"smoothness_penalty={smoothness_penalty:.4f}, total_reward={reward:.4f}")    
 
         # ------------------------------------------------------------------
         # Legacy reward diagnostics: retained, but intentionally inactive.

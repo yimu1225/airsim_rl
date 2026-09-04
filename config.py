@@ -1,5 +1,6 @@
 import os
 import argparse
+import numpy as np
 from algo_name_utils import normalize_algorithm_name_for_config
 
 # Set CUDA memory allocator configuration to reduce fragmentation
@@ -52,12 +53,12 @@ def get_config(argv=None):
     parser.add_argument("--steps_per_update", type=int, default=100, help='每次更新前收集的步数')
     parser.add_argument("--cuda", action='store_false', default=True, help="是否使用CUDA")
     parser.add_argument("--cuda_deterministic", action='store_false', default=True, help="CUDA是否确定性")
-    parser.add_argument("--max_timesteps", type=int, default=150000, help='要训练的环境步数 (默认: 10e6)')
-    parser.add_argument("--buffer_size", type=int, default=40000, help='经验池大小 (注意内存占用: 30000步约占用4GB)')
-    parser.add_argument("--learning_starts", type=int, default=300, help="训练开始前的时间步数 (兼容 start_timesteps)。在此步数之前使用随机动作探索，之后改用策略网络采样。")
-    parser.add_argument("--update_after", type=int, default=300, help="开始网络更新的时间步数。默认与 learning_starts 相同。在 learning_starts 之后、update_after 之前，将使用策略网络采集经验，但仍不进行训练更新。")
+    parser.add_argument("--max_timesteps", type=int, default=300000, help='要训练的环境步数 (默认: 10e6)')
+    parser.add_argument("--buffer_size", type=int, default=50000, help='经验池大小 (注意内存占用: 30000步约占用4GB)')
+    parser.add_argument("--learning_starts", type=int, default=3000, help="训练开始前的时间步数 (兼容 start_timesteps)。在此步数之前使用随机动作探索，之后改用策略网络采样。")
+    parser.add_argument("--update_after", type=int, default=3000, help="开始网络更新的时间步数。默认与 learning_starts 相同。在 learning_starts 之后、update_after 之前，将使用策略网络采集经验，但仍不进行训练更新。")
     parser.add_argument("--gradient_steps", type=float, default=0.5, help="每次收集数据后的梯度更新倍数")
-    parser.add_argument("--episode_length", type=int, default=300, help='每个环境中的最大回合长度 ')
+    parser.add_argument("--episode_length", type=int, default=500, help='每个环境中的最大回合长度 ')
     parser.add_argument("--eval_freq", type=int, default=5000, help="评估频率")
     parser.add_argument("--hidden_dim", type=int, default=128, help="隐藏层维度")
     parser.add_argument("--base_feature_dim", type=int, default=32, help="基础状态先映射到该维度，再与视觉特征拼接")
@@ -94,10 +95,10 @@ def get_config(argv=None):
     # 例如 algorithm/TD3/params.yaml、algorithm/SAC/params.yaml。
     # 这里只保留公共参数定义。
     # 连续控制参数 (Continuous Control Parameters)
-    parser.add_argument("--min_forward_speed", type=float, default=-2.0, help="最小机体系x轴速度 (m/s)")
-    parser.add_argument("--max_forward_speed", type=float, default=2.0, help="最大机体系x轴速度 (m/s)")
+    parser.add_argument("--max_forward_speed", type=float, default=2.0, help="最大机体系x轴速度绝对值 (m/s)")
     parser.add_argument("--max_lateral_speed", type=float, default=2.0, help="最大机体系y轴速度绝对值 (m/s)")
     parser.add_argument("--max_vertical_speed", type=float, default=2.0, help="最大机体系z轴速度绝对值 (m/s，NED中向下为正)")
+    parser.add_argument("--max_yaw_rate", type=float, default=0.6, help="最大机体系z轴偏航角速度绝对值 (rad/s，动作第4维)")
     parser.add_argument("--takeoff_height", type=float, default=-1.0, help="起飞目标高度 (NED坐标系中负值为向上)")
     parser.add_argument("--action_duration", type=float, default=0.10, help="每个速度指令的仿真持续时间 (秒)")
 

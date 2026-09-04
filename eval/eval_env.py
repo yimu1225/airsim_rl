@@ -65,8 +65,8 @@ class SceneEvalAirSimEnv(AirSimEnv):
             )
         elif settings.control_mode == "Continuous":
             self.action_space = spaces.Box(
-                low=np.array([config.min_forward_speed, -config.max_lateral_speed, -config.max_vertical_speed], dtype=np.float32),
-                high=np.array([config.max_forward_speed, config.max_lateral_speed, config.max_vertical_speed], dtype=np.float32),
+                low=np.array([-config.max_forward_speed, -config.max_lateral_speed, -config.max_vertical_speed, -config.max_yaw_rate], dtype=np.float32),
+                high=np.array([config.max_forward_speed, config.max_lateral_speed, config.max_vertical_speed, config.max_yaw_rate], dtype=np.float32),
                 dtype=np.float32,
             )
         else:
