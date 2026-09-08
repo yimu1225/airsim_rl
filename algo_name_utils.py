@@ -34,6 +34,7 @@ _CANONICAL_ALGORITHMS: Tuple[str, ...] = (
     "Transformer_SAC",
     "Mamba_RSAC",
     "PL_Mamba_RSAC",
+    "MAVM_SAC",
     "MambaCSJA_SAC",
     "SB_PER_MambaCSJA_SAC",
     "PER_Mamba_SAC",
