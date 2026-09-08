@@ -1,0 +1,54 @@
+# Architecture. AirSim must emit one current depth frame of this resolution.
+image_height: 128
+image_width: 128
+channels: 1
+patch_size: 4
+latent_dim: 128
+encoder_depth: 2
+memory_dim: 128
+memory_depth: 2
+# Each t-5/t-10/t+5 branch receives its own 64-D code (3 x 64 = 192 total).
+reconstruction_latent_dim: 128
+# Hidden width of every spatial patch token inside the one shared decoder.
+decoder_embed_dim: 64
+decoder_depth: 2
+d_state: 16
+d_conv: 4
+expand: 2
+drop_rate: 0.0
+drop_path_rate: 0.0
+
+# Offline representation learning.
+reconstruction_offsets: [-20, -10, 10]
+# Sum squared errors over all valid pixels and samples.
+reconstruction_loss: mse
+vision_lr: 0.0004
+memory_lr: 0.0004
+vision_batch_size: 320
+memory_batch_size: 128
+
+# Frozen-feature SAC.
+actor_lr: 0.0004
+critic_lr: 0.0004
+alpha_lr: 0.0004
+hidden_dim: 256
+gamma: 0.95
+tau: 0.003
+initial_alpha: 0.2
+auto_entropy: true
+batch_size: 256
+replay_capacity: 50000
+gradient_clip: 10.0
+
+# Success-buffer prioritized replay (same schedule as SB_PER_VSSM_SAC).
+sb_per_alpha: 0.6
+sb_per_beta0: 0.4
+sb_per_beta1: 1.0
+sb_per_eps: 0.000001
+sb_per_success_capacity_ratio: 0.3
+sb_per_success_sample_ratio: 0.30
+sb_per_mu_low: 0.30
+sb_per_mu_mid: 0.40
+sb_per_mu_high: 0.45
+sb_per_mu_step1: 0.25
+sb_per_mu_step2: 0.70
