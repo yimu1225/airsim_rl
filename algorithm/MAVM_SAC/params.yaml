@@ -11,6 +11,7 @@ memory_depth: 2
 reconstruction_latent_dim: 128
 # Hidden width of every spatial patch token inside the one shared decoder.
 decoder_embed_dim: 64
+# Number of spatial Mamba blocks at EACH pyramid resolution.
 decoder_depth: 2
 d_state: 16
 d_conv: 4
@@ -22,10 +23,13 @@ drop_path_rate: 0.0
 reconstruction_offsets: [-20, -10, 10]
 # Sum squared errors over all valid pixels and samples.
 reconstruction_loss: mse
-vision_lr: 0.0004
-memory_lr: 0.0004
-vision_batch_size: 320
-memory_batch_size: 128
+vision_lr: 0.004
+memory_lr: 0.002
+memory_lrf: 0.01  # Stage 4 cosine final LR = memory_lr * memory_lrf.
+# Multiplicative learning-rate decay applied after every epoch in stage 3 only.
+offline_lr_decay: 0.99
+vision_batch_size: 128
+memory_batch_size: 1
 
 # Frozen-feature SAC.
 actor_lr: 0.0004

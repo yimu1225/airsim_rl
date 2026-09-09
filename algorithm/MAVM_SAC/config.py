@@ -32,6 +32,8 @@ class MAVMConfig:
     charbonnier_epsilon: float = 1e-3
     vision_lr: float = 3e-4
     memory_lr: float = 3e-4
+    memory_lrf: float = 0.01
+    offline_lr_decay: float = 0.99
     vision_batch_size: int = 256
     memory_batch_size: int = 4
     actor_lr: float = 4e-4
@@ -58,6 +60,10 @@ class MAVMConfig:
     sb_per_mu_step2: float = 0.7
 
     def __post_init__(self) -> None:
+        if not 0.0 <= self.memory_lrf <= 1.0:
+            raise ValueError("memory_lrf must be in [0, 1]")
+        if not 0.0 < self.offline_lr_decay <= 1.0:
+            raise ValueError("offline_lr_decay must be in (0, 1]")
         if self.patch_size <= 0 or self.image_height <= 0 or self.image_width <= 0:
             raise ValueError("image dimensions and patch_size must be positive")
         if self.image_height % self.patch_size or self.image_width % self.patch_size:

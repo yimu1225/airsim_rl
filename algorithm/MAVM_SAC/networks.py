@@ -234,8 +234,21 @@ class _BidirectionalMambaResidual(nn.Module):
         return values + 0.5 * (forward + backward)
 
 
+class _LinearPatchExpand(nn.Module):
+    """Produce four spatially arranged child tokens from each parent token."""
+
+    def __init__(self, dim: int) -> None:
+        super().__init__()
+        self.projection = nn.Linear(dim, 4 * dim)
+
+    def forward(self, tokens: torch.Tensor, height: int, width: int) -> torch.Tensor:
+        batch, _, dim = tokens.shape
+        children = self.projection(tokens).reshape(batch, height, width, 2, 2, dim)
+        return children.permute(0, 1, 3, 2, 4, 5).reshape(batch, 4 * height * width, dim)
+
+
 class VisionMambaDecoder(nn.Module):
-    """Decode one reconstruction latent with patch queries and spatial Mamba.
+    """Decode a global latent through a coarse-to-fine spatial Mamba pyramid.
 
     The only image projection is a linear token-to-patch layer followed by a
     reshape (unpatchify); no convolution or transposed convolution is used.
@@ -263,27 +276,36 @@ class VisionMambaDecoder(nn.Module):
         self.patch_size = patch_size
         self.channels = channels
         self.grid_size = (height // patch_size, width // patch_size)
-        patch_count = self.grid_size[0] * self.grid_size[1]
-
-        self.input_projection = nn.Linear(input_dim, embed_dim)
-        self.patch_queries = nn.Parameter(torch.empty(1, patch_count, embed_dim))
-        self.position_embedding = nn.Parameter(torch.empty(1, patch_count, embed_dim))
-        self.layers = nn.ModuleList(
-            _BidirectionalMambaResidual(
+        # Halve exactly; unusual/non-power-of-two grids retain their dimensions.
+        grids = [self.grid_size]
+        while min(grids[0]) > 8 and all(size % 2 == 0 for size in grids[0]):
+            grids.insert(0, tuple(size // 2 for size in grids[0]))
+        self.stage_grids = tuple(grids)
+        self.coarse_grid = grids[0]
+        self.embed_dim = embed_dim
+        self.input_projection = nn.Linear(input_dim, grids[0][0] * grids[0][1] * embed_dim)
+        self.position_embeddings = nn.ParameterList([
+            nn.Parameter(torch.empty(1, h * w, embed_dim)) for h, w in grids
+        ])
+        # depth is the number of Mamba blocks at each spatial resolution.
+        self.stages = nn.ModuleList([
+            nn.Sequential(*[_BidirectionalMambaResidual(
                 embed_dim,
                 d_state=d_state,
                 d_conv=d_conv,
                 expand=expand,
                 mamba_factory=mamba_factory,
-            )
-            for _ in range(depth)
-        )
+            ) for _ in range(depth)]) for _ in grids
+        ])
+        self.upsamplers = nn.ModuleList([
+            _LinearPatchExpand(embed_dim) for _ in grids[1:]
+        ])
         self.norm = nn.LayerNorm(embed_dim)
         self.patch_projection = nn.Linear(
             embed_dim, channels * patch_size * patch_size
         )
-        nn.init.trunc_normal_(self.patch_queries, std=0.02)
-        nn.init.trunc_normal_(self.position_embedding, std=0.02)
+        for position in self.position_embeddings:
+            nn.init.trunc_normal_(position, std=0.02)
 
     def forward(self, latent: torch.Tensor) -> torch.Tensor:
         sequence_input = latent.ndim == 3
@@ -291,10 +313,11 @@ class VisionMambaDecoder(nn.Module):
             raise ValueError("latent must have shape [B,D] or [B,T,D]")
         prefix = latent.shape[:-1]
         flat = latent.reshape(-1, latent.shape[-1])
-        condition = self.input_projection(flat).unsqueeze(1)
-        tokens = condition + self.patch_queries + self.position_embedding
-        for layer in self.layers:
-            tokens = layer(tokens)
+        tokens = self.input_projection(flat).reshape(flat.shape[0], -1, self.embed_dim)
+        for index, stage in enumerate(self.stages):
+            if index:
+                tokens = self.upsamplers[index - 1](tokens, *self.stage_grids[index - 1])
+            tokens = stage(tokens + self.position_embeddings[index])
         patches = self.patch_projection(self.norm(tokens))
         images = torch.sigmoid(self.unpatchify(patches))
         if sequence_input:
