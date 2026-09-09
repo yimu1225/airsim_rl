@@ -1,5 +1,16 @@
 # 重建诊断
 
+当前模型版本为3，Decoder 由全局 latent 生成粗空间特征，经线性展开和空间 Mamba
+逐级细化。128×128、patch_size=4 时为8×8→16×16→32×32，每尺度使用
+decoder_depth 个块。无 Encoder token 跳接、无 CNN。旧版本 Decoder checkpoint
+不能直接加载到新结构；正式使用需重新训练阶段3、4、5。
+
+对照新 Decoder：
+
+```bash
+python algorithm/MAVM_SAC/visualization/overfit_vision.py --output runs/MAVM_SAC/vision_overfit_pyramid
+```
+
 阶段3独立重建：`python algorithm/MAVM_SAC/visualization/visualize_vision_reconstruction.py`
 
 阶段4重建：`python algorithm/MAVM_SAC/visualization/visualize_memory_reconstruction.py`

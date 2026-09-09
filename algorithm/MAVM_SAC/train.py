@@ -390,6 +390,12 @@ def collect_sequences(args: argparse.Namespace, unknown_args: list[str]) -> None
         raise ValueError("collection requires a bootstrap or final SAC policy checkpoint")
     env = _make_env(args, unknown_args)
     dataset_root = Path(args.dataset)
+    if args.overwrite:
+        dataset_root.mkdir(parents=True, exist_ok=True)
+        old_files = list(dataset_root.glob("episode_*.npz"))
+        for old_file in old_files:
+            old_file.unlink()
+        print(f"[collect] overwrite=True removed={len(old_files)} old episodes")
     try:
         observation, _ = env.reset(seed=args.seed)
         config, perception = perception_from_checkpoint(checkpoint, device, freeze=True)
@@ -400,7 +406,7 @@ def collect_sequences(args: argparse.Namespace, unknown_args: list[str]) -> None
             device=device, seed=args.seed,
         )
         agent.load_sac_state(checkpoint)
-        first_episode_id = EpisodeArchive.next_episode_id(dataset_root)
+        first_episode_id = 0 if args.overwrite else EpisodeArchive.next_episode_id(dataset_root)
         for episode in range(args.episodes):
             if episode:
                 observation, _ = env.reset(seed=args.seed + episode)
@@ -490,7 +496,20 @@ def _memory_stage_config(
     config.reconstruction_offsets = requested_config.reconstruction_offsets
     config.reconstruction_loss = requested_config.reconstruction_loss
     config.charbonnier_epsilon = requested_config.charbonnier_epsilon
+    # Stage 4 optimization settings come from the current YAML, not the
+    # configuration snapshot stored during stage 3.
+    config.memory_lr = requested_config.memory_lr
+    config.memory_lrf = requested_config.memory_lrf
+    config.offline_lr_decay = requested_config.offline_lr_decay
     return config
+
+
+def _memory_lr_scheduler(optimizer, config: MAVMConfig, epochs: int):
+    if epochs <= 0:
+        raise ValueError("memory epochs must be positive")
+    return torch.optim.lr_scheduler.CosineAnnealingLR(
+        optimizer, T_max=epochs, eta_min=config.memory_lr * config.memory_lrf,
+    )
 
 
 class ReconstructionStats:
@@ -593,6 +612,9 @@ def train_vision(args: argparse.Namespace, _unknown_args: list[str]) -> None:
     optimizer = torch.optim.AdamW(
         [*encoder.parameters(), *decoder.parameters()], lr=config.vision_lr
     )
+    scheduler = torch.optim.lr_scheduler.ExponentialLR(
+        optimizer, gamma=config.offline_lr_decay
+    )
     output = Path(args.output)
     writer = _writer(output / "tensorboard")
     step = 0
@@ -632,7 +654,8 @@ def train_vision(args: argparse.Namespace, _unknown_args: list[str]) -> None:
                 step += 1
             val_stats = _validate_reconstruction(validation, encoder, decoder, device, config)
             summary = _log_reconstruction_epoch(writer, "vision", epoch + 1, {0: stats}, val_stats)
-            print(f"[vision] epoch={epoch + 1}/{args.epochs} {summary}")
+            scheduler.step()
+            print(f"[vision] epoch={epoch + 1}/{args.epochs} {summary} lr={optimizer.param_groups[0]['lr']:.3g}")
             atomic_torch_save({
                 "stage": "vision", "model_version": MODEL_VERSION,
                 "dataset_version": 1,
@@ -640,6 +663,7 @@ def train_vision(args: argparse.Namespace, _unknown_args: list[str]) -> None:
                 "epoch": epoch + 1, "config": config.to_dict(),
                 "encoder": encoder.state_dict(), "decoder": decoder.state_dict(),
                 "optimizer": optimizer.state_dict(),
+                "scheduler": scheduler.state_dict(),
             }, output / "vision_latest.pt")
     finally:
         writer.close()
@@ -705,6 +729,9 @@ def train_memory(args: argparse.Namespace, _unknown_args: list[str]) -> None:
     optimizer = torch.optim.AdamW(
         [*memory.parameters(), *reconstructor.parameters()], lr=config.memory_lr
     )
+    scheduler = _memory_lr_scheduler(optimizer, config, args.epochs)
+    print(f"[memory] scheduler=cosine initial_lr={config.memory_lr:g} "
+          f"final_lr={config.memory_lr * config.memory_lrf:g} epochs={args.epochs}")
     output = Path(args.output)
     writer = _writer(output / "tensorboard")
     step = 0
@@ -765,7 +792,8 @@ def train_memory(args: argparse.Namespace, _unknown_args: list[str]) -> None:
                 step += 1
             val_stats = _validate_reconstruction(validation, encoder, reconstructor, device, config, memory)
             summary = _log_reconstruction_epoch(writer, "memory", epoch + 1, stats, val_stats)
-            print(f"[memory] epoch={epoch + 1}/{args.epochs} {summary}")
+            scheduler.step()
+            print(f"[memory] epoch={epoch + 1}/{args.epochs} {summary} lr={optimizer.param_groups[0]['lr']:.3g}")
             atomic_torch_save({
                 "stage": "memory", "model_version": MODEL_VERSION,
                 "dataset_version": 1,
@@ -774,6 +802,7 @@ def train_memory(args: argparse.Namespace, _unknown_args: list[str]) -> None:
                 "encoder": encoder.state_dict(), "memory": memory.state_dict(),
                 "reconstructor": reconstructor.state_dict(),
                 "optimizer": optimizer.state_dict(),
+                "scheduler": scheduler.state_dict(),
             }, output / "memory_latest.pt")
     finally:
         writer.close()
@@ -884,6 +913,10 @@ def build_parser() -> argparse.ArgumentParser:
     collect.add_argument("--max-steps", type=int, default=0)
     collect.add_argument("--level", type=int, choices=range(4), default=2)
     collect.add_argument("--curriculum", action=argparse.BooleanOptionalAction, default=False)
+    collect.add_argument(
+        "--overwrite", action=argparse.BooleanOptionalAction, default=True,
+        help="clear existing episode_*.npz files before collection (default: true)",
+    )
     collect.add_argument("--deterministic", action=argparse.BooleanOptionalAction, default=False)
     collect.add_argument(
         "--clean-targets",

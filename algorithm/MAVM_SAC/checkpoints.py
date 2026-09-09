@@ -12,7 +12,7 @@ from .config import MAVMConfig
 from .networks import MambaPerceptionMemory, TemporalMambaMemory, VisionMambaEncoder
 
 
-MODEL_VERSION = 2
+MODEL_VERSION = 3
 
 
 def atomic_torch_save(payload: Mapping[str, Any], path: str | Path) -> Path:

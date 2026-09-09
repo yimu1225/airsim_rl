@@ -129,9 +129,10 @@ m_t
 r_{t-5}, r_{t-10}, r_{t+5}
   ↓ 每个分支分别进入同一个共享 Decoder
 reconstruction latent r_t^k
-  ├── input projection
-  ├── learned patch queries
-  └── 2D positional embeddings
+  ↓ Linear → 8×8×decoder_embed_dim 空间特征（128×128、patch=4时）
+  ↓ Mamba + Linear展开 → 16×16
+  ↓ Mamba + Linear展开 → 32×32
+  ↓ 加入各尺度位置编码
               │
               ▼
        Vision Mamba Decoder blocks
@@ -151,15 +152,16 @@ reconstruction latent r_t^k
 ```text
 R_t = W_r m_t ∈ R^(3D_r)
 (r_t^-5, r_t^-10, r_t^+5) = Split(R_t)
-X_t^k = Q_patch + P_2D + broadcast(W_d r_t^k)
-Y_t^k = VisionMambaDecoder(X_t^k)
+X_t^k = Reshape(W_d r_t^k) + P_coarse
+Y_t^k = PyramidVisionMambaDecoder(X_t^k)
 I_hat_{t+k} = Unpatchify(W_out Y_t^k)
 ```
 
 说明：
 
-- `Q_patch` 是可学习的空间 patch query；
-- `P_2D` 是二维位置编码；
+- latent 直接生成不同空间位置的粗特征，再通过线性展开逐级细化；
+- 每个尺度加入可学习位置编码并执行 decoder_depth 个空间 Mamba 块；
+- 模型版本为3，旧 Decoder 权重不兼容，需要重新训练视觉和记忆阶段；
 - 三个独立的重建 latent 分别对应 `t-5`、`t-10` 和 `t+5`；
 - 三个时间目标共用同一个 Vision Mamba Decoder，结构与 MAVRL 的共享方式一致；
 - 若 `D_r=64`，重建投影层总输出为 `3×64=192`，但这不改变 `memory_dim`；
@@ -535,13 +537,13 @@ python algorithm/MAVM_SAC/train.py bootstrap \
 && python algorithm/MAVM_SAC/train.py vision \
   --dataset datasets/MAVM_SAC \
   --output runs/MAVM_SAC/vision \
-  --epochs 100 \
+  --epochs 300 \
 && python algorithm/MAVM_SAC/train.py memory \
   --dataset datasets/MAVM_SAC \
   --vision-checkpoint runs/MAVM_SAC/vision/vision_latest.pt \
   --output runs/MAVM_SAC/memory \
-  --epochs 100
-  --batch-size 1 \
+  --epochs 300 \
+  --batch-size 2 \
 && python algorithm/MAVM_SAC/train.py sac \
   --perception-checkpoint runs/MAVM_SAC/memory/memory_latest.pt \
   --output runs/MAVM_SAC/final \
