@@ -33,6 +33,15 @@ def load_checkpoint(path: str | Path, device: torch.device | str) -> dict[str, A
             f"{path} uses MAVM model version {checkpoint.get('model_version')!r}; "
             f"this implementation requires version {MODEL_VERSION}"
         )
+    memory_state = checkpoint.get("memory", {})
+    perception_state = checkpoint.get("perception", {})
+    if ("input_projection.weight" in memory_state
+            or "memory.input_projection.weight" in perception_state):
+        raise ValueError(
+            "This checkpoint uses the removed Memory input projection. "
+            "Retrain Memory from a vision-stage checkpoint; old Memory/SAC "
+            "weights cannot be loaded unchanged."
+        )
     return checkpoint
 
 

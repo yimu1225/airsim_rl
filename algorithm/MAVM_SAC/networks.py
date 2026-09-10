@@ -75,7 +75,8 @@ class TemporalMambaMemory(nn.Module):
     ) -> None:
         super().__init__()
         self.memory_dim = memory_dim
-        self.input_projection = nn.Linear(latent_dim, memory_dim)
+        if latent_dim != memory_dim:
+            raise ValueError("Memory without input projection requires latent_dim == memory_dim")
         self.layers = nn.ModuleList(
             _MambaResidual(
                 memory_dim,
@@ -91,7 +92,7 @@ class TemporalMambaMemory(nn.Module):
     def forward(self, latents: torch.Tensor) -> torch.Tensor:
         if latents.ndim != 3:
             raise ValueError("latents must have shape [batch, time, latent_dim]")
-        values = self.input_projection(latents)
+        values = latents
         for layer in self.layers:
             values = layer(values)
         return self.output_norm(values)
@@ -144,7 +145,7 @@ class TemporalMambaMemory(nn.Module):
             raise ValueError("latent must have shape [batch, latent_dim]")
         if len(cache) != len(self.layers):
             raise ValueError("cache does not match the temporal Mamba depth")
-        values = self.input_projection(latent).unsqueeze(1)
+        values = latent.unsqueeze(1)
         next_cache: list[MambaState] = []
         for layer, state in zip(self.layers, cache):
             values, state = layer.step(values, state)

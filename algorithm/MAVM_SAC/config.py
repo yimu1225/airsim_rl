@@ -32,6 +32,8 @@ class MAVMConfig:
     charbonnier_epsilon: float = 1e-3
     vision_lr: float = 3e-4
     memory_lr: float = 3e-4
+    memory_updates_per_epoch: int = 100
+    memory_validation_interval: int = 10
     memory_lrf: float = 0.01
     offline_lr_decay: float = 0.99
     vision_batch_size: int = 256
@@ -60,6 +62,10 @@ class MAVMConfig:
     sb_per_mu_step2: float = 0.7
 
     def __post_init__(self) -> None:
+        if self.memory_validation_interval < 1:
+            raise ValueError("memory_validation_interval must be positive")
+        if self.memory_updates_per_epoch < 1:
+            raise ValueError("memory_updates_per_epoch must be positive")
         if not 0.0 <= self.memory_lrf <= 1.0:
             raise ValueError("memory_lrf must be in [0, 1]")
         if not 0.0 < self.offline_lr_decay <= 1.0:
