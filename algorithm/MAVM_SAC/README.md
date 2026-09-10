@@ -293,9 +293,19 @@ checkpoints/vision_pretrain/
 
 ### 阶段 4：训练 Temporal Mamba 记忆
 
+Memory 不再包含输入线性投影：Encoder 特征直接进入 Mamba 残差块，最后经过输出 LayerNorm。要求 `latent_dim == memory_dim`，整段训练和在线 step 路径一致。原 Vision checkpoint 可复用；带旧输入投影的 Memory/策略 checkpoint 不能直接加载，需要重新训练相应阶段。输出到三个目标 latent 的投影层保留。
+
+完整验证按 `memory_validation_interval`（默认10）每 N 个 epoch 执行一次，最后一个 epoch 必定执行。其余 epoch 只记录训练指标，不写入虚假的或重复的验证指标；checkpoint 和学习率调度仍每轮更新。
+
 加载阶段 3 的 Vision Mamba Encoder 并冻结。创建新的 Temporal Mamba 和用于记忆重建的 Vision Mamba Decoder。
 
-训练时输入完整因果序列：
+阶段 4 训练从整个训练集的有效 `(episode, t)` 索引中均匀、有放回地随机采样。仅当全部目标 `t + offset` 有效时才收录该时刻；没有任何有效时刻则报错。`memory_batch_size`（或 `--batch-size`）现在表示每批 n 个当前时刻，不再表示 n 条完整轨迹；`memory_updates_per_epoch`（或 `--updates-per-epoch`）表示每轮 m 次 batch 更新，默认 100。每批始终凑齐 n 个样本。
+
+每个样本逻辑上包含当前帧和三个目标帧（n×4），实际训练读取图像并经过冻结 Encoder，不再启动时缓存 latent。Memory 输入同一 episode 从起点到采样时刻 t 的因果前缀，只在 t 计算三个目标的图像重建损失；不会把未来目标输入 Memory，也不会对前缀所有时刻计算损失。不同样本独立初始化记忆。验证遍历独立验证集，且同样只统计全部目标有效的时刻。
+
+Decoder 随机初始化并参与训练，不加载 Vision Decoder。重建目标优先使用采集的 clean_depth，否则使用观测深度。损失读取当前 YAML 的 reconstruction_loss（mse 时对像素和样本求和，再对三个分支求和）；train_mse/val_mse 恢复为图像像素误差，TensorBoard 使用 memory 命名空间。
+
+输入前缀的示意（训练只监督采样终点）：
 
 ```text
 I_0, I_1, ..., I_T
@@ -543,11 +553,11 @@ python algorithm/MAVM_SAC/train.py bootstrap \
   --vision-checkpoint runs/MAVM_SAC/vision/vision_latest.pt \
   --output runs/MAVM_SAC/memory \
   --epochs 300 \
-  --batch-size 2 \
+  --batch-size 1 \
 && python algorithm/MAVM_SAC/train.py sac \
   --perception-checkpoint runs/MAVM_SAC/memory/memory_latest.pt \
   --output runs/MAVM_SAC/final \
-  --max-steps 150000
+  --max-steps 150000 \
   --overwrite-results
 ```
 
