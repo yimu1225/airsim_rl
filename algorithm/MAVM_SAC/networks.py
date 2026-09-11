@@ -21,6 +21,7 @@ def _mamba_factory(**kwargs: Any) -> nn.Module:
 
 
 class MambaState(NamedTuple):
+    """Internal recurrent state, carried to the next frame, not decoder input."""
     conv: torch.Tensor
     ssm: torch.Tensor
 
@@ -75,8 +76,10 @@ class TemporalMambaMemory(nn.Module):
     ) -> None:
         super().__init__()
         self.memory_dim = memory_dim
-        if latent_dim != memory_dim:
-            raise ValueError("Memory without input projection requires latent_dim == memory_dim")
+        self.input_projection = nn.Sequential(
+            nn.Linear(latent_dim, memory_dim),
+            nn.LayerNorm(memory_dim),
+        )
         self.layers = nn.ModuleList(
             _MambaResidual(
                 memory_dim,
@@ -90,9 +93,14 @@ class TemporalMambaMemory(nn.Module):
         self.output_norm = nn.LayerNorm(memory_dim)
 
     def forward(self, latents: torch.Tensor) -> torch.Tensor:
+        """Return y_t for every causal prefix, not the internal recurrent states.
+
+        Each layer scans the sequence from zero state. This is the differentiable
+        training path; do not replace it with the inference cache update loop.
+        """
         if latents.ndim != 3:
             raise ValueError("latents must have shape [batch, time, latent_dim]")
-        values = latents
+        values = self.input_projection(latents)
         for layer in self.layers:
             values = layer(values)
         return self.output_norm(values)
@@ -141,11 +149,16 @@ class TemporalMambaMemory(nn.Module):
     def step(
         self, latent: torch.Tensor, cache: list[MambaState]
     ) -> tuple[torch.Tensor, list[MambaState]]:
+        """Consume (x_t, s_previous) and return (y_t, s_updated).
+
+        Use y_t for reconstruction/policy features. Carry s_updated to the next
+        frame and reset it at episode boundaries. Mixer caches may update in place.
+        """
         if latent.ndim != 2:
             raise ValueError("latent must have shape [batch, latent_dim]")
         if len(cache) != len(self.layers):
             raise ValueError("cache does not match the temporal Mamba depth")
-        values = latent.unsqueeze(1)
+        values = self.input_projection(latent).unsqueeze(1)
         next_cache: list[MambaState] = []
         for layer, state in zip(self.layers, cache):
             values, state = layer.step(values, state)
@@ -336,7 +349,7 @@ class VisionMambaDecoder(nn.Module):
 
 
 class MultiFrameMambaReconstructor(nn.Module):
-    """MAVRL-style three-code projection followed by one shared decoder."""
+    """One latent code per target offset, followed by one shared decoder."""
 
     def __init__(
         self,
@@ -398,8 +411,8 @@ class MambaPerceptionMemory(nn.Module):
         latent = self.encoder(frame)
         if self._cache is None or self._cache[0].conv.shape[0] != frame.shape[0]:
             self.reset(frame.shape[0])
-        value, self._cache = self.memory.step(latent, self._cache)
-        return value
+        output_feature, self._cache = self.memory.step(latent, self._cache)
+        return output_feature
 
     def encode_sequence(
         self,

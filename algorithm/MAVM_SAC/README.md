@@ -1,5 +1,17 @@
 # MAVM-SAC 设计方案
 
+## 当前阶段4目标更新
+
+Vision Encoder 输出128维，先经 `Linear(128,384)` 输入两层384维 Temporal Mamba，再由 `Linear(384,512)` 生成四份128维 latent，使用同一个共享 Decoder。
+Encoder 保持冻结，Memory、重建投影和 Decoder 按阶段4配置训练。
+
+`reconstruction_offsets: [-20, -10, 0, 10]`：阶段4现在监督过去两帧、当前帧和未来一帧。
+Memory 输出直接切分成四份 latent，使用同一个共享 Decoder。
+各目标图像损失继续求和；仅采样四个目标都有效的时刻，保留完整因果前缀。
+新版 Memory 可视化的当前帧来自 Memory 重建；旧三目标 checkpoint 的当前帧仅为 Vision AE 参考。
+需使用原 Vision checkpoint 重新训练阶段4，旧三目标 Memory 投影权重不适配四目标结构。
+以下历史方案中提到的三目标，以本节配置更新为准。
+
 > 状态：第一版代码已实现；真实 AirSim/GPU 长训练仍需按阶段执行验证。
 >
 > 工作名：MAVM-SAC（Mamba-based MAVRL SAC）。
@@ -299,7 +311,7 @@ Memory 不再包含输入线性投影：Encoder 特征直接进入 Mamba 残差�
 
 加载阶段 3 的 Vision Mamba Encoder 并冻结。创建新的 Temporal Mamba 和用于记忆重建的 Vision Mamba Decoder。
 
-阶段 4 训练从整个训练集的有效 `(episode, t)` 索引中均匀、有放回地随机采样。仅当全部目标 `t + offset` 有效时才收录该时刻；没有任何有效时刻则报错。`memory_batch_size`（或 `--batch-size`）现在表示每批 n 个当前时刻，不再表示 n 条完整轨迹；`memory_updates_per_epoch`（或 `--updates-per-epoch`）表示每轮 m 次 batch 更新，默认 100。每批始终凑齐 n 个样本。
+阶段 4 每个 epoch 遍历全部训练 episode；`memory_batch_size`（或 `--batch-size`）表示每批同时处理的完整 episode 数。
 
 每个样本逻辑上包含当前帧和三个目标帧（n×4），实际训练读取图像并经过冻结 Encoder，不再启动时缓存 latent。Memory 输入同一 episode 从起点到采样时刻 t 的因果前缀，只在 t 计算三个目标的图像重建损失；不会把未来目标输入 Memory，也不会对前缀所有时刻计算损失。不同样本独立初始化记忆。验证遍历独立验证集，且同样只统计全部目标有效的时刻。
 
@@ -500,10 +512,10 @@ MAVM-SAC 而导入其他算法：
 python algorithm/MAVM_SAC/train.py bootstrap \
   --output runs/MAVM_SAC/bootstrap --max-steps 20000 --level 2
 
-# 阶段 2：用 bootstrap 策略按完整 episode 采集数据
+# 阶段 2：用 bootstrap 策略按目标帧数采集数据
 python algorithm/MAVM_SAC/train.py collect \
   --policy-checkpoint runs/MAVM_SAC/bootstrap/bootstrap_latest.pt \
-  --dataset datasets/MAVM_SAC --episodes 300 --clean-targets --level 2
+  --dataset datasets/MAVM_SAC --target-frames 30000 --clean-targets --level 2
 
 # 阶段 3：单帧 Vision Mamba 自编码预训练
 python algorithm/MAVM_SAC/train.py vision \
@@ -541,7 +553,7 @@ python algorithm/MAVM_SAC/train.py bootstrap \
 && python algorithm/MAVM_SAC/train.py collect \
   --policy-checkpoint runs/MAVM_SAC/bootstrap/bootstrap_latest.pt \
   --dataset datasets/MAVM_SAC \
-  --episodes 300 \
+  --target-frames 30000 \
   --level 2 \
   --clean-targets \
 && python algorithm/MAVM_SAC/train.py vision \
@@ -552,7 +564,7 @@ python algorithm/MAVM_SAC/train.py bootstrap \
   --dataset datasets/MAVM_SAC \
   --vision-checkpoint runs/MAVM_SAC/vision/vision_latest.pt \
   --output runs/MAVM_SAC/memory \
-  --epochs 300 \
+  --epochs 100 \
   --batch-size 1 \
 && python algorithm/MAVM_SAC/train.py sac \
   --perception-checkpoint runs/MAVM_SAC/memory/memory_latest.pt \

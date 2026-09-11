@@ -187,6 +187,7 @@ def _save_grid(
     *,
     episode_index: int,
     time_index: int,
+    current_is_temporal: bool = False,
 ) -> Path:
     import matplotlib
 
@@ -212,7 +213,7 @@ def _save_grid(
         axes[1, column].imshow(
             reconstruction, cmap="gray", vmin=0.0, vmax=1.0
         )
-        source = "Vision AE" if offset == 0 else "Temporal reconstruction"
+        source = "Vision AE (reference only)" if offset == 0 and not current_is_temporal else "Temporal reconstruction"
         axes[1, column].set_title(f"{source}\nMAE={mae:.5f}")
         axes[0, column].axis("off")
         axes[1, column].axis("off")
@@ -287,9 +288,9 @@ def visualize(args: argparse.Namespace) -> Path:
     }
     reconstructions = {
         offset: (
-            current_prediction[0].cpu().numpy()
-            if offset == 0
-            else temporal_predictions[offset][0].cpu().numpy()
+            temporal_predictions[offset][0].cpu().numpy()
+            if offset in temporal_predictions
+            else current_prediction[0].cpu().numpy()
         )
         for offset in display_offsets
     }
@@ -299,6 +300,7 @@ def visualize(args: argparse.Namespace) -> Path:
         args.output or _PROJECT_ROOT / "runs/MAVM_SAC/memory/reconstruction_test.png",
         episode_index=episode_index,
         time_index=time_index,
+        current_is_temporal=0 in temporal_predictions,
     )
     target_kind = "observed depth" if args.observed_targets else "training targets"
     print(

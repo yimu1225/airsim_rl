@@ -17,7 +17,7 @@ class MAVMConfig:
     patch_size: int = 16
     latent_dim: int = 64
     encoder_depth: int = 2
-    memory_dim: int = 128
+    memory_dim: int = 1024
     memory_depth: int = 2
     reconstruction_latent_dim: int = 64
     decoder_embed_dim: int = 64
@@ -27,12 +27,13 @@ class MAVMConfig:
     expand: int = 2
     drop_rate: float = 0.0
     drop_path_rate: float = 0.0
-    reconstruction_offsets: tuple[int, ...] = (-5, -10, 5)
+    reconstruction_offsets: tuple[int, ...] = (-20, -10, 0, 10)
+    reconstruction_loss_weights: tuple[float, ...] = (0.3, 0.3, 0.1, 0.3)
     reconstruction_loss: str = "mse"
     charbonnier_epsilon: float = 1e-3
+    collect_frames: int = 30_000
     vision_lr: float = 3e-4
     memory_lr: float = 3e-4
-    memory_updates_per_epoch: int = 100
     memory_validation_interval: int = 10
     memory_lrf: float = 0.01
     offline_lr_decay: float = 0.99
@@ -64,8 +65,8 @@ class MAVMConfig:
     def __post_init__(self) -> None:
         if self.memory_validation_interval < 1:
             raise ValueError("memory_validation_interval must be positive")
-        if self.memory_updates_per_epoch < 1:
-            raise ValueError("memory_updates_per_epoch must be positive")
+        if self.collect_frames < 1:
+            raise ValueError("collect_frames must be positive")
         if not 0.0 <= self.memory_lrf <= 1.0:
             raise ValueError("memory_lrf must be in [0, 1]")
         if not 0.0 < self.offline_lr_decay <= 1.0:
@@ -87,8 +88,14 @@ class MAVMConfig:
         }
         if any(value <= 0 for value in positive.values()):
             raise ValueError(f"MAVM dimensions and capacities must be positive: {positive}")
-        if 0 in self.reconstruction_offsets:
-            raise ValueError("memory reconstruction offsets must not include the current frame")
+        if not self.reconstruction_offsets or len(set(self.reconstruction_offsets)) != len(self.reconstruction_offsets):
+            raise ValueError("memory reconstruction offsets must be non-empty and unique")
+        if len(self.reconstruction_loss_weights) != len(self.reconstruction_offsets):
+            raise ValueError("reconstruction_loss_weights must match reconstruction_offsets")
+        if any(weight < 0.0 or weight > 1.0 for weight in self.reconstruction_loss_weights):
+            raise ValueError("reconstruction_loss_weights must be in [0, 1]")
+        if abs(sum(self.reconstruction_loss_weights) - 1.0) > 1e-6:
+            raise ValueError("reconstruction_loss_weights must sum to 1")
         if self.charbonnier_epsilon <= 0.0:
             raise ValueError("charbonnier_epsilon must be positive")
         if not 0.0 < self.gamma <= 1.0 or not 0.0 < self.tau <= 1.0:
@@ -130,6 +137,12 @@ class MAVMConfig:
         data = dict(values)
         if "reconstruction_offsets" in data:
             data["reconstruction_offsets"] = tuple(data["reconstruction_offsets"])
+        if "reconstruction_loss_weights" in data:
+            data["reconstruction_loss_weights"] = tuple(data["reconstruction_loss_weights"])
+        elif "reconstruction_offsets" in data:
+            count = len(data["reconstruction_offsets"])
+            if count:
+                data["reconstruction_loss_weights"] = tuple(1.0 / count for _ in range(count))
         return cls(**data)
 
     @classmethod

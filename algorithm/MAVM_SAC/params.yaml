@@ -5,9 +5,9 @@ channels: 1
 patch_size: 4
 latent_dim: 128
 encoder_depth: 2
-memory_dim: 128
-memory_depth: 2
-# Each t-5/t-10/t+5 branch receives its own 64-D code (3 x 64 = 192 total).
+memory_dim: 1024
+memory_depth: 1
+# Memory output is projected into four 128-D reconstruction codes.
 reconstruction_latent_dim: 128
 # Hidden width of every spatial patch token inside the one shared decoder.
 decoder_embed_dim: 64
@@ -20,19 +20,20 @@ drop_rate: 0.0
 drop_path_rate: 0.0
 
 # Offline representation learning.
-reconstruction_offsets: [-20, -10, 10]
+reconstruction_offsets: [-20, -10, 0, 10]
+reconstruction_loss_weights: [0.25, 0.25, 0.15, 0.35]
 # Sum squared errors over all valid pixels and samples.
-reconstruction_loss: mse
+reconstruction_loss: charbonnier
+collect_frames: 30000
 vision_lr: 0.004
-memory_lr: 0.02
+memory_lr: 0.00003
 memory_lrf: 0.01  # Stage 4 cosine final LR = memory_lr * memory_lrf.
 # Multiplicative learning-rate decay applied after every epoch in stage 3 only.
 offline_lr_decay: 0.99
 vision_batch_size: 128
 # Stage 4 random sampling: n groups per batch, m optimizer updates per epoch.
 # Each group contains one current frame and three valid target frames (n x 4).
-memory_batch_size: 16         # n; overridden by --batch-size.
-memory_updates_per_epoch: 20 # m; overridden by --updates-per-epoch.
+memory_batch_size: 4        # n; overridden by --batch-size.
 memory_validation_interval: 10 # Full validation every N epochs and at the final epoch.
 
 # Frozen-feature SAC.
