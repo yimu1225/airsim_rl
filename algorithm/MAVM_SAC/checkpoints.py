@@ -12,7 +12,7 @@ from .config import MAVMConfig
 from .networks import MambaPerceptionMemory, TemporalMambaMemory, VisionMambaEncoder
 
 
-MODEL_VERSION = 3
+MODEL_VERSION = 5
 
 
 def atomic_torch_save(payload: Mapping[str, Any], path: str | Path) -> Path:
@@ -28,19 +28,12 @@ def load_checkpoint(path: str | Path, device: torch.device | str) -> dict[str, A
     checkpoint = torch.load(path, map_location=device, weights_only=False)
     if "stage" not in checkpoint or "config" not in checkpoint:
         raise ValueError(f"{path} is not a MAVM stage checkpoint")
-    if checkpoint.get("model_version") != MODEL_VERSION:
+    reusable_vision = checkpoint.get("stage") == "vision" and checkpoint.get("model_version") in {3, 4}
+    if checkpoint.get("model_version") != MODEL_VERSION and not reusable_vision:
         raise ValueError(
             f"{path} uses MAVM model version {checkpoint.get('model_version')!r}; "
-            f"this implementation requires version {MODEL_VERSION}"
-        )
-    memory_state = checkpoint.get("memory", {})
-    perception_state = checkpoint.get("perception", {})
-    if ("input_projection.weight" in memory_state
-            or "memory.input_projection.weight" in perception_state):
-        raise ValueError(
-            "This checkpoint uses the removed Memory input projection. "
-            "Retrain Memory from a vision-stage checkpoint; old Memory/SAC "
-            "weights cannot be loaded unchanged."
+            f"this implementation requires version {MODEL_VERSION}. "
+            "Retrain Memory from a vision-stage checkpoint (version 3 Vision remains supported)."
         )
     return checkpoint
 

@@ -390,6 +390,12 @@ def collect_sequences(args: argparse.Namespace, unknown_args: list[str]) -> None
         raise ValueError("collection requires a bootstrap or final SAC policy checkpoint")
     env = _make_env(args, unknown_args)
     dataset_root = Path(args.dataset)
+    collect_config = MAVMConfig.load(args.config)
+    target_frames = (
+        args.target_frames if args.target_frames is not None else collect_config.collect_frames
+    )
+    if target_frames < 1:
+        raise ValueError("target_frames must be positive")
     if args.overwrite:
         dataset_root.mkdir(parents=True, exist_ok=True)
         old_files = list(dataset_root.glob("episode_*.npz"))
@@ -407,7 +413,9 @@ def collect_sequences(args: argparse.Namespace, unknown_args: list[str]) -> None
         )
         agent.load_sac_state(checkpoint)
         first_episode_id = 0 if args.overwrite else EpisodeArchive.next_episode_id(dataset_root)
-        for episode in range(args.episodes):
+        collected_frames = 0
+        episode = 0
+        while collected_frames < target_frames or episode == 0:
             if episode:
                 observation, _ = env.reset(seed=args.seed + episode)
             agent.reset()
@@ -449,10 +457,12 @@ def collect_sequences(args: argparse.Namespace, unknown_args: list[str]) -> None
                 clean_depth=np.asarray(clean_depth) if clean_depth else None,
                 metadata={"success": success, "seed": args.seed + episode},
             )
+            collected_frames += len(fields["depth"])
             print(
                 f"[collect] episode={episode} frames={len(fields['depth'])} "
-                f"success={int(success)}"
+                f"collected={collected_frames}/{target_frames} success={int(success)}"
             )
+            episode += 1
     finally:
         _close_env(env)
 
@@ -494,13 +504,16 @@ def _memory_stage_config(
     # the spatial encoder architecture. This lets an existing vision
     # checkpoint be reused when either setting changes.
     config.reconstruction_offsets = requested_config.reconstruction_offsets
+    config.reconstruction_loss_weights = requested_config.reconstruction_loss_weights
+    config.memory_dim = requested_config.memory_dim
+    config.memory_depth = requested_config.memory_depth
+    config.reconstruction_latent_dim = requested_config.reconstruction_latent_dim
     config.reconstruction_loss = requested_config.reconstruction_loss
     config.charbonnier_epsilon = requested_config.charbonnier_epsilon
     # Stage 4 optimization settings come from the current YAML, not the
     # configuration snapshot stored during stage 3.
     config.memory_lr = requested_config.memory_lr
     config.memory_batch_size = requested_config.memory_batch_size
-    config.memory_updates_per_epoch = requested_config.memory_updates_per_epoch
     config.memory_validation_interval = requested_config.memory_validation_interval
     config.memory_lrf = requested_config.memory_lrf
     config.offline_lr_decay = requested_config.offline_lr_decay
@@ -723,22 +736,57 @@ def _sampled_image_objective(encoder, memory, reconstructor, batch, device, conf
     with torch.no_grad():
         latent = torch.cat([encoder(_depth_to_device(chunk, device))
                             for chunk in frames.reshape(-1, c, h, w).split(128)])
-    states = memory(latent.reshape(b, t, -1))
-    last = states[torch.arange(b, device=device), batch["lengths"].to(device)-1]
-    predictions = reconstructor(last)
+    # Outputs y_t already incorporate causal history. Internal recurrent states
+    # are maintained by the scan, not passed to the reconstruction projection.
+    output_features = memory(latent.reshape(b, t, -1))
+    anchor_features = output_features[
+        torch.arange(b, device=device), batch["lengths"].to(device)-1
+    ]
+    predictions = reconstructor(anchor_features)
     targets = _depth_to_device(batch["targets"], device)
     losses = []
     for i, offset in enumerate(config.reconstruction_offsets):
         stats[offset].add(predictions[offset], targets[:, i])
-        losses.append(_reconstruction_loss(predictions[offset], targets[:, i],
+        losses.append(config.reconstruction_loss_weights[i] * _reconstruction_loss(predictions[offset], targets[:, i],
                       config.reconstruction_loss, charbonnier_epsilon=config.charbonnier_epsilon))
     return torch.stack(losses).sum()
 
 
+def _episode_image_objective(encoder, memory, reconstructor, sample, device, config, stats):
+    """Compute one loss over every fully valid time in a complete episode."""
+    frames = _depth_to_device(sample["depth"].unsqueeze(0), device)
+    targets = _depth_to_device(sample["target_depth"].unsqueeze(0), device)
+    valid = sample["valid"].unsqueeze(0).to(device)
+    b, t, c, h, w = frames.shape
+    with torch.no_grad():
+        latent = torch.cat([
+            encoder(chunk) for chunk in frames.reshape(-1, c, h, w).split(128)
+        ]).reshape(b, t, -1)
+    outputs = memory(latent)
+    target_map, masks = build_reconstruction_targets(
+        targets, valid, config.reconstruction_offsets
+    )
+    complete = torch.stack(list(masks.values())).all(dim=0)
+    if not complete.any():
+        return None
+    predictions = reconstructor(outputs)
+    losses = []
+    for index, offset in enumerate(config.reconstruction_offsets):
+        mask = complete
+        prediction = predictions[offset][mask]
+        target = target_map[offset][mask]
+        stats[offset].add(prediction, target)
+        losses.append(config.reconstruction_loss_weights[index] * _reconstruction_loss(
+            prediction, target, config.reconstruction_loss,
+            charbonnier_epsilon=config.charbonnier_epsilon,
+        ))
+    return torch.stack(losses).sum()
+
+
 def _sampled_memory_objective(memory, reconstructor, batch, device, offsets, stats):
-    states = memory(batch["latent"].to(device))
-    last = states[torch.arange(len(states), device=device), batch["lengths"].to(device)-1]
-    codes = reconstructor.projection(last).reshape(len(states), len(offsets), -1)
+    output_features = memory(batch["latent"].to(device))
+    last = output_features[torch.arange(len(output_features), device=device), batch["lengths"].to(device)-1]
+    codes = reconstructor.projection(last).reshape(len(output_features), len(offsets), -1)
     targets = batch["targets"].to(device)
     for i, offset in enumerate(offsets):
         stats[offset].add(codes[:, i], targets[:, i])
@@ -748,8 +796,8 @@ def _sampled_memory_objective(memory, reconstructor, batch, device, offsets, sta
 def _memory_latent_objective(memory, reconstructor, batch, device, offsets, stats, complete_only=False):
     latent = batch["latent"].to(device)
     valid = batch["valid"].to(device)
-    state = memory(latent)
-    codes = reconstructor.projection(state).reshape(*state.shape[:-1], len(offsets), -1)
+    output_features = memory(latent)
+    codes = reconstructor.projection(output_features).reshape(*output_features.shape[:-1], len(offsets), -1)
     targets, masks = build_reconstruction_targets(latent, valid, offsets)
     if complete_only:
         common = torch.stack(list(masks.values())).all(dim=0)
@@ -781,15 +829,15 @@ def train_memory(args: argparse.Namespace, _unknown_args: list[str]) -> None:
     ):
         raise ValueError("dataset frame shape does not match the vision checkpoint")
     batch_size = args.batch_size or config.memory_batch_size
-    updates = args.updates_per_epoch if args.updates_per_epoch is not None else config.memory_updates_per_epoch
-    if batch_size < 1 or updates < 1:
-        raise ValueError("Memory batch size and updates per epoch must be positive")
-    config.memory_batch_size = batch_size
-    config.memory_updates_per_epoch = updates
+    if batch_size < 1:
+        raise ValueError("Memory batch size must be positive")
+    loader = DataLoader(dataset, batch_size=batch_size, shuffle=True,
+                        collate_fn=pad_episode_batch,
+                        **_offline_loader_options(args.workers, device))
     print(
         f"[memory] device={device} episodes={len(dataset)} "
         f"batch_size={batch_size} workers={args.workers} dataset=preloaded "
-        f"offsets={config.reconstruction_offsets}"
+          f"offsets={config.reconstruction_offsets}"
     )
     encoder = VisionMambaEncoder(
         config.image_size, channels=config.channels, patch_size=config.patch_size,
@@ -803,15 +851,11 @@ def train_memory(args: argparse.Namespace, _unknown_args: list[str]) -> None:
         args.dataset, sequence_length=None, split="validation", seed=args.seed,
     )
     cached_validation = validation_dataset
-    anchors = _valid_memory_anchors(cached_train, config.reconstruction_offsets)
-    if not anchors:
-        raise ValueError("No training times with all reconstruction targets valid")
-    validation_anchors = _valid_memory_anchors(cached_validation, config.reconstruction_offsets)
-    if not validation_anchors:
-        raise ValueError("No validation times with all reconstruction targets valid")
-    rng = np.random.default_rng(args.seed)
-    print(f"[memory] sampling=uniform_valid_times valid_times={len(anchors)} "
-          f"batch_size={batch_size} updates_per_epoch={updates} replacement=True")
+    validation = DataLoader(validation_dataset, batch_size=batch_size, shuffle=False,
+                            collate_fn=pad_episode_batch,
+                            **_offline_loader_options(args.workers, device))
+    print(f"[memory] sampling=complete_episodes train_episodes={len(cached_train)} "
+          f"validation_episodes={len(cached_validation)} batch_size={batch_size}")
     memory = TemporalMambaMemory(
         config.latent_dim, config.memory_dim, depth=config.memory_depth,
         d_state=config.d_state, d_conv=config.d_conv, expand=config.expand,
@@ -827,6 +871,10 @@ def train_memory(args: argparse.Namespace, _unknown_args: list[str]) -> None:
         d_conv=config.d_conv,
         expand=config.expand,
     ).to(device)
+    if "decoder" not in source:
+        raise ValueError("vision checkpoint does not contain a trained decoder")
+    decoder.load_state_dict(source["decoder"])
+    decoder.train()
     reconstructor = MultiFrameMambaReconstructor(
         config.memory_dim,
         config.reconstruction_latent_dim,
@@ -835,7 +883,7 @@ def train_memory(args: argparse.Namespace, _unknown_args: list[str]) -> None:
     ).to(device)
     parameters = [*memory.parameters(), *reconstructor.parameters()]
     optimizer = torch.optim.AdamW(parameters, lr=config.memory_lr)
-    print(f"[memory] objective=image_{config.reconstruction_loss}; Encoder frozen; training Memory/projection/Decoder")
+    print(f"[memory] objective=image_{config.reconstruction_loss}; loaded Vision Decoder; Encoder frozen; training Memory/projection/Decoder")
     scheduler = _memory_lr_scheduler(optimizer, config, args.epochs)
     print(f"[memory] scheduler=cosine initial_lr={config.memory_lr:g} "
           f"final_lr={config.memory_lr * config.memory_lrf:g} epochs={args.epochs}")
@@ -846,24 +894,35 @@ def train_memory(args: argparse.Namespace, _unknown_args: list[str]) -> None:
         for epoch in range(args.epochs):
             stats = {offset: ReconstructionStats() for offset in config.reconstruction_offsets}
             progress = tqdm(
-                range(updates),
+                loader,
                 desc=f"Memory Epoch {epoch + 1}/{args.epochs}",
                 unit="batch",
                 leave=False,
                 dynamic_ncols=True,
             )
-            for _ in progress:
-                batch = _sample_memory_batch(cached_train, anchors, batch_size,
-                                             config.reconstruction_offsets, rng)
-                loss = _sampled_image_objective(encoder, memory, reconstructor, batch, device,
-                                               config, stats)
+            for batch in progress:
+                frames = _depth_to_device(batch["depth"], device)
+                target_frames = _depth_to_device(batch["target_depth"], device)
+                valid = batch["valid"].to(device)
+                b, length, channels, height, width = frames.shape
+                with torch.no_grad():
+                    latent = encoder(frames.reshape(-1, channels, height, width)).reshape(b, length, -1)
+                memories = memory(latent)
+                targets, masks = build_reconstruction_targets(target_frames, valid, config.reconstruction_offsets)
+                predictions = reconstructor(memories)
+                losses = []
+                for offset in config.reconstruction_offsets:
+                    if masks[offset].any():
+                        prediction, target = predictions[offset][masks[offset]], targets[offset][masks[offset]]
+                        stats[offset].add(prediction, target)
+                        losses.append(config.reconstruction_loss_weights[config.reconstruction_offsets.index(offset)] * _reconstruction_loss(prediction, target, config.reconstruction_loss, charbonnier_epsilon=config.charbonnier_epsilon))
+                if not losses:
+                    continue
+                loss = _sum_memory_offset_losses(losses)
                 if not torch.isfinite(loss):
                     raise FloatingPointError("Non-finite Memory image loss")
                 optimizer.zero_grad(set_to_none=True)
                 loss.backward()
-                torch.nn.utils.clip_grad_norm_(
-                    parameters, config.gradient_clip, error_if_nonfinite=True,
-                )
                 optimizer.step()
                 writer.add_scalar("memory/loss", float(loss.detach()), step)
                 pixels = sum(item.pixels for item in stats.values())
@@ -875,11 +934,9 @@ def train_memory(args: argparse.Namespace, _unknown_args: list[str]) -> None:
                 val_stats = {offset: ReconstructionStats() for offset in config.reconstruction_offsets}
                 memory.eval()
                 reconstructor.eval()
-                with torch.no_grad():
-                    for start in tqdm(range(0, len(validation_anchors), batch_size), desc="Image validation", leave=False):
-                        selected = validation_anchors[start:start+batch_size]
-                        batch = _gather_memory_batch(cached_validation, selected, config.reconstruction_offsets)
-                        _sampled_image_objective(encoder, memory, reconstructor, batch, device, config, val_stats)
+                val_stats = _validate_reconstruction(
+                    validation, encoder, reconstructor, device, config, memory
+                )
                 memory.train()
                 reconstructor.train()
             summary = _log_reconstruction_epoch(writer, "memory", epoch + 1, stats, val_stats)
@@ -888,7 +945,7 @@ def train_memory(args: argparse.Namespace, _unknown_args: list[str]) -> None:
             atomic_torch_save({
                 "stage": "memory", "model_version": MODEL_VERSION,
                 "memory_objective": "image_reconstruction", "decoder_frozen": False,
-                "memory_sampling": "uniform_valid_times_with_replacement",
+                "memory_sampling": "complete_episodes_all_valid_times",
                 "optimizer_steps": step,
                 "dataset_version": 1,
                 "normalization": {"depth_divisor": 255.0},
@@ -1002,7 +1059,11 @@ def build_parser() -> argparse.ArgumentParser:
     common(collect)
     collect.add_argument("--policy-checkpoint", required=True)
     collect.add_argument("--dataset", required=True)
-    collect.add_argument("--episodes", type=int, default=300)
+    collect.add_argument(
+        "--target-frames",
+        type=int,
+        help="minimum number of collected frames before finishing the current episode; defaults to params.yaml collect_frames",
+    )
     collect.add_argument("--episode-length", type=int, default=300)
     collect.add_argument("--max-steps", type=int, default=0)
     collect.add_argument("--level", type=int, choices=range(4), default=2)
@@ -1034,8 +1095,7 @@ def build_parser() -> argparse.ArgumentParser:
     memory.add_argument("--vision-checkpoint", required=True)
     memory.add_argument("--epochs", type=int, default=100)
     memory.add_argument("--batch-size", type=int)
-    memory.add_argument("--updates-per-epoch", type=int, help="m: random batch updates in each epoch")
-    memory.add_argument("--workers", type=int, default=4)
+    memory.add_argument("--workers", type=int, default=8)
     memory.set_defaults(function=train_memory)
 
     sac = subparsers.add_parser("sac", help="stage 5: reinitialized SAC on frozen memory")
