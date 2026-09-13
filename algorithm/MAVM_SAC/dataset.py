@@ -120,7 +120,7 @@ class EpisodeSequenceDataset(Dataset[dict[str, torch.Tensor]]):
         sequence_length: int | None,
         split: str = "train",
         stride: int | None = None,
-        validation_fraction: float = 0.1,
+        validation_fraction: float = 0.2,
         seed: int = 0,
         use_clean_targets: bool = True,
     ) -> None:
@@ -212,7 +212,7 @@ class DepthFrameDataset(Dataset[dict[str, torch.Tensor]]):
         root: str | Path,
         *,
         split: str = "train",
-        validation_fraction: float = 0.1,
+        validation_fraction: float = 0.2,
         seed: int = 0,
         use_clean_targets: bool = True,
     ) -> None:

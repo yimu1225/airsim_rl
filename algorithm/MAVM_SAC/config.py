@@ -23,19 +23,22 @@ class MAVMConfig:
     decoder_embed_dim: int = 64
     decoder_depth: int = 2
     d_state: int = 16
+    memory_d_state: int = 16
     d_conv: int = 4
     expand: int = 2
     drop_rate: float = 0.0
     drop_path_rate: float = 0.0
-    reconstruction_offsets: tuple[int, ...] = (-20, -10, 0, 10)
-    reconstruction_loss_weights: tuple[float, ...] = (0.3, 0.3, 0.1, 0.3)
-    reconstruction_loss: str = "mse"
+    reconstruction_offsets: tuple[int, ...] = (-10, 0, 10)
+    vision_reconstruction_loss: str = "mse"
+    reconstruction_loss: str = "charbonnier"  # memory 阶段（时序重建）的损失
     charbonnier_epsilon: float = 1e-3
     collect_frames: int = 30_000
     vision_lr: float = 3e-4
     memory_lr: float = 3e-4
+    memory_aux_lr: float = 3e-4
     memory_validation_interval: int = 10
     memory_lrf: float = 0.01
+    vision_lrf: float = 0.01
     offline_lr_decay: float = 0.99
     vision_batch_size: int = 256
     memory_batch_size: int = 4
@@ -69,8 +72,12 @@ class MAVMConfig:
             raise ValueError("collect_frames must be positive")
         if not 0.0 <= self.memory_lrf <= 1.0:
             raise ValueError("memory_lrf must be in [0, 1]")
+        if not 0.0 <= self.vision_lrf <= 1.0:
+            raise ValueError("vision_lrf must be in [0, 1]")
         if not 0.0 < self.offline_lr_decay <= 1.0:
             raise ValueError("offline_lr_decay must be in (0, 1]")
+        if self.memory_lr <= 0.0 or self.memory_aux_lr <= 0.0:
+            raise ValueError("memory learning rates must be positive")
         if self.patch_size <= 0 or self.image_height <= 0 or self.image_width <= 0:
             raise ValueError("image dimensions and patch_size must be positive")
         if self.image_height % self.patch_size or self.image_width % self.patch_size:
@@ -79,6 +86,7 @@ class MAVMConfig:
             "channels": self.channels,
             "latent_dim": self.latent_dim,
             "memory_dim": self.memory_dim,
+            "memory_d_state": self.memory_d_state,
             "reconstruction_latent_dim": self.reconstruction_latent_dim,
             "decoder_embed_dim": self.decoder_embed_dim,
             "vision_batch_size": self.vision_batch_size,
@@ -90,12 +98,6 @@ class MAVMConfig:
             raise ValueError(f"MAVM dimensions and capacities must be positive: {positive}")
         if not self.reconstruction_offsets or len(set(self.reconstruction_offsets)) != len(self.reconstruction_offsets):
             raise ValueError("memory reconstruction offsets must be non-empty and unique")
-        if len(self.reconstruction_loss_weights) != len(self.reconstruction_offsets):
-            raise ValueError("reconstruction_loss_weights must match reconstruction_offsets")
-        if any(weight < 0.0 or weight > 1.0 for weight in self.reconstruction_loss_weights):
-            raise ValueError("reconstruction_loss_weights must be in [0, 1]")
-        if abs(sum(self.reconstruction_loss_weights) - 1.0) > 1e-6:
-            raise ValueError("reconstruction_loss_weights must sum to 1")
         if self.charbonnier_epsilon <= 0.0:
             raise ValueError("charbonnier_epsilon must be positive")
         if not 0.0 < self.gamma <= 1.0 or not 0.0 < self.tau <= 1.0:
@@ -131,18 +133,15 @@ class MAVMConfig:
     @classmethod
     def from_mapping(cls, values: Mapping[str, Any]) -> "MAVMConfig":
         known = {field.name for field in fields(cls)}
-        unknown = set(values) - known
+        # Accept stale stage configs written before per-offset loss weights
+        # were removed; the deprecated value is intentionally ignored.
+        data = dict(values)
+        data.pop("reconstruction_loss_weights", None)
+        unknown = set(data) - known
         if unknown:
             raise ValueError(f"unknown MAVM configuration keys: {sorted(unknown)}")
-        data = dict(values)
         if "reconstruction_offsets" in data:
             data["reconstruction_offsets"] = tuple(data["reconstruction_offsets"])
-        if "reconstruction_loss_weights" in data:
-            data["reconstruction_loss_weights"] = tuple(data["reconstruction_loss_weights"])
-        elif "reconstruction_offsets" in data:
-            count = len(data["reconstruction_offsets"])
-            if count:
-                data["reconstruction_loss_weights"] = tuple(1.0 / count for _ in range(count))
         return cls(**data)
 
     @classmethod

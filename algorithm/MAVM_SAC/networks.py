@@ -78,7 +78,7 @@ class TemporalMambaMemory(nn.Module):
         self.memory_dim = memory_dim
         self.input_projection = nn.Sequential(
             nn.Linear(latent_dim, memory_dim),
-            nn.LayerNorm(memory_dim),
+            nn.RMSNorm(memory_dim),
         )
         self.layers = nn.ModuleList(
             _MambaResidual(
@@ -90,7 +90,7 @@ class TemporalMambaMemory(nn.Module):
             )
             for _ in range(depth)
         )
-        self.output_norm = nn.LayerNorm(memory_dim)
+        self.output_norm = nn.RMSNorm(memory_dim)
 
     def forward(self, latents: torch.Tensor) -> torch.Tensor:
         """Return y_t for every causal prefix, not the internal recurrent states.

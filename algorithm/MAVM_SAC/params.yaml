@@ -5,35 +5,39 @@ channels: 1
 patch_size: 4
 latent_dim: 128
 encoder_depth: 2
-memory_dim: 1024
-memory_depth: 1
-# Memory output is projected into four 128-D reconstruction codes.
+memory_dim: 256
+memory_depth: 2
+# Memory output is projected into three 128-D reconstruction codes.
 reconstruction_latent_dim: 128
 # Hidden width of every spatial patch token inside the one shared decoder.
 decoder_embed_dim: 64
 # Number of spatial Mamba blocks at EACH pyramid resolution.
 decoder_depth: 2
 d_state: 16
+# SSM state size used only by Temporal Mamba memory.
+memory_d_state: 256
 d_conv: 4
 expand: 2
 drop_rate: 0.0
 drop_path_rate: 0.0
 
 # Offline representation learning.
-reconstruction_offsets: [-20, -10, 0, 10]
-reconstruction_loss_weights: [0.25, 0.25, 0.15, 0.35]
-# Sum squared errors over all valid pixels and samples.
+reconstruction_offsets: [-10, 0, 10]
+# Vision 阶段（单帧自编码器）的重建损失。
+vision_reconstruction_loss: mse
+# Memory 阶段（时序重建）的重建损失。
 reconstruction_loss: charbonnier
 collect_frames: 30000
-vision_lr: 0.004
-memory_lr: 0.00003
+vision_lr: 0.005
+memory_lr: 0.005
+memory_aux_lr: 0.003
 memory_lrf: 0.01  # Stage 4 cosine final LR = memory_lr * memory_lrf.
-# Multiplicative learning-rate decay applied after every epoch in stage 3 only.
-offline_lr_decay: 0.99
+vision_lrf: 0.01  # Stage 3 cosine final LR = vision_lr * vision_lrf.
+offline_lr_decay: 0.99  # deprecated; vision now uses cosine annealing.
 vision_batch_size: 128
 # Stage 4 random sampling: n groups per batch, m optimizer updates per epoch.
-# Each group contains one current frame and three valid target frames (n x 4).
-memory_batch_size: 4        # n; overridden by --batch-size.
+# Each group contains one current frame and three valid target frames (n x 3).
+memory_batch_size: 16       # n; overridden by --batch-size.
 memory_validation_interval: 10 # Full validation every N epochs and at the final epoch.
 
 # Frozen-feature SAC.
