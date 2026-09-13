@@ -15,6 +15,9 @@ python algorithm/MAVM_SAC/visualization/overfit_vision.py --output runs/MAVM_SAC
 
 阶段4重建：`python algorithm/MAVM_SAC/visualization/visualize_memory_reconstruction.py`
 
+阶段4当前按 checkpoint 中的 `reconstruction_offsets` 动态显示重建结果；默认
+配置为 `[-10, 0, 10]`，因此输出包含过去、当前和未来三帧。
+
 固定16张训练图过拟合：
 
 ```bash

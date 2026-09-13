@@ -30,6 +30,7 @@ if __package__ in (None, ""):
 import argparse
 import collections
 import json
+import math
 import random
 import time
 from pathlib import Path
@@ -117,7 +118,7 @@ def _make_env(args: argparse.Namespace, unknown_args: list[str]):
     # command-line options are forwarded to it, so all existing AirSim flags are
     # available without coupling this trainer to main_async.py.
     from config import get_config
-    from gym_airsim.envs import AirSimEnv
+    from gym_airsim.envs.AirGymMAVM import AirSimEnvMAVM
 
     environment_config = get_config(unknown_args)
     environment_config.seed = args.seed
@@ -126,12 +127,12 @@ def _make_env(args: argparse.Namespace, unknown_args: list[str]):
     environment_config.episode_length = getattr(
         args, "episode_length", environment_config.episode_length
     )
-    environment_config.non_curriculum_level = getattr(args, "level", 2)
+    environment_config.non_curriculum_level = getattr(args, "level", 3)
     algorithm_name = "PL_MAVM-SAC" if getattr(args, "clean_targets", False) else "MAVM-SAC"
     environment_config.algorithm_name = (
         f"CL-{algorithm_name}" if getattr(args, "curriculum", False) else algorithm_name
     )
-    env = AirSimEnv(
+    env = AirSimEnvMAVM(
         takeoff_height=environment_config.takeoff_height,
         config=environment_config,
         stack_frames=1,
@@ -504,15 +505,16 @@ def _memory_stage_config(
     # the spatial encoder architecture. This lets an existing vision
     # checkpoint be reused when either setting changes.
     config.reconstruction_offsets = requested_config.reconstruction_offsets
-    config.reconstruction_loss_weights = requested_config.reconstruction_loss_weights
     config.memory_dim = requested_config.memory_dim
     config.memory_depth = requested_config.memory_depth
+    config.memory_d_state = requested_config.memory_d_state
     config.reconstruction_latent_dim = requested_config.reconstruction_latent_dim
     config.reconstruction_loss = requested_config.reconstruction_loss
     config.charbonnier_epsilon = requested_config.charbonnier_epsilon
     # Stage 4 optimization settings come from the current YAML, not the
     # configuration snapshot stored during stage 3.
     config.memory_lr = requested_config.memory_lr
+    config.memory_aux_lr = requested_config.memory_aux_lr
     config.memory_batch_size = requested_config.memory_batch_size
     config.memory_validation_interval = requested_config.memory_validation_interval
     config.memory_lrf = requested_config.memory_lrf
@@ -520,11 +522,18 @@ def _memory_stage_config(
     return config
 
 
-def _memory_lr_scheduler(optimizer, config: MAVMConfig, epochs: int):
+def _cosine_lr_scheduler(optimizer, final_ratio: float, epochs: int):
     if epochs <= 0:
-        raise ValueError("memory epochs must be positive")
-    return torch.optim.lr_scheduler.CosineAnnealingLR(
-        optimizer, T_max=epochs, eta_min=config.memory_lr * config.memory_lrf,
+        raise ValueError("epochs must be positive")
+    if not 0.0 <= final_ratio <= 1.0:
+        raise ValueError("final_ratio must be in [0, 1]")
+    def cosine_ratio(epoch: int) -> float:
+        return final_ratio + (1.0 - final_ratio) * (
+            1.0 + math.cos(math.pi * epoch / epochs)
+        ) / 2.0
+
+    return torch.optim.lr_scheduler.LambdaLR(
+        optimizer, lr_lambda=[cosine_ratio] * len(optimizer.param_groups)
     )
 
 
@@ -533,15 +542,22 @@ class ReconstructionStats:
 
     def __init__(self):
         self.sse = 0.0
+        self.sae = 0.0
         self.pixels = 0
 
     def add(self, prediction, target):
-        self.sse += float((prediction.detach() - target.detach()).square().sum())
+        error = prediction.detach() - target.detach()
+        self.sse += float(error.square().sum())
+        self.sae += float(error.abs().sum())
         self.pixels += target.numel()
 
     @property
     def mse(self):
         return self.sse / self.pixels if self.pixels else float("nan")
+
+    @property
+    def mae(self):
+        return self.sae / self.pixels if self.pixels else float("nan")
 
 
 @torch.no_grad()
@@ -583,12 +599,30 @@ def _log_reconstruction_epoch(writer, stage, epoch, train_stats, val_stats):
         pixels = sum(item.pixels for item in stats.values())
         values[f"{split}_sse"] = sse
         values[f"{split}_mse"] = sse / pixels if pixels else float("nan")
+        sae = sum(item.sae for item in stats.values())
+        values[f"{split}_mae"] = sae / pixels if pixels else float("nan")
         if stage in {"memory", "memory_latent"}:
             for offset, item in stats.items():
                 values[f"{split}_mse_t{offset:+d}"] = item.mse
+                values[f"{split}_mae_t{offset:+d}"] = item.mae
     for name, value in values.items():
         writer.add_scalar(f"{stage}/epoch/{name}", value, epoch)
-    return " ".join(f"{name}={value:.6f}" for name, value in values.items())
+    summaries = []
+    for split, stats in (("train", train_stats), ("val", val_stats)):
+        if stats is None:
+            continue
+        lines = [
+            f"{split}: MSE={values[f'{split}_mse']:.6f} "
+            f"MAE={values[f'{split}_mae']:.6f}"
+        ]
+        if stage in {"memory", "memory_latent"}:
+            lines.extend(
+                f"  t{offset:+d}: MSE={values[f'{split}_mse_t{offset:+d}']:.6f} "
+                f"MAE={values[f'{split}_mae_t{offset:+d}']:.6f}"
+                for offset in stats
+            )
+        summaries.extend(lines)
+    return "\n".join(summaries)
 
 
 def train_vision(args: argparse.Namespace, _unknown_args: list[str]) -> None:
@@ -630,9 +664,7 @@ def train_vision(args: argparse.Namespace, _unknown_args: list[str]) -> None:
     optimizer = torch.optim.AdamW(
         [*encoder.parameters(), *decoder.parameters()], lr=config.vision_lr
     )
-    scheduler = torch.optim.lr_scheduler.ExponentialLR(
-        optimizer, gamma=config.offline_lr_decay
-    )
+    scheduler = _cosine_lr_scheduler(optimizer, config.vision_lrf, args.epochs)
     output = Path(args.output)
     writer = _writer(output / "tensorboard")
     step = 0
@@ -644,6 +676,8 @@ def train_vision(args: argparse.Namespace, _unknown_args: list[str]) -> None:
     try:
         for epoch in range(args.epochs):
             stats = ReconstructionStats()
+            epoch_loss_sum = 0.0
+            epoch_updates = 0
             progress = tqdm(
                 loader,
                 desc=f"Vision Epoch {epoch + 1}/{args.epochs}",
@@ -658,7 +692,7 @@ def train_vision(args: argparse.Namespace, _unknown_args: list[str]) -> None:
                 loss = _reconstruction_loss(
                     prediction,
                     targets,
-                    config.reconstruction_loss,
+                    config.vision_reconstruction_loss,
                     charbonnier_epsilon=config.charbonnier_epsilon,
                 )
                 optimizer.zero_grad(set_to_none=True)
@@ -669,11 +703,14 @@ def train_vision(args: argparse.Namespace, _unknown_args: list[str]) -> None:
                 writer.add_scalar("vision/loss", float(loss.detach()), step)
                 stats.add(prediction, targets)
                 progress.set_postfix(batch_loss=f"{float(loss.detach()):.6f}", train_mse=f"{stats.mse:.6f}")
+                epoch_loss_sum += float(loss.detach())
+                epoch_updates += 1
                 step += 1
             val_stats = _validate_reconstruction(validation, encoder, decoder, device, config)
             summary = _log_reconstruction_epoch(writer, "vision", epoch + 1, {0: stats}, val_stats)
             scheduler.step()
-            print(f"[vision] epoch={epoch + 1}/{args.epochs} {summary} lr={optimizer.param_groups[0]['lr']:.3g}")
+            mean_loss = epoch_loss_sum / epoch_updates if epoch_updates else float("nan")
+            print(f"[vision] epoch={epoch + 1}/{args.epochs} loss={mean_loss:.6f} lr={optimizer.param_groups[0]['lr']:.3g}\n{summary}")
             atomic_torch_save({
                 "stage": "vision", "model_version": MODEL_VERSION,
                 "dataset_version": 1,
@@ -712,8 +749,10 @@ def _valid_memory_anchors(cached, offsets):
 def _sample_memory_batch(cached, anchors, batch_size, offsets, rng):
     if not anchors or batch_size < 1:
         raise ValueError("Need valid memory anchors and a positive batch size")
-    # Sampling with replacement, like replay; every batch has exactly n anchors.
-    selected = [anchors[int(i)] for i in rng.integers(len(anchors), size=batch_size)]
+    if batch_size > len(anchors):
+        raise ValueError("batch_size cannot exceed the number of valid memory anchors")
+    # Each batch contains distinct anchors; replacement happens only across batches.
+    selected = [anchors[int(i)] for i in rng.choice(len(anchors), size=batch_size, replace=False)]
     return _gather_memory_batch(cached, selected, offsets)
 
 
@@ -747,7 +786,7 @@ def _sampled_image_objective(encoder, memory, reconstructor, batch, device, conf
     losses = []
     for i, offset in enumerate(config.reconstruction_offsets):
         stats[offset].add(predictions[offset], targets[:, i])
-        losses.append(config.reconstruction_loss_weights[i] * _reconstruction_loss(predictions[offset], targets[:, i],
+        losses.append(_reconstruction_loss(predictions[offset], targets[:, i],
                       config.reconstruction_loss, charbonnier_epsilon=config.charbonnier_epsilon))
     return torch.stack(losses).sum()
 
@@ -776,7 +815,7 @@ def _episode_image_objective(encoder, memory, reconstructor, sample, device, con
         prediction = predictions[offset][mask]
         target = target_map[offset][mask]
         stats[offset].add(prediction, target)
-        losses.append(config.reconstruction_loss_weights[index] * _reconstruction_loss(
+        losses.append(_reconstruction_loss(
             prediction, target, config.reconstruction_loss,
             charbonnier_epsilon=config.charbonnier_epsilon,
         ))
@@ -831,14 +870,13 @@ def train_memory(args: argparse.Namespace, _unknown_args: list[str]) -> None:
     batch_size = args.batch_size or config.memory_batch_size
     if batch_size < 1:
         raise ValueError("Memory batch size must be positive")
+    config.memory_batch_size = batch_size
     loader = DataLoader(dataset, batch_size=batch_size, shuffle=True,
                         collate_fn=pad_episode_batch,
                         **_offline_loader_options(args.workers, device))
-    print(
-        f"[memory] device={device} episodes={len(dataset)} "
-        f"batch_size={batch_size} workers={args.workers} dataset=preloaded "
-          f"offsets={config.reconstruction_offsets}"
-    )
+    print(f"[memory] sampling=complete_episodes train_episodes={len(dataset)} "
+          f"batch_size={batch_size} workers={args.workers} "
+          f"offsets={config.reconstruction_offsets}")
     encoder = VisionMambaEncoder(
         config.image_size, channels=config.channels, patch_size=config.patch_size,
         latent_dim=config.latent_dim, depth=config.encoder_depth, d_state=config.d_state,
@@ -846,19 +884,15 @@ def train_memory(args: argparse.Namespace, _unknown_args: list[str]) -> None:
     ).to(device)
     encoder.load_state_dict(source["encoder"])
     encoder.eval().requires_grad_(False)
-    cached_train = dataset
     validation_dataset = EpisodeSequenceDataset(
         args.dataset, sequence_length=None, split="validation", seed=args.seed,
     )
-    cached_validation = validation_dataset
     validation = DataLoader(validation_dataset, batch_size=batch_size, shuffle=False,
                             collate_fn=pad_episode_batch,
                             **_offline_loader_options(args.workers, device))
-    print(f"[memory] sampling=complete_episodes train_episodes={len(cached_train)} "
-          f"validation_episodes={len(cached_validation)} batch_size={batch_size}")
     memory = TemporalMambaMemory(
         config.latent_dim, config.memory_dim, depth=config.memory_depth,
-        d_state=config.d_state, d_conv=config.d_conv, expand=config.expand,
+        d_state=config.memory_d_state, d_conv=config.d_conv, expand=config.expand,
     ).to(device)
     decoder = VisionMambaDecoder(
         config.reconstruction_latent_dim,
@@ -874,25 +908,31 @@ def train_memory(args: argparse.Namespace, _unknown_args: list[str]) -> None:
     if "decoder" not in source:
         raise ValueError("vision checkpoint does not contain a trained decoder")
     decoder.load_state_dict(source["decoder"])
-    decoder.train()
+    decoder.eval().requires_grad_(False)
     reconstructor = MultiFrameMambaReconstructor(
         config.memory_dim,
         config.reconstruction_latent_dim,
         config.reconstruction_offsets,
         decoder,
     ).to(device)
-    parameters = [*memory.parameters(), *reconstructor.parameters()]
-    optimizer = torch.optim.AdamW(parameters, lr=config.memory_lr)
-    print(f"[memory] objective=image_{config.reconstruction_loss}; loaded Vision Decoder; Encoder frozen; training Memory/projection/Decoder")
-    scheduler = _memory_lr_scheduler(optimizer, config, args.epochs)
-    print(f"[memory] scheduler=cosine initial_lr={config.memory_lr:g} "
-          f"final_lr={config.memory_lr * config.memory_lrf:g} epochs={args.epochs}")
+    optimizer = torch.optim.RAdam([
+        {"params": memory.parameters(), "lr": config.memory_lr},
+        {"params": reconstructor.projection.parameters(), "lr": config.memory_aux_lr},
+    ])
+    print(f"[memory] optimizer=RAdam objective=image_{config.reconstruction_loss}; loaded Vision Decoder; Encoder & Decoder frozen; training Memory/projection")
+    scheduler = _cosine_lr_scheduler(optimizer, config.memory_lrf, args.epochs)
+    print(f"[memory] scheduler=cosine temporal_lr={config.memory_lr:g} "
+          f"aux_lr={config.memory_aux_lr:g} "
+          f"temporal_final_lr={config.memory_lr * config.memory_lrf:g} "
+          f"aux_final_lr={config.memory_aux_lr * config.memory_lrf:g} epochs={args.epochs}")
     output = Path(args.output)
     writer = _writer(output / "tensorboard")
     step = 0
     try:
         for epoch in range(args.epochs):
             stats = {offset: ReconstructionStats() for offset in config.reconstruction_offsets}
+            epoch_loss_sum = 0.0
+            epoch_updates = 0
             progress = tqdm(
                 loader,
                 desc=f"Memory Epoch {epoch + 1}/{args.epochs}",
@@ -906,16 +946,24 @@ def train_memory(args: argparse.Namespace, _unknown_args: list[str]) -> None:
                 valid = batch["valid"].to(device)
                 b, length, channels, height, width = frames.shape
                 with torch.no_grad():
-                    latent = encoder(frames.reshape(-1, channels, height, width)).reshape(b, length, -1)
+                    latent = encoder(
+                        frames.reshape(-1, channels, height, width)
+                    ).reshape(b, length, -1)
                 memories = memory(latent)
-                targets, masks = build_reconstruction_targets(target_frames, valid, config.reconstruction_offsets)
+                targets, masks = build_reconstruction_targets(
+                    target_frames, valid, config.reconstruction_offsets
+                )
                 predictions = reconstructor(memories)
                 losses = []
                 for offset in config.reconstruction_offsets:
                     if masks[offset].any():
-                        prediction, target = predictions[offset][masks[offset]], targets[offset][masks[offset]]
+                        prediction = predictions[offset][masks[offset]]
+                        target = targets[offset][masks[offset]]
                         stats[offset].add(prediction, target)
-                        losses.append(config.reconstruction_loss_weights[config.reconstruction_offsets.index(offset)] * _reconstruction_loss(prediction, target, config.reconstruction_loss, charbonnier_epsilon=config.charbonnier_epsilon))
+                        losses.append(_reconstruction_loss(
+                            prediction, target, config.reconstruction_loss,
+                            charbonnier_epsilon=config.charbonnier_epsilon,
+                        ))
                 if not losses:
                     continue
                 loss = _sum_memory_offset_losses(losses)
@@ -923,11 +971,19 @@ def train_memory(args: argparse.Namespace, _unknown_args: list[str]) -> None:
                     raise FloatingPointError("Non-finite Memory image loss")
                 optimizer.zero_grad(set_to_none=True)
                 loss.backward()
+                torch.nn.utils.clip_grad_norm_(
+                    [*memory.parameters(), *reconstructor.projection.parameters()],
+                    config.gradient_clip,
+                    error_if_nonfinite=True,
+                )
                 optimizer.step()
+                epoch_loss_sum += float(loss.detach())
+                epoch_updates += 1
                 writer.add_scalar("memory/loss", float(loss.detach()), step)
                 pixels = sum(item.pixels for item in stats.values())
                 mse = sum(item.sse for item in stats.values()) / pixels
-                progress.set_postfix(batch_loss=f"{float(loss.detach()):.6f}", train_mse=f"{mse:.6f}")
+                mae = sum(item.sae for item in stats.values()) / pixels
+                progress.set_postfix(batch_loss=f"{float(loss.detach()):.6f}", train_mse=f"{mse:.6f}", train_mae=f"{mae:.6f}")
                 step += 1
             val_stats = None
             if (epoch + 1) % config.memory_validation_interval == 0 or epoch + 1 == args.epochs:
@@ -941,10 +997,13 @@ def train_memory(args: argparse.Namespace, _unknown_args: list[str]) -> None:
                 reconstructor.train()
             summary = _log_reconstruction_epoch(writer, "memory", epoch + 1, stats, val_stats)
             scheduler.step()
-            print(f"[memory] epoch={epoch + 1}/{args.epochs} {summary} lr={optimizer.param_groups[0]['lr']:.3g}")
+            mean_loss = epoch_loss_sum / epoch_updates if epoch_updates else float("nan")
+            print(f"[memory] epoch={epoch + 1}/{args.epochs} loss={mean_loss:.6f}\n"
+                  f"{summary}\nlr_temporal={optimizer.param_groups[0]['lr']:.3g} "
+                  f"lr_aux={optimizer.param_groups[1]['lr']:.3g}")
             atomic_torch_save({
                 "stage": "memory", "model_version": MODEL_VERSION,
-                "memory_objective": "image_reconstruction", "decoder_frozen": False,
+                "memory_objective": "image_reconstruction", "decoder_frozen": True,
                 "memory_sampling": "complete_episodes_all_valid_times",
                 "optimizer_steps": step,
                 "dataset_version": 1,
@@ -1031,14 +1090,14 @@ def build_parser() -> argparse.ArgumentParser:
         common(subparser)
         subparser.add_argument("--max-steps", type=int, default=150_000)
         subparser.add_argument("--episode-length", type=int, default=300)
-        subparser.add_argument("--level", type=int, choices=range(4), default=2)
+        subparser.add_argument("--level", type=int, choices=range(4), default=3)
         subparser.add_argument("--curriculum", action=argparse.BooleanOptionalAction, default=False)
 
     bootstrap = subparsers.add_parser(
         "bootstrap", help="stage 1: SAC with random frozen perception"
     )
     environment(bootstrap)
-    bootstrap.set_defaults(level=2, max_steps=20_000)
+    bootstrap.set_defaults(level=3, max_steps=20_000)
     bootstrap.add_argument("--learning-starts", type=int, default=1_000)
     bootstrap.add_argument(
         "--steps-per-update", "--steps_per_update", type=int, default=100
@@ -1066,7 +1125,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     collect.add_argument("--episode-length", type=int, default=300)
     collect.add_argument("--max-steps", type=int, default=0)
-    collect.add_argument("--level", type=int, choices=range(4), default=2)
+    collect.add_argument("--level", type=int, choices=range(4), default=3)
     collect.add_argument("--curriculum", action=argparse.BooleanOptionalAction, default=False)
     collect.add_argument(
         "--overwrite", action=argparse.BooleanOptionalAction, default=True,
@@ -1138,7 +1197,7 @@ def build_parser() -> argparse.ArgumentParser:
     evaluation.add_argument("--episodes", type=int, default=100)
     evaluation.add_argument("--episode-length", type=int, default=300)
     evaluation.add_argument("--max-steps", type=int, default=0)
-    evaluation.add_argument("--level", type=int, choices=range(4), default=2)
+    evaluation.add_argument("--level", type=int, choices=range(4), default=3)
     evaluation.add_argument("--curriculum", action=argparse.BooleanOptionalAction, default=False)
     evaluation.set_defaults(function=evaluate)
     return parser

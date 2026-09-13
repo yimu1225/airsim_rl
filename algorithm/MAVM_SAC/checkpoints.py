@@ -12,7 +12,7 @@ from .config import MAVMConfig
 from .networks import MambaPerceptionMemory, TemporalMambaMemory, VisionMambaEncoder
 
 
-MODEL_VERSION = 5
+MODEL_VERSION = 6
 
 
 def atomic_torch_save(payload: Mapping[str, Any], path: str | Path) -> Path:
@@ -28,7 +28,7 @@ def load_checkpoint(path: str | Path, device: torch.device | str) -> dict[str, A
     checkpoint = torch.load(path, map_location=device, weights_only=False)
     if "stage" not in checkpoint or "config" not in checkpoint:
         raise ValueError(f"{path} is not a MAVM stage checkpoint")
-    reusable_vision = checkpoint.get("stage") == "vision" and checkpoint.get("model_version") in {3, 4}
+    reusable_vision = checkpoint.get("stage") == "vision" and checkpoint.get("model_version") in {3, 4, 5}
     if checkpoint.get("model_version") != MODEL_VERSION and not reusable_vision:
         raise ValueError(
             f"{path} uses MAVM model version {checkpoint.get('model_version')!r}; "
@@ -53,7 +53,7 @@ def build_perception(config: MAVMConfig) -> MambaPerceptionMemory:
         config.latent_dim,
         config.memory_dim,
         depth=config.memory_depth,
-        d_state=config.d_state,
+        d_state=config.memory_d_state,
         d_conv=config.d_conv,
         expand=config.expand,
     )

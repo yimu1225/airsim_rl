@@ -2,12 +2,12 @@
 
 ## 当前阶段4目标更新
 
-Vision Encoder 输出128维，先经 `Linear(128,384)` 输入两层384维 Temporal Mamba，再由 `Linear(384,512)` 生成四份128维 latent，使用同一个共享 Decoder。
+Vision Encoder 输出128维，先经 `Linear(128,384)` 输入两层384维 Temporal Mamba，再由 `Linear(384,512)` 生成三份128维 latent，使用同一个共享 Decoder。
 Encoder 保持冻结，Memory、重建投影和 Decoder 按阶段4配置训练。
 
-`reconstruction_offsets: [-20, -10, 0, 10]`：阶段4现在监督过去两帧、当前帧和未来一帧。
-Memory 输出直接切分成四份 latent，使用同一个共享 Decoder。
-各目标图像损失继续求和；仅采样四个目标都有效的时刻，保留完整因果前缀。
+`reconstruction_offsets: [-10, 0, 10]`：阶段4现在监督过去一帧、当前帧和未来一帧。
+Memory 输出直接切分成三份 latent，使用同一个共享 Decoder。
+各目标图像损失继续求和；仅采样三个目标都有效的时刻，保留完整因果前缀。
 新版 Memory 可视化的当前帧来自 Memory 重建；旧三目标 checkpoint 的当前帧仅为 Vision AE 参考。
 需使用原 Vision checkpoint 重新训练阶段4，旧三目标 Memory 投影权重不适配四目标结构。
 以下历史方案中提到的三目标，以本节配置更新为准。
@@ -549,28 +549,57 @@ python algorithm/MAVM_SAC/train.py eval \
 python algorithm/MAVM_SAC/train.py bootstrap \
   --output runs/MAVM_SAC/bootstrap \
   --max-steps 30000 \
-  --level 2 \
+  --level 3 \
 && python algorithm/MAVM_SAC/train.py collect \
   --policy-checkpoint runs/MAVM_SAC/bootstrap/bootstrap_latest.pt \
   --dataset datasets/MAVM_SAC \
   --target-frames 30000 \
-  --level 2 \
+  --level 3 \
   --clean-targets \
 && python algorithm/MAVM_SAC/train.py vision \
   --dataset datasets/MAVM_SAC \
   --output runs/MAVM_SAC/vision \
-  --epochs 300 \
+  --epochs 200 \
 && python algorithm/MAVM_SAC/train.py memory \
   --dataset datasets/MAVM_SAC \
   --vision-checkpoint runs/MAVM_SAC/vision/vision_latest.pt \
   --output runs/MAVM_SAC/memory \
-  --epochs 100 \
+  --epochs 200 \
   --batch-size 1 \
+
+
+for seed in 25 26 27 28 29; do
+  python algorithm/MAVM_SAC/train.py sac \
+    --perception-checkpoint runs/MAVM_SAC/memory/memory_latest.pt \
+    --output runs/MAVM_SAC/final/seed${seed} \
+    --seed ${seed} \
+    --max-steps 150000 \
+    --overwrite-results
+done
+
 && python algorithm/MAVM_SAC/train.py sac \
   --perception-checkpoint runs/MAVM_SAC/memory/memory_latest.pt \
   --output runs/MAVM_SAC/final \
   --max-steps 150000 \
   --overwrite-results
+```
+
+```bash
+# 多种子重复最终 SAC：阶段 1-4 只需跑一次（冻结的感知模块跨种子共享），
+# 只有阶段 5 的 SAC 需要按种子重跑。每个种子用独立的 --output 目录保存
+# checkpoint，避免互相覆盖；训练曲线 CSV 由 FinalStageCurveLogger 按 seed
+# 自动分目录，仍传 --overwrite-results 覆盖「当前种子」的旧结果即可。
+for seed in 25 26 27 28 29; do
+  python algorithm/MAVM_SAC/train.py sac \
+    --perception-checkpoint runs/MAVM_SAC/memory/memory_latest.pt \
+    --output runs/MAVM_SAC/final/seed${seed} \
+    --seed ${seed} \
+    --max-steps 150000 \
+    --overwrite-results
+done
+
+# 多种子曲线聚合：绘图脚本自动聚合多个 seed 的 CSV，求均值与置信区间
+python plot_curves.py --algorithm_name MAVM-SAC --seed 25,26,27,28,29 --max_timesteps 150000
 ```
 
 
@@ -644,6 +673,8 @@ reconstruction_latent_dim: 64
 decoder_embed_dim: 64
 decoder_depth: 2
 d_state: 16
+# Temporal Mamba 的独立 SSM 状态容量；修改它不会改变 Vision Encoder/Decoder。
+memory_d_state: 16
 d_conv: 4
 expand: 2
 drop_rate: 0.0
