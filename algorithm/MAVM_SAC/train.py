@@ -128,6 +128,9 @@ def _make_env(args: argparse.Namespace, unknown_args: list[str]):
         args, "episode_length", environment_config.episode_length
     )
     environment_config.non_curriculum_level = getattr(args, "level", 3)
+    environment_config.curriculum_final_level = getattr(args, "level", 3)
+    if getattr(args, "curriculum", False) and environment_config.curriculum_mode != "progress":
+        raise ValueError("MAVM curriculum requires --curriculum_mode progress")
     algorithm_name = "PL_MAVM-SAC" if getattr(args, "clean_targets", False) else "MAVM-SAC"
     environment_config.algorithm_name = (
         f"CL-{algorithm_name}" if getattr(args, "curriculum", False) else algorithm_name
@@ -510,6 +513,7 @@ def _memory_stage_config(
     config.memory_d_state = requested_config.memory_d_state
     config.reconstruction_latent_dim = requested_config.reconstruction_latent_dim
     config.reconstruction_loss = requested_config.reconstruction_loss
+    config.memory_latent_loss_weight = requested_config.memory_latent_loss_weight
     config.charbonnier_epsilon = requested_config.charbonnier_epsilon
     # Stage 4 optimization settings come from the current YAML, not the
     # configuration snapshot stored during stage 3.
@@ -697,8 +701,6 @@ def train_vision(args: argparse.Namespace, _unknown_args: list[str]) -> None:
                 )
                 optimizer.zero_grad(set_to_none=True)
                 loss.backward()
-                nn_parameters = [*encoder.parameters(), *decoder.parameters()]
-                torch.nn.utils.clip_grad_norm_(nn_parameters, config.gradient_clip)
                 optimizer.step()
                 writer.add_scalar("vision/loss", float(loss.detach()), step)
                 stats.add(prediction, targets)
@@ -906,7 +908,7 @@ def train_memory(args: argparse.Namespace, _unknown_args: list[str]) -> None:
         expand=config.expand,
     ).to(device)
     if "decoder" not in source:
-        raise ValueError("vision checkpoint does not contain a trained decoder")
+        raise ValueError("vision checkpoint does not contain its decoder")
     decoder.load_state_dict(source["decoder"])
     decoder.eval().requires_grad_(False)
     reconstructor = MultiFrameMambaReconstructor(
@@ -917,9 +919,10 @@ def train_memory(args: argparse.Namespace, _unknown_args: list[str]) -> None:
     ).to(device)
     optimizer = torch.optim.RAdam([
         {"params": memory.parameters(), "lr": config.memory_lr},
-        {"params": reconstructor.projection.parameters(), "lr": config.memory_aux_lr},
+        {"params": [*reconstructor.projection.parameters()],
+         "lr": config.memory_aux_lr},
     ])
-    print(f"[memory] optimizer=RAdam objective=image_{config.reconstruction_loss}; loaded Vision Decoder; Encoder & Decoder frozen; training Memory/projection")
+    print(f"[memory] optimizer=RAdam objective=image_{config.reconstruction_loss}+latent; Encoder/Decoder frozen; training Memory/projection")
     scheduler = _cosine_lr_scheduler(optimizer, config.memory_lrf, args.epochs)
     print(f"[memory] scheduler=cosine temporal_lr={config.memory_lr:g} "
           f"aux_lr={config.memory_aux_lr:g} "
@@ -949,21 +952,41 @@ def train_memory(args: argparse.Namespace, _unknown_args: list[str]) -> None:
                     latent = encoder(
                         frames.reshape(-1, channels, height, width)
                     ).reshape(b, length, -1)
+                    target_latent = encoder(
+                        target_frames.reshape(-1, channels, height, width)
+                    ).reshape(b, length, -1)
                 memories = memory(latent)
                 targets, masks = build_reconstruction_targets(
                     target_frames, valid, config.reconstruction_offsets
                 )
                 predictions = reconstructor(memories)
+                codes = reconstructor.project_codes(memories)
                 losses = []
                 for offset in config.reconstruction_offsets:
                     if masks[offset].any():
                         prediction = predictions[offset][masks[offset]]
                         target = targets[offset][masks[offset]]
                         stats[offset].add(prediction, target)
-                        losses.append(_reconstruction_loss(
+                        # Normalize image loss to the same scale as latent loss;
+                        # otherwise pixel-count summation overwhelms the direct
+                        # temporal recall signal.
+                        image_loss = _reconstruction_loss(
                             prediction, target, config.reconstruction_loss,
                             charbonnier_epsilon=config.charbonnier_epsilon,
-                        ))
+                        ) / prediction.numel()
+                        latent_target = target_latent
+                        if offset < 0:
+                            shift = -offset
+                            latent_prediction = codes[:, :, config.reconstruction_offsets.index(offset)][masks[offset]]
+                            latent_target = target_latent[:, :-shift][valid[:, shift:] & valid[:, :-shift]]
+                        elif offset > 0:
+                            latent_prediction = codes[:, :, config.reconstruction_offsets.index(offset)][masks[offset]]
+                            latent_target = target_latent[:, offset:][valid[:, :-offset] & valid[:, offset:]]
+                        else:
+                            latent_prediction = codes[:, :, config.reconstruction_offsets.index(offset)][masks[offset]]
+                            latent_target = target_latent[masks[offset]]
+                        latent_loss = F.mse_loss(latent_prediction, latent_target)
+                        losses.append(image_loss + config.memory_latent_loss_weight * latent_loss)
                 if not losses:
                     continue
                 loss = _sum_memory_offset_losses(losses)
@@ -1003,7 +1026,7 @@ def train_memory(args: argparse.Namespace, _unknown_args: list[str]) -> None:
                   f"lr_aux={optimizer.param_groups[1]['lr']:.3g}")
             atomic_torch_save({
                 "stage": "memory", "model_version": MODEL_VERSION,
-                "memory_objective": "image_reconstruction", "decoder_frozen": True,
+                "memory_objective": "image_and_latent_reconstruction", "decoder_frozen": True,
                 "memory_sampling": "complete_episodes_all_valid_times",
                 "optimizer_steps": step,
                 "dataset_version": 1,
@@ -1090,7 +1113,10 @@ def build_parser() -> argparse.ArgumentParser:
         common(subparser)
         subparser.add_argument("--max-steps", type=int, default=150_000)
         subparser.add_argument("--episode-length", type=int, default=300)
-        subparser.add_argument("--level", type=int, choices=range(4), default=3)
+        subparser.add_argument(
+            "--level", type=int, choices=range(4), default=3,
+            help="Curriculum final level, or fixed level without curriculum (0-3; default: 3)",
+        )
         subparser.add_argument("--curriculum", action=argparse.BooleanOptionalAction, default=False)
 
     bootstrap = subparsers.add_parser(

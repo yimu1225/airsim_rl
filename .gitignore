@@ -5,3 +5,9 @@ results
 core
 logs
 models
+
+# Large local datasets, training outputs, validation data, and documents
+datasets/
+runs/
+val_datasets/
+*.pdf

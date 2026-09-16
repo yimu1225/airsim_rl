@@ -1,7 +1,7 @@
 # 重建诊断
 
 当前模型版本为3，Decoder 由全局 latent 生成粗空间特征，经线性展开和空间 Mamba
-逐级细化。128×128、patch_size=4 时为8×8→16×16→32×32，每尺度使用
+逐级细化。128×128、patch_size=4 时为4×4→8×8→16×16→32×32，每尺度使用
 decoder_depth 个块。无 Encoder token 跳接、无 CNN。旧版本 Decoder checkpoint
 不能直接加载到新结构；正式使用需重新训练阶段3、4、5。
 
