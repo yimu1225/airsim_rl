@@ -141,7 +141,8 @@ m_t
 r_{t-5}, r_{t-10}, r_{t+5}
   ↓ 每个分支分别进入同一个共享 Decoder
 reconstruction latent r_t^k
-  ↓ Linear → 8×8×decoder_embed_dim 空间特征（128×128、patch=4时）
+  ↓ Linear → 4×4×decoder_embed_dim 空间特征（128×128、patch=4时）
+  ↓ Mamba + Linear展开 → 8×8
   ↓ Mamba + Linear展开 → 16×16
   ↓ Mamba + Linear展开 → 32×32
   ↓ 加入各尺度位置编码
@@ -558,7 +559,7 @@ python algorithm/MAVM_SAC/train.py bootstrap \
   --clean-targets \
 && python algorithm/MAVM_SAC/train.py vision \
   --dataset datasets/MAVM_SAC \
-  --output runs/MAVM_SAC/vision \
+  --output runs/MAVM_SAC/vision2 \
   --epochs 200 \
 && python algorithm/MAVM_SAC/train.py memory \
   --dataset datasets/MAVM_SAC \
@@ -574,6 +575,7 @@ for seed in 25 26 27 28 29; do
     --output runs/MAVM_SAC/final/seed${seed} \
     --seed ${seed} \
     --max-steps 150000 \
+    --level 2 \
     --overwrite-results
 done
 

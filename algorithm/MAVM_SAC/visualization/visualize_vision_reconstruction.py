@@ -71,17 +71,16 @@ def visualize_vision(args: argparse.Namespace) -> Path:
             frame = sample["depth"][t:t+1].to(device=device, dtype=torch.float32) / 255.0
             target = sample["target_depth"][t].float().numpy() / 255.0
             prediction = decoder(encoder(frame))[0].cpu().numpy()
-            mae = float(np.abs(prediction - target).mean())
-            mse = float(np.square(prediction - target).mean())
+            mae = float(np.abs(prediction - target).mean() * 255.0)
             for row, (value, title) in enumerate((
-                (frame[0].cpu().numpy(), f"Observed: episode {index}, t={t}"),
-                (target, "Target (clean depth when available)"),
-                (prediction, f"Vision reconstruction\nMAE={mae:.6f} MSE={mse:.6f}"),
+                (frame[0].cpu().numpy() * 255.0, f"Observed: episode {index}, t={t}"),
+                (target * 255.0, "Target (clean depth when available)"),
+                (prediction * 255.0, f"Vision reconstruction\nMAE={mae:.2f}"),
             )):
-                axes[row, column].imshow(_image_array(value), cmap="gray", vmin=0, vmax=1)
+                axes[row, column].imshow(_image_array(value), cmap=args.cmap, vmin=0, vmax=255)
                 axes[row, column].set_title(title)
                 axes[row, column].axis("off")
-            print(f"[vision test] episode={index} t={t} mae={mae:.6f} mse={mse:.6f}")
+            print(f"[vision test] episode={index} t={t} mae={mae:.2f}")
         figure.suptitle(f"Stage 3 — checkpoint epoch {checkpoint.get('epoch', '?')} — {args.split}")
         figure.tight_layout()
         output = Path(args.output) if args.output else _PROJECT_ROOT / "runs/MAVM_SAC/vision/reconstruction_test.png"
@@ -95,15 +94,19 @@ def visualize_vision(args: argparse.Namespace) -> Path:
 
 def build_parser():
     parser = argparse.ArgumentParser(description="Test stage-3 Vision reconstruction")
-    parser.add_argument("--dataset", default=str(_PROJECT_ROOT / "datasets/MAVM_SAC"))
-    parser.add_argument("--vision-checkpoint", default=str(_PROJECT_ROOT / "runs/MAVM_SAC/vision/vision_latest.pt"))
+    parser.add_argument("--dataset", default=str(_PROJECT_ROOT / "val_datasets/MAVM_SAC"))
+    parser.add_argument("--vision-checkpoint", default=str(_PROJECT_ROOT / "runs/MAVM_SAC/vision2/vision_latest.pt"))
     parser.add_argument("--output", default=str(_PROJECT_ROOT / "runs/MAVM_SAC/vision/reconstruction_test.png"))
     parser.add_argument("--split", choices=("train", "validation", "all"), default="validation")
     parser.add_argument("--episode-index", type=int)
     parser.add_argument("--time-index", type=int)
-    parser.add_argument("--seed", type=int, default=25)
+    parser.add_argument("--seed", type=int, default=1)
     parser.add_argument("--device", default="auto")
     parser.add_argument("--observed-targets", action="store_true")
+    parser.add_argument(
+        "--cmap", default="jet_r",
+        help="matplotlib colormap for depth rendering (default: jet_r)",
+    )
     return parser
 
 

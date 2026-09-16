@@ -105,12 +105,12 @@ dynamic_obstacles_dic = { "End": ["Mutable"],
                                       "EnvType": ["Indoor"],
                                       "ArenaSize": [[70, 70, 10]],
                                       "PlayerStart": [[0, 0, 0]],
-                                      "NumberOfDynamicObjects": list(range(5, 10)),
+                                      "NumberOfDynamicObjects": list(range(50, 60)),
                                       "Walls1": [[200, 13, 99],[255, 255, 10],[0, 10, 10],[10, 100, 100],[126, 11, 90]],
                                       "Seed": list(range(0, 10000)),
                                       "VelocityRange": [[0.3, 1.0]],
                                       "Name": ["Name"],
-                                      "NumberOfObjects": list(range(50, 70))}
+                                      "NumberOfObjects": list(range(140, 150))}
 default_range_dic = easy_range_dic
 # ------------------------------------------------------------
 #-game related-
@@ -140,9 +140,9 @@ Each key-value pair indicates the randomization frequency after UE4 restart:
 environment_change_frequency = {
     "ArenaSize": 8,
     "Seed":5,
-    "NumberOfObjects": 8,
-    "NumberOfDynamicObjects": 8,
-    "End": 5,
+    "NumberOfObjects": 1,
+    "NumberOfDynamicObjects": 1,
+    "End": 1,
     "Walls1": 5,
     "MinimumDistance": 5
 }

@@ -31,6 +31,7 @@ class MAVMConfig:
     reconstruction_offsets: tuple[int, ...] = (-10, 0, 10)
     vision_reconstruction_loss: str = "mse"
     reconstruction_loss: str = "charbonnier"  # memory 阶段（时序重建）的损失
+    memory_latent_loss_weight: float = 1.0
     charbonnier_epsilon: float = 1e-3
     collect_frames: int = 30_000
     vision_lr: float = 3e-4
@@ -78,6 +79,8 @@ class MAVMConfig:
             raise ValueError("offline_lr_decay must be in (0, 1]")
         if self.memory_lr <= 0.0 or self.memory_aux_lr <= 0.0:
             raise ValueError("memory learning rates must be positive")
+        if self.memory_latent_loss_weight < 0.0:
+            raise ValueError("memory_latent_loss_weight must be non-negative")
         if self.patch_size <= 0 or self.image_height <= 0 or self.image_width <= 0:
             raise ValueError("image dimensions and patch_size must be positive")
         if self.image_height % self.patch_size or self.image_width % self.patch_size:

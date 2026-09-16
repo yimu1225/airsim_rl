@@ -290,9 +290,10 @@ class VisionMambaDecoder(nn.Module):
         self.patch_size = patch_size
         self.channels = channels
         self.grid_size = (height // patch_size, width // patch_size)
-        # Halve exactly; unusual/non-power-of-two grids retain their dimensions.
+        # Halve exactly down to a 4×4 coarse grid; unusual/non-power-of-two
+        # grids retain their dimensions.
         grids = [self.grid_size]
-        while min(grids[0]) > 8 and all(size % 2 == 0 for size in grids[0]):
+        while min(grids[0]) > 4 and all(size % 2 == 0 for size in grids[0]):
             grids.insert(0, tuple(size // 2 for size in grids[0]))
         self.stage_grids = tuple(grids)
         self.coarse_grid = grids[0]
@@ -372,9 +373,7 @@ class MultiFrameMambaReconstructor(nn.Module):
         if memory.ndim not in (2, 3):
             raise ValueError("memory must have shape [B,D] or [B,T,D]")
         prefix = memory.shape[:-1]
-        codes = self.projection(memory).reshape(
-            *prefix, len(self.offsets), self.reconstruction_latent_dim
-        )
+        codes = self.project_codes(memory)
         # Fold the target branch into the batch so all branches pass through
         # exactly the same decoder parameters in one efficient call.
         flat_codes = codes.reshape(-1, self.reconstruction_latent_dim)
@@ -388,6 +387,15 @@ class MultiFrameMambaReconstructor(nn.Module):
             offset: images[..., index, :, :, :]
             for index, offset in enumerate(self.offsets)
         }
+
+    def project_codes(self, memory: torch.Tensor) -> torch.Tensor:
+        """Return per-offset latent codes before the shared image decoder."""
+        if memory.ndim not in (2, 3):
+            raise ValueError("memory must have shape [B,D] or [B,T,D]")
+        prefix = memory.shape[:-1]
+        return self.projection(memory).reshape(
+            *prefix, len(self.offsets), self.reconstruction_latent_dim
+        )
 
 
 class MambaPerceptionMemory(nn.Module):

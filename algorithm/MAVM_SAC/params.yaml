@@ -5,8 +5,8 @@ channels: 1
 patch_size: 4
 latent_dim: 128
 encoder_depth: 2
-memory_dim: 256
-memory_depth: 2
+memory_dim: 1024
+memory_depth: 4
 # Memory output is projected into three 128-D reconstruction codes.
 reconstruction_latent_dim: 128
 # Hidden width of every spatial patch token inside the one shared decoder.
@@ -22,15 +22,17 @@ drop_rate: 0.0
 drop_path_rate: 0.0
 
 # Offline representation learning.
-reconstruction_offsets: [-10, 0, 10]
+reconstruction_offsets: [-5, 0, 5]
 # Vision 阶段（单帧自编码器）的重建损失。
 vision_reconstruction_loss: mse
 # Memory 阶段（时序重建）的重建损失。
-reconstruction_loss: charbonnier
+reconstruction_loss: mse
+# Direct supervision keeps temporal codes on the frozen Vision latent manifold.
+memory_latent_loss_weight: 1.0
 collect_frames: 30000
 vision_lr: 0.005
-memory_lr: 0.005
-memory_aux_lr: 0.003
+memory_lr: 0.0005
+memory_aux_lr: 0.0003
 memory_lrf: 0.01  # Stage 4 cosine final LR = memory_lr * memory_lrf.
 vision_lrf: 0.01  # Stage 3 cosine final LR = vision_lr * vision_lrf.
 offline_lr_decay: 0.99  # deprecated; vision now uses cosine annealing.

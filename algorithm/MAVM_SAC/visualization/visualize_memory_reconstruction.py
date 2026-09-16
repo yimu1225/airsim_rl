@@ -188,6 +188,7 @@ def _save_grid(
     episode_index: int,
     time_index: int,
     current_is_temporal: bool = False,
+    cmap: str = "jet_r",
 ) -> Path:
     import matplotlib
 
@@ -205,16 +206,16 @@ def _save_grid(
         constrained_layout=True,
     )
     for column, offset in enumerate(offsets):
-        target = _image_array(originals[offset])
-        reconstruction = _image_array(reconstructions[offset])
+        target = _image_array(originals[offset]) * 255.0
+        reconstruction = _image_array(reconstructions[offset]) * 255.0
         mae = float(np.mean(np.abs(reconstruction - target)))
-        axes[0, column].imshow(target, cmap="gray", vmin=0.0, vmax=1.0)
+        axes[0, column].imshow(target, cmap=cmap, vmin=0.0, vmax=255.0)
         axes[0, column].set_title(f"Target {_offset_label(offset)}")
         axes[1, column].imshow(
-            reconstruction, cmap="gray", vmin=0.0, vmax=1.0
+            reconstruction, cmap=cmap, vmin=0.0, vmax=255.0
         )
         source = "Vision AE (reference only)" if offset == 0 and not current_is_temporal else "Temporal reconstruction"
-        axes[1, column].set_title(f"{source}\nMAE={mae:.5f}")
+        axes[1, column].set_title(f"{source}\nMAE={mae:.2f}")
         axes[0, column].axis("off")
         axes[1, column].axis("off")
     figure.suptitle(
@@ -301,6 +302,7 @@ def visualize(args: argparse.Namespace) -> Path:
         episode_index=episode_index,
         time_index=time_index,
         current_is_temporal=0 in temporal_predictions,
+        cmap=args.cmap,
     )
     target_kind = "observed depth" if args.observed_targets else "training targets"
     print(
@@ -347,12 +349,17 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--episode-index", type=int)
     parser.add_argument("--time-index", type=int)
-    parser.add_argument("--seed", type=int, default=25)
+    parser.add_argument("--seed", type=int, default=29)
     parser.add_argument("--device", default="auto")
     parser.add_argument(
         "--observed-targets",
         action="store_true",
         help="compare against noisy observed depth instead of clean training targets",
+    )
+    parser.add_argument(
+        "--cmap",
+        default="jet_r",
+        help="matplotlib colormap for depth rendering (default: jet_r)",
     )
     return parser
 
