@@ -8,13 +8,6 @@ import os
 # Set CUDA memory allocator configuration to reduce fragmentation
 os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'expandable_segments:True'
 os.environ.setdefault('CUBLAS_WORKSPACE_CONFIG', ':4096:8')  
-
-
-# 设置环境变量，获得更详细的错误信息
-
-# os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
-# os.environ['TORCH_USE_CUDA_DSA'] = '1'
-
 import time
 import random
 import copy
@@ -46,47 +39,20 @@ from gym_airsim.envs import AirSimEnv
 # Algorithm Imports
 from algorithm.TD3.td3 import TD3Agent
 from algorithm.DDPG.ddpg import DDPGAgent
-from algorithm.SB_PER_TD3.agent import SB_PERTD3Agent
 
 from algorithm.VSSM_TD3.agent import VSSM_TD3Agent
-from algorithm.STV_Patch_TD3.agent import VimPatchTD3Agent
-from algorithm.Vim_TD3.agent import VimTD3Agent
-from algorithm.ST_Seq_Vim_TD3.agent import StateSeqVimTD3Agent
-from algorithm.STV_Seq_Vim_TD3.agent import VimStateSeqTD3Agent
-from algorithm.SB_PER_VSSM_TD3.agent import SB_PERVSSM_TD3Agent
-from algorithm.SAFE_VSSM_TD3.agent import SAFE_VSSM_TD3Agent
-from algorithm.Mamba_TD3.agent import MambaTD3Agent
-from algorithm.ST_DualVim_TD3.agent import DualBranchVideoMambaTD3Agent
 from algorithm.SAC.agent import SACAgent
 from algorithm.SAC_FAE.agent import SACFAEAgent
-from algorithm.SB_PER_SAC.agent import SB_PERSACAgent
-from algorithm.PL_SAC.agent import PLSACAgent
-from algorithm.PL_VSSM_SAC.agent import PLVSSM_SACAgent
-from algorithm.PL_PER_VSSM_SAC.agent import PLPERVSSM_SACAgent
-from algorithm.PL_SB_PER_VSSM_SAC.agent import PLSB_PERVSSM_SACAgent
-from algorithm.PL_SB_PER_VSSM_TD3.agent import PLSB_PERVSSM_TD3Agent
-from algorithm.VSSM_SAC.agent import VSSM_SACAgent
+
+from algorithm.VSSM.no_VSSM.agent import NoVSSMSACAgent
+from algorithm.VSSM.no_SB_PER.agent import NoSBPERSACAgent
 from algorithm.MM_VSSM_SAC.agent import MMVSSM_SACAgent
-from algorithm.PER_VSSM_SAC.agent import PERVSSM_SACAgent
 from algorithm.SAFE_VSSM_SAC.agent import SAFE_VSSM_SACAgent
-from algorithm.SB_PER_VSSM_SAC.agent import SB_PERVSSM_SACAgent
+from algorithm.VSSM.VSSM_SAC.agent import VSSMSACAgent
 from algorithm.SVSSM_SAC.agent import SVSSM_SACAgent
 from algorithm.SB_PER_SVSSM_SAC.agent import SB_PERSVSSM_SACAgent
-from algorithm.MambaCSJA_SAC.agent import MambaCSJA_SACAgent
 from algorithm.SB_PER_MambaCSJA_SAC.agent import SB_PERMambaCSJASACAgent
-from algorithm.Mamba_SAC.agent import MambaSACAgent
 from algorithm.Transformer_SAC.agent import TransformerSACAgent
-from algorithm.PER_Mamba_SAC.agent import PERMambaSACAgent
-from algorithm.beta_sac import (
-    SB_PERVSSM_SACBetaAgent,
-    PLSB_PERVSSM_SACBetaAgent,
-    PLSACBetaAgent,
-    SACBetaAgent,
-    VSSM_SACBetaAgent,
-)
-from algorithm.PL_TD3.pl_td3 import PLTD3Agent
-from algorithm.PL_SB_PER_TD3.agent import PLSB_PERTD3Agent
-from algorithm.PL_VSSM_TD3.agent import PLVSSM_TD3Agent
 from algorithm.AETD3.aetd3 import AETD3Agent
 from algorithm.SDDPG.sddpg import SDDPGAgent
 
@@ -185,46 +151,20 @@ def get_agent_class(algo_name):
     
     agents = {
         'TD3': TD3Agent,
-        'PL_TD3': PLTD3Agent,
         'DDPG': DDPGAgent,
-        'SB_PER_TD3': SB_PERTD3Agent,
-        'PL_SB_PER_TD3': PLSB_PERTD3Agent,
-        'PL_SB_PER_VSSM_TD3': PLSB_PERVSSM_TD3Agent,
         'VSSM_TD3': VSSM_TD3Agent,
-        'STV_Patch_TD3': VimPatchTD3Agent,
-        'Vim_TD3': VimTD3Agent,
-        'ST_Seq_Vim_TD3': StateSeqVimTD3Agent,
-        'STV_Seq_Vim_TD3': VimStateSeqTD3Agent,
-        'SB_PER_VSSM_TD3': SB_PERVSSM_TD3Agent,
-        'PL_VSSM_TD3': PLVSSM_TD3Agent,
-        'SAFE_VSSM_TD3': SAFE_VSSM_TD3Agent,
-        'Mamba_TD3': MambaTD3Agent,
-        'ST_DualVim_TD3': DualBranchVideoMambaTD3Agent,
         'AETD3': AETD3Agent,
         'SAC': SACAgent,
         'SAC_FAE': SACFAEAgent,
-        'SB_PER_SAC': SB_PERSACAgent,
-        'SAC_Beta': SACBetaAgent,
-        'PL_SAC': PLSACAgent,
-        'PL_SAC_Beta': PLSACBetaAgent,
-        'PL_VSSM_SAC': PLVSSM_SACAgent,
-        'PL_PER_VSSM_SAC': PLPERVSSM_SACAgent,
-        'PL_SB_PER_VSSM_SAC': PLSB_PERVSSM_SACAgent,
-        'PL_SB_PER_VSSM_SAC_Beta': PLSB_PERVSSM_SACBetaAgent,
-        'VSSM_SAC': VSSM_SACAgent,
+        'no-VSSM': NoVSSMSACAgent,
+        'no-SB-PER': NoSBPERSACAgent,
         'MM_VSSM_SAC': MMVSSM_SACAgent,
-        'PER_VSSM_SAC': PERVSSM_SACAgent,
         'SVSSM_SAC': SVSSM_SACAgent,
         'SAFE_VSSM_SAC': SAFE_VSSM_SACAgent,
-        'VSSM_SAC_Beta': VSSM_SACBetaAgent,
-        'SB_PER_VSSM_SAC': SB_PERVSSM_SACAgent,
-        'SB_PER_VSSM_SAC_Beta': SB_PERVSSM_SACBetaAgent,
+        'VSSM-SAC': VSSMSACAgent,
         'SB_PER_SVSSM_SAC': SB_PERSVSSM_SACAgent,
-        'Mamba_SAC': MambaSACAgent,
         'Transformer_SAC': TransformerSACAgent,
-        'MambaCSJA_SAC': MambaCSJA_SACAgent,
         'SB_PER_MambaCSJA_SAC': SB_PERMambaCSJASACAgent,
-        'PER_Mamba_SAC': PERMambaSACAgent,
         'SDDPG': SDDPGAgent,
     }
     if core_algo_name in agents:
@@ -314,19 +254,6 @@ def _pause_env_simulation(env):
             client.simPause(True)
     except Exception as exc:
         print(f"WARNING: failed to pause simulator before training update: {exc}")
-
-
-def _is_pl_algorithm(algo_name: str) -> bool:
-    core_name = to_internal_core_algorithm_name(algo_name)
-    return core_name in {
-        "PL_TD3", "PL_SB_PER_TD3", "PL_VSSM_TD3", "PL_SAC", "PL_SAC_Beta",
-        "PL_VSSM_SAC", "PL_PER_VSSM_SAC", "PL_SB_PER_VSSM_SAC",
-        "PL_SB_PER_VSSM_SAC_Beta", "PL_SB_PER_VSSM_TD3", "PL_VSSM_PPO",
-    }
-
-
-def _as_clean_critic_depth(clean_depth):
-    return np.asarray(clean_depth, dtype=np.float32)
 
 
 def _replay_add_supports_param(agent, param_name: str) -> bool:
@@ -525,30 +452,13 @@ def main():
 
             # Determine properties for this algorithm
             recurrent_algos = {
-                'Mamba_TD3',
                 'VSSM_TD3',
-                'STV_Patch_TD3',
-                'Vim_TD3',
-                'ST_Seq_Vim_TD3',
-                'STV_Seq_Vim_TD3',
-                'SB_PER_VSSM_TD3',
-                'PL_VSSM_TD3',
-                'PL_VSSM_SAC',
-                'PL_PER_VSSM_SAC',
-                'PL_SB_PER_VSSM_SAC',
-                'PL_SB_PER_VSSM_SAC_Beta',
-                'PL_SB_PER_VSSM_TD3',
-                'SAFE_VSSM_TD3',
-                'ST_DualVim_TD3',
-                'VSSM_SAC',
+                'no-SB-PER',
                 'MM_VSSM_SAC',
-                'PER_VSSM_SAC',
                 'SVSSM_SAC',
                 'SB_PER_SVSSM_SAC',
                 'SAFE_VSSM_SAC',
-                'VSSM_SAC_Beta',
-                'SB_PER_VSSM_SAC',
-                'SB_PER_VSSM_SAC_Beta',
+                'VSSM-SAC',
                 'Transformer_SAC',
             }
             
@@ -619,7 +529,6 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, in
     # Display/output names use hyphens; internal config/module names keep underscores.
     display_algo_name = to_output_algorithm_name(algo_name)
     core_algo_name = to_internal_core_algorithm_name(algo_name)
-    is_pl_algo = _is_pl_algorithm(algo_name)
     print(f"Start Asynchronous Training {display_algo_name}...")
 
     # Restart interval for refreshing UE4 memory
@@ -663,7 +572,7 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, in
     obs = initial_obs
     state = obs['depth']
     base = obs['base']
-    base_seq_algos = {"ST_Seq_Vim_TD3", "STV_Seq_Vim_TD3", "MM_VSSM_SAC"}
+    base_seq_algos = {"MM_VSSM_SAC"}
     use_base_sequence = bool(is_recurrent and core_algo_name in base_seq_algos)
     base_seq_deque = None
     base_seq = None
@@ -699,10 +608,6 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, in
             else:
                 actor_depth_current = state
                 actor_base_current = base
-
-            critic_priv_current = None
-            if is_pl_algo:
-                critic_priv_current = _as_clean_critic_depth(obs.get("clean_depth", state))
 
             env_core_for_signal = _get_env_core(env)
             success_rate_signal = 0.0
@@ -841,29 +746,9 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, in
             base_for_buffer = base_seq if use_base_sequence else base
             next_base_for_buffer = next_base_seq if use_base_sequence else next_base
 
-            critic_priv_next = None
-            if is_pl_algo:
-                critic_priv_next = _as_clean_critic_depth(next_obs.get("clean_depth", next_state))
-            
             if is_recurrent:
                 if core_algo_name in {'SVSSM_TD3', 'SVSSM_SAC'}:
                     add_kwargs = {}
-                    agent.replay_buffer.add(
-                        base_for_buffer,
-                        depth_seq,
-                        action,
-                        reward,
-                        next_base_for_buffer,
-                        next_depth_seq,
-                        done_bool,
-                        **add_kwargs,
-                    )
-                elif is_pl_algo:
-                    add_kwargs = dict(
-                        critic_priv=critic_priv_current,
-                        next_critic_priv=critic_priv_next,
-                    )
-                    _add_success_kw_if_supported(agent, add_kwargs, step_info)
                     agent.replay_buffer.add(
                         base_for_buffer,
                         depth_seq,
@@ -888,26 +773,9 @@ def train_single_algorithm(env, agent, args, algo_name, is_recurrent, device, in
                         **add_kwargs,
                     )
             else:
-                if is_pl_algo:
-                    add_kwargs = dict(
-                        critic_priv=critic_priv_current,
-                        next_critic_priv=critic_priv_next,
-                    )
-                    _add_success_kw_if_supported(agent, add_kwargs, step_info)
-                    agent.replay_buffer.add(
-                        base,
-                        state,
-                        action,
-                        reward,
-                        next_base,
-                        next_state,
-                        done_bool,
-                        **add_kwargs,
-                    )
-                else:
-                    add_kwargs = {}
-                    _add_success_kw_if_supported(agent, add_kwargs, step_info)
-                    agent.replay_buffer.add(base, state, action, reward, next_base, next_state, done_bool, **add_kwargs)
+                add_kwargs = {}
+                _add_success_kw_if_supported(agent, add_kwargs, step_info)
+                agent.replay_buffer.add(base, state, action, reward, next_base, next_state, done_bool, **add_kwargs)
 
             # State Update
             state = next_state

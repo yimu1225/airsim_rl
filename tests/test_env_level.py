@@ -22,6 +22,11 @@ import shutil
 import json
 import copy
 import numpy as np
+from pathlib import Path
+import sys
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PROJECT_ROOT))
 
 # ==================== 用户配置区域 ====================
 # 修改这里的数字来切换测试等级: 0, 1, 2, 3

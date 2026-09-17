@@ -58,7 +58,7 @@ DEFAULT_RESULTS_ROOT = os.path.join(
     REPO_ROOT, "results", "eval", "training_density_path_length"
 )
 LEGACY_RESULTS_ROOT = os.path.join(REPO_ROOT, "results", "eval", "training_density")
-PPO_ALGORITHMS = {"PPO", "VSSM_PPO", "PL_VSSM_PPO"}
+PPO_ALGORITHMS = {"PPO", "VSSM_PPO"}
 
 # Sample every layout-defining field on every episode.  UE4 uses Seed together
 # with these values to deterministically choose obstacle types and positions.
@@ -100,7 +100,7 @@ def _algorithm_profile(algorithm_name: str) -> AlgorithmProfile:
         is_recurrent=(
             is_lstm
             or core_name in RECURRENT_ALGOS
-            or core_name in {"VSSM_PPO", "PL_VSSM_PPO"}
+            or core_name == "VSSM_PPO"
         ),
     )
 

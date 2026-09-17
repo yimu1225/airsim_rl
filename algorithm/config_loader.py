@@ -9,10 +9,12 @@ from algo_name_utils import to_internal_core_algorithm_name
 
 
 _ALGO_DIR = Path(__file__).resolve().parent
+_VSSM_ALGORITHMS = {"VSSM-SAC", "no-SB-PER", "no-VSSM"}
+
 
 def _resolve_algorithm_dir(algorithm_name: str) -> Path:
     core_name = to_internal_core_algorithm_name(algorithm_name)
-    folder_name = core_name
+    folder_name = Path("VSSM") / core_name.replace("-", "_") if core_name in _VSSM_ALGORITHMS else Path(core_name)
     folder_path = _ALGO_DIR / folder_name
     if not folder_path.is_dir():
         raise ValueError(
@@ -24,7 +26,7 @@ def _resolve_algorithm_dir(algorithm_name: str) -> Path:
 def load_algorithm_params(algorithm_name: str) -> Tuple[Dict[str, Any], Path]:
     """
     Load algorithm-specific parameters from:
-      algorithm/<algorithm_folder>/params.yaml
+      algorithm/<algorithm_folder>/params.yaml (VSSM variants live under algorithm/VSSM/)
 
     Returns:
       params: dict of algorithm-specific parameters

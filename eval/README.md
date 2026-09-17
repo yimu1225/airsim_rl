@@ -16,7 +16,7 @@ python -m eval.eval_async \
 Use:
 
 - `eval_async.py` for most non-PPO, non-LSTM-SAC algorithms.
-- `eval_ppo.py` for PPO/VSSM-PPO/PL-VSSM-PPO.
+- `eval_ppo.py` for PPO/VSSM-PPO.
 - `eval_lstm_sac.py` for LSTM-SAC.
 
 All of these use `eval_env.py`, which opens the UE4 test scene and does not randomize the environment.

@@ -38,7 +38,6 @@ from gym_airsim.envs import AirSimEnv
 # On-Policy Algorithm Imports
 from algorithm.PPO.ppo import PPOAgent
 from algorithm.VSSM_PPO.agent import STVimPPOAgent
-from algorithm.PL_VSSM_PPO.agent import PLSTVimPPOAgent
 
 
 def _raise_if_non_finite(name, value, step_info=""):
@@ -119,7 +118,6 @@ def get_agent_class(algo_name):
     agents = {
         'PPO': PPOAgent,
         'VSSM_PPO': STVimPPOAgent,
-        'PL_VSSM_PPO': PLSTVimPPOAgent,
     }
     if core_algo_name in agents:
         return agents[core_algo_name]
@@ -506,7 +504,7 @@ def main():
         for algo_name in algorithms:
             algo_name = to_internal_algorithm_name(algo_name)
             core_algo_name = to_internal_core_algorithm_name(algo_name)
-            if core_algo_name not in {"PPO", "VSSM_PPO", "PL_VSSM_PPO"}:
+            if core_algo_name not in {"PPO", "VSSM_PPO"}:
                 print(f"Skipping unsupported on-policy algorithm in main_ppo.py: {algo_name}")
                 continue
 
@@ -530,7 +528,7 @@ def main():
                 print(f"  [Curriculum Learning Disabled] {algo_name}")
 
             # ST-Vim-PPO consumes the stacked depth frames as a temporal sequence.
-            is_recurrent = core_algo_name in {"VSSM_PPO", "PL_VSSM_PPO"}
+            is_recurrent = core_algo_name == "VSSM_PPO"
             n_frames = args.n_frames
 
             # Initialize Environment

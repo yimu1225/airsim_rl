@@ -302,7 +302,8 @@ def _make_agents(
     # Delay CUDA/Triton-dependent imports so --dry_run remains usable on a
     # machine where no CUDA driver is visible.
     from algorithm.SAC.agent import SACAgent
-    from algorithm.SB_PER_VSSM_SAC.agent import SB_PERVSSM_SACAgent
+
+    from algorithm.VSSM.VSSM_SAC.agent import VSSMSACAgent
     from algorithm.config_loader import apply_algorithm_params
 
     frames, height, width = map(int, first.depth.shape)
@@ -313,7 +314,7 @@ def _make_agents(
     vssm_args.seed = model_seed
     vssm_args.n_frames = frames
     apply_algorithm_params(vssm_args, "CL-VSSM-SAC")
-    vssm = SB_PERVSSM_SACAgent(
+    vssm = VSSMSACAgent(
         first.base_state.size,
         (1, height, width),
         action_space,

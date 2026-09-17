@@ -1,53 +1,119 @@
-import copy
-
 import numpy as np
 import torch
 import torch.nn.functional as F
 from torch import nn
 from torch.optim import Adam
 
-from algorithm.VSSM.no_SB_PER.agent import NoSBPERSACAgent
-from ..config_loader import get_algo_param
+from ...config_loader import get_algo_param
 from .buffer import ReplayBuffer
-from .networks import SafetyConstraintHead, safety_project_actions
+from .networks import Actor, Critic, STVimEncoder
 
 
-class SAFE_VSSM_SACAgent(NoSBPERSACAgent):
-    """ST-Vim SAC with a learned safety projection layer."""
+class NoSBPERSACAgent:
+    """SB3-style SAC adapted to base-state + ST-Vim/Mamba depth sequences."""
 
     def __init__(self, base_dim: int, depth_shape, action_space, args, device=None, seed=None):
-        super().__init__(base_dim, depth_shape, action_space, args, device=device, seed=seed)
-        print(f"ST-Mamba-VimTokens-Safety-SAC Agent using device: {self.device}")
+        self.device = torch.device(device if device is not None else ("cuda" if torch.cuda.is_available() else "cpu"))
+        self.rng = np.random.default_rng(seed)
+        if seed is not None:
+            torch.manual_seed(seed)
+
+        self.args = args
+        self.args.depth_shape = depth_shape
+        self.base_dim = base_dim
+        self.depth_shape = depth_shape
+        self.action_dim = action_space.shape[0]
+
+        self.max_action = np.asarray(action_space.high, dtype=np.float32)
+        self.min_action = np.asarray(action_space.low, dtype=np.float32)
+        self.action_scale = torch.as_tensor((self.max_action - self.min_action) / 2.0, dtype=torch.float32, device=self.device)
+        self.action_bias = torch.as_tensor((self.max_action + self.min_action) / 2.0, dtype=torch.float32, device=self.device)
+
+        self.actor_encoder = STVimEncoder(args).to(self.device)
+        self.critic_encoder = STVimEncoder(args).to(self.device)
+        self.critic_encoder_target = STVimEncoder(args).to(self.device)
+        self.critic_encoder_target.load_state_dict(self.critic_encoder.state_dict())
+
+
+        self.state_dim = self.base_dim + self.actor_encoder.repr_dim
+        self.actor = Actor(self.state_dim, action_space.shape, args.hidden_dim).to(self.device)
+        self.critic = Critic(self.state_dim, action_space.shape, args.hidden_dim).to(self.device)
+        self.critic_target = Critic(self.state_dim, action_space.shape, args.hidden_dim).to(self.device)
+        self.critic_target.load_state_dict(self.critic.state_dict())
+
+        self.actor_params = (
+            list(self.actor.parameters())
+            + list(self.actor_encoder.parameters())
+           
+        )
+        self.critic_params = (
+            list(self.critic.parameters())
+            + list(self.critic_encoder.parameters())
+           
+        )
+        self.actor_optimizer = Adam(self.actor_params, lr=args.actor_lr)
+        self.critic_optimizer = Adam(self.critic_params, lr=args.critic_lr)
+
+        self.ent_coef = get_algo_param(args, "ent_coef", 0.2)
+        target_entropy = get_algo_param(args, "target_entropy", "auto")
+        self.target_entropy = -float(self.action_dim) if target_entropy in (None, "auto") else float(target_entropy)
+        self.log_alpha = None
+        self.alpha_optimizer = None
+        if isinstance(self.ent_coef, str) and self.ent_coef.startswith("auto"):
+            init_value = 1.0
+            if "_" in self.ent_coef:
+                init_value = float(self.ent_coef.split("_")[1])
+                if init_value <= 0:
+                    raise ValueError("Initial ent_coef value must be greater than 0.")
+            self.log_alpha = torch.log(torch.ones(1, device=self.device) * init_value).requires_grad_(True)
+            self.alpha_optimizer = Adam([self.log_alpha], lr=float(get_algo_param(args, "alpha_lr", args.actor_lr)))
+            self.alpha = float(init_value)
+            self.auto_entropy_tuning = True
+        else:
+            self.alpha = float(self.ent_coef)
+            self.auto_entropy_tuning = False
 
         self.replay_buffer = ReplayBuffer(args.buffer_size, seed=seed)
-        self.use_safety_layer = get_algo_param(args, "use_vim_safety_layer", True)
-        self.safety_model = SafetyConstraintHead(
-            latent_dim=self.state_dim,
-            action_dim=self.action_dim,
-        ).to(self.device)
-        self.safety_model_target = copy.deepcopy(self.safety_model)
+        self.gamma = args.gamma
+        self.tau = args.tau
+        self.batch_size = args.batch_size
+        self.grad_clip = getattr(args, "grad_clip", 1.0)
+        self.policy_freq = get_algo_param(args, "policy_freq", 1)
+        self.target_update_interval = get_algo_param(args, "target_update_interval", 1)
+        self.total_it = 0
 
-        self.safety_end_to_end = get_algo_param(args, "safety_end_to_end", False)
-        self.safety_params = list(self.safety_model.parameters())
-        if self.safety_end_to_end:
-            self.safety_params += list(self.actor_encoder.parameters())
-        self.safety_optimizer = Adam(
-            self.safety_params,
-            lr=get_algo_param(args, "safety_lr", args.actor_lr),
-        )
+    def _format_depth_sequence(self, depth_batch: torch.Tensor) -> torch.Tensor:
+        if depth_batch.dim() == 2:
+            depth_batch = depth_batch.unsqueeze(0).unsqueeze(0).unsqueeze(0)
+        elif depth_batch.dim() == 3:
+            depth_batch = depth_batch.unsqueeze(0).unsqueeze(2)
+        elif depth_batch.dim() == 4:
+            if depth_batch.size(0) == self.args.n_frames and depth_batch.size(1) == 1:
+                depth_batch = depth_batch.unsqueeze(0)
+            else:
+                depth_batch = depth_batch.unsqueeze(2)
+        elif depth_batch.dim() != 5:
+            raise ValueError(f"Unsupported depth sequence shape: {tuple(depth_batch.shape)}")
 
-        self.safety_loss_coef = get_algo_param(args, "safety_loss_coef", 1.0)
-        self.safety_actor_penalty_coef = get_algo_param(args, "safety_actor_penalty_coef", 0.05)
-        self.safety_warmup_steps = get_algo_param(args, "safety_warmup_steps", 0)
-        self.safety_label_mode = get_algo_param(args, "safety_label_mode", "collision")
+        if depth_batch.size(2) != 1:
+            raise ValueError(f"Expected single-channel sequence frames, got {tuple(depth_batch.shape)}")
+        return depth_batch
 
-    def _apply_safety_projection(self, action, state_features, safety_model=None):
-        if not self.use_safety_layer:
-            return action, None
-        model = self.safety_model if safety_model is None else safety_model
-        g, h = model(state_features)
-        safe_action, violation = safety_project_actions(action, g, h)
-        return safe_action.clamp(-1.0, 1.0), violation
+    def _encode_state(self, base, depth, encoder):
+        depth = self._format_depth_sequence(depth)
+        depth_features = encoder(depth)
+        return torch.cat([base, depth_features], dim=1)
+
+    def _to_float_tensor(self, data):
+        tensor = torch.as_tensor(data, device=self.device)
+        return tensor if tensor.dtype == torch.float32 else tensor.float()
+
+    def _sample_replay(self, progress_ratio=0.0):
+        sample = self.replay_buffer.sample(self.batch_size)
+        return sample, None, None, {}
+
+    def _update_replay_priorities(self, refs, td_errors):
+        return None
 
     def select_action(self, base_state, depth, deterministic=False, with_log_prob=False, progress_ratio=0.0):
         base = torch.as_tensor(base_state, dtype=torch.float32, device=self.device).view(1, -1)
@@ -55,15 +121,12 @@ class SAFE_VSSM_SACAgent(NoSBPERSACAgent):
 
         with torch.no_grad():
             state = self._encode_state(base, depth_tensor, self.actor_encoder)
-            log_prob = None
             if with_log_prob and not deterministic:
                 action, log_prob = self.actor.action_log_prob(state)
-            else:
-                action = self.actor(state, deterministic=deterministic)
-            action, _ = self._apply_safety_projection(action, state)
-            real_action = self.action_scale * action + self.action_bias
-            if log_prob is not None:
+                real_action = self.action_scale * action + self.action_bias
                 return real_action.cpu().numpy().flatten(), log_prob.cpu().numpy()
+            action = self.actor(state, deterministic=deterministic)
+            real_action = self.action_scale * action + self.action_bias
             return real_action.cpu().numpy().flatten()
 
     def train(self, progress_ratio=0.0):
@@ -71,43 +134,28 @@ class SAFE_VSSM_SACAgent(NoSBPERSACAgent):
         if self.replay_buffer.size() < self.batch_size:
             return {}
 
-        sample, replay_refs, replay_weights, replay_info = self._sample_replay()
+        sample, replay_refs, replay_weights, replay_info = self._sample_replay(progress_ratio)
         if sample is None:
             return {}
-        (
-            base_states,
-            depths,
-            actions,
-            rewards,
-            next_base_states,
-            next_depths,
-            dones,
-            collision_flags,
-        ) = sample
+        base_states, depths, actions, rewards, next_base_states, next_depths, dones = sample
 
-        base_states = torch.as_tensor(base_states, dtype=torch.float32, device=self.device)
-        depths = torch.as_tensor(depths, dtype=torch.float32, device=self.device)
-        real_actions = torch.as_tensor(actions, dtype=torch.float32, device=self.device)
+        base_states = self._to_float_tensor(base_states)
+        depths = self._to_float_tensor(depths)
+        real_actions = self._to_float_tensor(actions)
         actions = ((real_actions - self.action_bias) / self.action_scale).clamp(-1.0, 1.0)
-        rewards = torch.as_tensor(rewards, dtype=torch.float32, device=self.device).view(-1, 1)
-        next_base_states = torch.as_tensor(next_base_states, dtype=torch.float32, device=self.device)
-        next_depths = torch.as_tensor(next_depths, dtype=torch.float32, device=self.device)
-        dones = torch.as_tensor(dones, dtype=torch.float32, device=self.device).view(-1, 1)
-        collision_flags = torch.as_tensor(collision_flags, dtype=torch.float32, device=self.device).view(-1, 1)
+        rewards = self._to_float_tensor(rewards).view(-1, 1)
+        next_base_states = self._to_float_tensor(next_base_states)
+        next_depths = self._to_float_tensor(next_depths)
+        dones = self._to_float_tensor(dones).view(-1, 1)
         weights = None
         if replay_weights is not None:
-            weights = torch.as_tensor(replay_weights, dtype=torch.float32, device=self.device).view(-1, 1)
+            weights = self._to_float_tensor(replay_weights).view(-1, 1)
 
         with torch.no_grad():
             next_actor_state = self._encode_state(
                 next_base_states, next_depths, self.actor_encoder
             )
             next_actions, next_log_prob = self.actor.action_log_prob(next_actor_state)
-            next_actions, _ = self._apply_safety_projection(
-                next_actions,
-                next_actor_state,
-                safety_model=self.safety_model_target,
-            )
             next_target_state = self._encode_state(
                 next_base_states, next_depths, self.critic_encoder_target
             )
@@ -131,47 +179,28 @@ class SAFE_VSSM_SACAgent(NoSBPERSACAgent):
 
         self.critic_optimizer.zero_grad()
         critic_loss.backward()
+        
+        # # --- Gradient Logging for Critic ---
+        # critic_grad_norm = 0.0
+        # for p in self.critic_params:
+        #     if p.grad is not None:
+        #         critic_grad_norm += p.grad.data.norm(2).item() ** 2
+        # critic_grad_norm = critic_grad_norm ** 0.5
+        # print(f"[no-SB-PER] Critic Grad Norm (before clip): {critic_grad_norm:.6f}")
+        # # -----------------------------------
+        
         nn.utils.clip_grad_norm_(self.critic_params, self.grad_clip)
         self.critic_optimizer.step()
         if replay_refs is not None:
             self._update_replay_priorities(replay_refs, td_errors.detach().cpu().numpy().reshape(-1))
 
-        safety_loss_value = 0.0
-        safety_violation_rate = 0.0
-        if self.use_safety_layer and self.total_it >= self.safety_warmup_steps:
-            safety_state = self._encode_state(base_states, depths, self.actor_encoder)
-            safety_state = safety_state if self.safety_end_to_end else safety_state.detach()
-            g, h = self.safety_model(safety_state)
-            logits = (g * actions).sum(dim=-1, keepdim=True) + h
-            collision_target = ((dones > 0.5) & (collision_flags > 0.5)).float()
-            safety_loss = self.safety_loss_coef * F.binary_cross_entropy_with_logits(logits, collision_target)
-
-            self.safety_optimizer.zero_grad()
-            safety_loss.backward()
-            nn.utils.clip_grad_norm_(self.safety_params, self.grad_clip)
-            self.safety_optimizer.step()
-            safety_loss_value = float(safety_loss.item())
-            with torch.no_grad():
-                safety_violation_rate = float((torch.sigmoid(logits) > 0.5).float().mean().item())
-
         actor_loss_value = None
         alpha_loss_value = None
         mean_log_prob_value = None
         q_pi_mean_value = None
-        safety_penalty_value = None
         if self.total_it % self.policy_freq == 0:
             actor_state = self._encode_state(base_states, depths, self.actor_encoder)
-            actions_pi_raw, log_prob = self.actor.action_log_prob(actor_state)
-            safety_penalty = torch.tensor(0.0, dtype=torch.float32, device=self.device)
-            if self.use_safety_layer:
-                with torch.no_grad():
-                    g_actor, h_actor = self.safety_model(actor_state)
-                actions_pi, actor_violation = safety_project_actions(actions_pi_raw, g_actor, h_actor)
-                actions_pi = actions_pi.clamp(-1.0, 1.0)
-                safety_penalty = torch.clamp(actor_violation, min=0.0).mean()
-            else:
-                actions_pi = actions_pi_raw
-
+            actions_pi, log_prob = self.actor.action_log_prob(actor_state)
             with torch.no_grad():
                 critic_state_for_pi = self._encode_state(
                     base_states, depths, self.critic_encoder
@@ -182,13 +211,21 @@ class SAFE_VSSM_SACAgent(NoSBPERSACAgent):
                 self.alpha, dtype=torch.float32, device=self.device
             )
             actor_loss = (alpha * log_prob - min_q_pi).mean()
-            actor_loss = actor_loss + self.safety_actor_penalty_coef * safety_penalty
             mean_log_prob_value = float(log_prob.mean().detach().item())
             q_pi_mean_value = float(min_q_pi.mean().detach().item())
-            safety_penalty_value = float(safety_penalty.detach().item())
 
             self.actor_optimizer.zero_grad()
             actor_loss.backward()
+            
+            # # --- Gradient Logging for Actor ---
+            # actor_grad_norm = 0.0
+            # for p in self.actor_params:
+            #     if p.grad is not None:
+            #         actor_grad_norm += p.grad.data.norm(2).item() ** 2
+            # actor_grad_norm = actor_grad_norm ** 0.5
+            # print(f"[no-SB-PER] Actor Grad Norm (before clip): {actor_grad_norm:.6f}")
+            # # ----------------------------------
+            
             nn.utils.clip_grad_norm_(self.actor_params, self.grad_clip)
             self.actor_optimizer.step()
             actor_loss_value = float(actor_loss.item())
@@ -209,8 +246,6 @@ class SAFE_VSSM_SACAgent(NoSBPERSACAgent):
             "alpha": float(self.alpha),
             "target_q_mean": target_q_mean_value,
             "current_q_mean": current_q_mean_value,
-            "safety_loss": safety_loss_value,
-            "safety_violation_rate": safety_violation_rate,
         }
         if actor_loss_value is not None:
             result["actor_loss"] = actor_loss_value
@@ -218,8 +253,6 @@ class SAFE_VSSM_SACAgent(NoSBPERSACAgent):
             result["mean_log_prob"] = mean_log_prob_value
         if q_pi_mean_value is not None:
             result["q_pi_mean"] = q_pi_mean_value
-        if safety_penalty_value is not None:
-            result["safety_penalty"] = safety_penalty_value
         if alpha_loss_value is not None:
             result["alpha_loss"] = alpha_loss_value
         if replay_info:
@@ -227,10 +260,10 @@ class SAFE_VSSM_SACAgent(NoSBPERSACAgent):
         return result
 
     def _soft_update(self):
-        super()._soft_update()
-        for param, target_param in zip(self.safety_model.parameters(), self.safety_model_target.parameters()):
+        for param, target_param in zip(self.critic.parameters(), self.critic_target.parameters()):
             target_param.data.copy_(self.tau * param.data + (1.0 - self.tau) * target_param.data)
-
+        for param, target_param in zip(self.critic_encoder.parameters(), self.critic_encoder_target.parameters()):
+            target_param.data.copy_(self.tau * param.data + (1.0 - self.tau) * target_param.data)
     def save(self, path):
         checkpoint = {
             "actor_encoder": self.actor_encoder.state_dict(),
@@ -239,11 +272,8 @@ class SAFE_VSSM_SACAgent(NoSBPERSACAgent):
             "actor": self.actor.state_dict(),
             "critic": self.critic.state_dict(),
             "critic_target": self.critic_target.state_dict(),
-            "safety_model": self.safety_model.state_dict(),
-            "safety_model_target": self.safety_model_target.state_dict(),
             "actor_optimizer": self.actor_optimizer.state_dict(),
             "critic_optimizer": self.critic_optimizer.state_dict(),
-            "safety_optimizer": self.safety_optimizer.state_dict(),
             "total_it": self.total_it,
             "alpha": self.alpha,
         }
@@ -260,18 +290,10 @@ class SAFE_VSSM_SACAgent(NoSBPERSACAgent):
         self.actor.load_state_dict(checkpoint["actor"])
         self.critic.load_state_dict(checkpoint["critic"])
         self.critic_target.load_state_dict(checkpoint.get("critic_target", checkpoint["critic"]))
-        if "safety_model" in checkpoint:
-            self.safety_model.load_state_dict(checkpoint["safety_model"])
-        if "safety_model_target" in checkpoint:
-            self.safety_model_target.load_state_dict(checkpoint["safety_model_target"])
-        elif "safety_model" in checkpoint:
-            self.safety_model_target.load_state_dict(checkpoint["safety_model"])
         if "actor_optimizer" in checkpoint:
             self.actor_optimizer.load_state_dict(checkpoint["actor_optimizer"])
         if "critic_optimizer" in checkpoint:
             self.critic_optimizer.load_state_dict(checkpoint["critic_optimizer"])
-        if "safety_optimizer" in checkpoint:
-            self.safety_optimizer.load_state_dict(checkpoint["safety_optimizer"])
         self.total_it = checkpoint.get("total_it", 0)
         self.alpha = checkpoint.get("alpha", self.alpha)
         if self.auto_entropy_tuning and "log_alpha" in checkpoint:
@@ -280,4 +302,4 @@ class SAFE_VSSM_SACAgent(NoSBPERSACAgent):
                 self.alpha_optimizer.load_state_dict(checkpoint["alpha_optimizer"])
 
 
-SACAgent = SAFE_VSSM_SACAgent
+SACAgent = NoSBPERSACAgent

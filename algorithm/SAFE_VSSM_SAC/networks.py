@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 
-from algorithm.VSSM_SAC.networks import Actor, Critic, STVimEncoder
+from algorithm.VSSM.no_SB_PER.networks import Actor, Critic, STVimEncoder
 
 
 class SafetyConstraintHead(nn.Module):
