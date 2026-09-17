@@ -35,35 +35,18 @@ from main_async import get_agent_class, _configure_reproducibility
 
 
 RECURRENT_ALGOS = {
-    "Mamba_TD3",
     "VSSM_TD3",
-    "STV_Patch_TD3",
-    "Vim_TD3",
-    "ST_Seq_Vim_TD3",
-    "STV_Seq_Vim_TD3",
-    "SB_PER_VSSM_TD3",
-    "PL_VSSM_TD3",
-    "PL_VSSM_SAC",
-    "PL_PER_VSSM_SAC",
-    "PL_SB_PER_VSSM_SAC",
-    "PL_SB_PER_VSSM_SAC_Beta",
-    "PL_SB_PER_VSSM_TD3",
-    "SAFE_VSSM_TD3",
-    "ST_DualVim_TD3",
-    "VSSM_SAC",
+    "no-SB-PER",
     "MM_VSSM_SAC",
-    "PER_VSSM_SAC",
     "SVSSM_SAC",
     "SB_PER_SVSSM_SAC",
     "SAFE_VSSM_SAC",
-    "VSSM_SAC_Beta",
-    "SB_PER_VSSM_SAC",
-    "SB_PER_VSSM_SAC_Beta",
+    "VSSM-SAC",
     "Transformer_SAC",
 }
 
-BASE_SEQUENCE_ALGOS = {"ST_Seq_Vim_TD3", "STV_Seq_Vim_TD3", "MM_VSSM_SAC"}
-UNSUPPORTED_IN_ASYNC_EVAL = {"PPO", "VSSM_PPO", "PL_VSSM_PPO", "LSTM_SAC"}
+BASE_SEQUENCE_ALGOS = {"MM_VSSM_SAC"}
+UNSUPPORTED_IN_ASYNC_EVAL = {"PPO", "VSSM_PPO", "LSTM_SAC"}
 
 
 def _build_action_input_preparer(initial_base, *, is_recurrent: bool, core_algo_name: str, n_frames: int):

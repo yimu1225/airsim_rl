@@ -32,9 +32,7 @@ if str(REPO_ROOT) not in sys.path:
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
-from algorithm.SB_PER_VSSM_SAC.agent import (  # noqa: E402
-    SB_PERVSSM_SACAgent,
-)
+from algorithm.VSSM.VSSM_SAC.agent import VSSMSACAgent
 from algorithm.config_loader import apply_algorithm_params  # noqa: E402
 from config import get_config  # noqa: E402
 from eval.eval_common import (  # noqa: E402
@@ -179,7 +177,7 @@ def _build_rollout_agent(
     apply_algorithm_params(model_args, model_args.algorithm_name)
 
     height, width = map(int, initial_observation["depth"].shape[-2:])
-    agent = SB_PERVSSM_SACAgent(
+    agent = VSSMSACAgent(
         int(initial_observation["base"].size),
         (1, height, width),
         action_space,

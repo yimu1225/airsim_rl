@@ -25,7 +25,7 @@ from eval.eval_env import SceneEvalAirSimEnv
 from main_ppo import get_agent_class, _configure_reproducibility
 
 
-SUPPORTED_PPO_ALGOS = {"PPO", "VSSM_PPO", "PL_VSSM_PPO"}
+SUPPORTED_PPO_ALGOS = {"PPO", "VSSM_PPO"}
 
 
 def _default_checkpoint(algo_name: str, seed: int) -> str:
@@ -36,7 +36,7 @@ def evaluate_algorithm(base_args, algo_name: str, seed: int) -> None:
     core_algo_name = to_internal_core_algorithm_name(algo_name)
     display_algo_name = to_output_algorithm_name(algo_name)
     if core_algo_name not in SUPPORTED_PPO_ALGOS:
-        print(f"Skipping {display_algo_name}: eval_ppo.py only supports PPO, VSSM-PPO, PL-VSSM-PPO.")
+        print(f"Skipping {display_algo_name}: eval_ppo.py only supports PPO, VSSM-PPO.")
         return
 
     args = copy.deepcopy(base_args)
@@ -45,7 +45,7 @@ def evaluate_algorithm(base_args, algo_name: str, seed: int) -> None:
     apply_algorithm_params(args, algo_name)
     _configure_reproducibility(seed, args)
 
-    is_recurrent = core_algo_name in {"VSSM_PPO", "PL_VSSM_PPO"}
+    is_recurrent = core_algo_name == "VSSM_PPO"
     n_frames = int(args.n_frames)
     env = SceneEvalAirSimEnv(takeoff_height=args.takeoff_height, config=args, stack_frames=n_frames)
     try:

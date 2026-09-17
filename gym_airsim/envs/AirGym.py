@@ -63,8 +63,7 @@ class AirSimEnv(gym.Env):
 
         self.depth_stack = collections.deque(maxlen=self.stack_frames)
         self.clean_depth_stack = collections.deque(maxlen=self.stack_frames)
-        algorithm_name_upper = str(getattr(config, "algorithm_name", "")).upper()
-        self.use_clean_privileged_obs = "PL_" in algorithm_name_upper or algorithm_name_upper.startswith("PL")
+        self.use_clean_privileged_obs = bool(getattr(config, "include_clean_depth", False))
 
         # 速度需要大于 2 或者持续时间大于 0.4
         # 否则效果不佳！

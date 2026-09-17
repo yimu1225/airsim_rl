@@ -43,8 +43,7 @@ class SceneEvalAirSimEnv(AirSimEnv):
         self.depth_stack = collections.deque(maxlen=self.stack_frames)
         self.clean_depth_stack = collections.deque(maxlen=self.stack_frames)
 
-        algorithm_name_upper = str(getattr(config, "algorithm_name", "")).upper()
-        self.use_clean_privileged_obs = "PL_" in algorithm_name_upper or algorithm_name_upper.startswith("PL")
+        self.use_clean_privileged_obs = bool(getattr(config, "include_clean_depth", False))
 
         self.max_altitude = float(config.max_flight_altitude)
         self.min_altitude = float(config.min_flight_altitude)

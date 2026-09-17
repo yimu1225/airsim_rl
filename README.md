@@ -1,471 +1,183 @@
-# AirSim 强化学习无人机导航框架
+# AirSim 无人机自主导航强化学习框架
 
-[![Python](https://img.shields.io/badge/Python-3.9%2B-blue.svg)](https://www.python.org/)
-[![PyTorch](https://img.shields.io/badge/PyTorch-2.7%2B-orange.svg)](https://pytorch.org/)
-[![CUDA](https://img.shields.io/badge/CUDA-12.8-green.svg)](https://developer.nvidia.com/cuda-toolkit)
-[![AirSim](https://img.shields.io/badge/AirSim-1.8.1-lightgrey.svg)](https://microsoft.github.io/AirSim/)
-[![Gymnasium](https://img.shields.io/badge/Gymnasium-1.1-red.svg)](https://gymnasium.farama.org/)
-[![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+本项目基于 AirSim / Unreal Engine，研究深度视觉观测下的无人机自主导航。当前主要方法为 **VSSM-SAC（视觉状态空间记忆增强 SAC）** 和 **SSVM-SAC（自监督视觉记忆增强 SAC）**，同时保留 SAC、TD3、DDPG、PPO 等基线及对照算法。
 
-一个基于 Microsoft AirSim 的无人机自主导航深度强化学习框架，实现并统一了 **45+ 种** DRL 算法变体，覆盖 DDPG / TD3 / SAC / PPO 四大算法家族，支持注意力机制视觉编码、序列建模、优先经验回放、课程学习等前沿技术。
+## 两个主要方法
 
-## ⚠️ 免责声明
+| 方法 | 中文名称 | 主要机制 | 实现位置 |
+|---|---|---|---|
+| VSSM-SAC | 视觉状态空间记忆增强 SAC | Vision Mamba + Temporal Mamba 编码固定窗口观测，结合 SB-PER，通过 SAC 联合训练 | [algorithm/VSSM/VSSM_SAC](algorithm/VSSM/VSSM_SAC/) |
+| SSVM-SAC | 自监督视觉记忆增强 SAC | 分阶段学习视觉表示与因果递推记忆，再冻结感知模块训练 SAC | [algorithm/SSVM_SAC](algorithm/SSVM_SAC/) |
 
-**本仓库为作者的个人学习项目，主要用于强化学习算法研究和技术积累。代码和实现仅供参考学习，不保证生产环境适用性。欢迎交流学习，但请尊重作者劳动成果。**
+**SSVM-SAC 英文全称：Self-Supervised Visual Memory–Enhanced Soft Actor-Critic。** 自监督目标包含深度图重建、未来深度图预测和潜在表示监督；在线控制只使用当前及历史观测。
 
----
+SSVM-SAC 的目录与配置标识为 `SSVM_SAC`，展示名称及结果标识为 `SSVM-SAC`。训练采用独立分阶段入口。完整说明见 [SSVM-SAC README](algorithm/SSVM_SAC/README.md)。
 
-## 🚁 项目概述
+## VSSM-SAC 与消融算法
 
-- **高保真物理模拟** — 基于 Microsoft AirSim + Unreal Engine 的无人机物理仿真
-- **多模态观测** — 融合深度图像、状态向量、距离传感器阵列的 Dict 观测空间
-- **四大算法家族** — 统一实现 DDPG / TD3 / SAC / PPO 及其大量变体
-- **视觉编码器** — 支持 CNN、Vision Mamba (Vim)、VideoMamba、Dual-Branch Mamba 等架构
-- **时序建模** — 支持 LSTM、Temporal Mamba、状态空间模型 (SSM) 等序列处理方法
-- **优先经验回放** — 内置 PER (Prioritized) 与 SB-PER (Success-Buffer Prioritized) 机制
-- **课程学习** — 通过 `CL-` 前缀一键启用，支持 progress / success 两种模式
-- **特权学习 (Privileged Learning)** — `PL_` 前缀算法支持干净深度图作为特权信息
-- **环境随机化** — 四档难度等级，动态障碍物，确定性可复现采样
-- **健壮的游戏管理** — 自动 UE4 进程重启、健康检测、窗口状态监控
+| 命令行名称 | 目录 | 视觉与时序表示 | 回放机制 |
+|---|---|---|---|
+| `VSSM-SAC` | `algorithm/VSSM/VSSM_SAC/` | Vision Mamba + Temporal Mamba | 成功/非成功双池 PER |
+| `no-SB-PER` | `algorithm/VSSM/no_SB_PER/` | Vision Mamba + Temporal Mamba | 单池均匀采样 |
+| `no-VSSM` | `algorithm/VSSM/no_VSSM/` | 逐帧 CNN 编码后拼接 | 成功/非成功双池 PER |
+| `SAC` | `algorithm/SAC/` | 逐帧 CNN 编码后拼接，按当前默认配置 | 单池均匀采样 |
 
----
+三个 VSSM 目录直接对应新算法名称，不再使用旧的消融别名映射。`CL-` 前缀表示启用课程学习。
 
-## 🧠 算法全景
+当前完整方法的 Actor/Critic MLP 使用 SiLU，另三个对照使用 ReLU，初始化方式也不同。做严格消融时，应记录或统一这些差异；目录重组未修改训练计算逻辑。
 
-### 算法命名规则
+## 当前算法与训练入口
 
-| 前缀/后缀 | 含义 |
-|-----------|------|
-| `CL-` | 课程学习 (Curriculum Learning) |
-| `PL_` | 特权学习 (Privileged Learning)，Actor 可访问干净深度图 |
-| `SB-PER_` | 成功缓冲优先经验回放 (Success-Buffer PER) |
-| `PER_` | 优先经验回放 (Prioritized Experience Replay) |
-| `VSSM` | Vision Mamba 视觉编码器 |
-| `SVSSM` | 状态分解 + Vision Mamba (State-Decomposed VSSM) |
-| `SAFE_` | 带安全约束的变体 |
-| `MM_` | 多模态变体 |
-| `_Beta` | Beta 分布策略变体 |
-| `Mamba_` / `MambaCSJA_` | Mamba / CSJA-Mamba 序列编码器 |
+当前名称注册表有 20 个算法标识。实际支持范围由各训练入口决定，不能将所有算法都交给 `main_async.py`。
 
-> 示例：`CL-VSSM-SAC` = 课程学习 + 完整 VSSM-SAC 方法；`no-SB-PER` 和 `no-VSSM` 为消融算法名
+| 入口 | 算法名称 |
+|---|---|
+| `main_async.py` | `DDPG`、`SDDPG`、`TD3`、`AETD3`、`VSSM-TD3` |
+| `main_async.py` | `SAC`、`SAC_FAE`、`VSSM-SAC`、`no-SB-PER`、`no-VSSM` |
+| `main_async.py` | `MM-VSSM-SAC`、`SVSSM-SAC`、`SAFE-VSSM-SAC`、`SB-PER-SVSSM-SAC`、`Transformer-SAC`、`SB-PER-MambaCSJA-SAC` |
+| `main_ppo.py` | `PPO`、`VSSM-PPO` |
+| `train_lstm_sac.py` | `LSTM-SAC` |
+| `algorithm/SSVM_SAC/train.py` | SSVM-SAC 分阶段训练 |
 
-### 算法家族
+算法选择只接受具体名称。多个算法用逗号分隔，按填写顺序执行；已取消算法组。
 
-#### 1. DDPG 家族
-| 算法 | 特点 |
-|------|------|
-| **DDPG** | 深度确定性策略梯度，基准算法 |
-| **SDDPG** | 状态分解 DDPG (State-Decomposition)，解耦位置/速度子空间 |
+## 安装与环境
 
-#### 2. TD3 家族
-| 算法 | 视觉编码 | 时序处理 | 亮点 |
-|------|----------|----------|------|
-| **TD3** | CNN | 帧堆叠 | 标准 Twin Delayed DDPG |
-| **SB-PER_TD3** | CNN | 帧堆叠 | TD3 + 成功缓冲优先回放 |
-| **AETD3** | CNN | 帧堆叠 | 自适应集成 Critic |
-| **VSSM-TD3** | Vision Mamba | Temporal Mamba | 纯 Mamba 时空建模 |
-| **Vim_TD3** | Vision Mamba | 无 | 纯 Vim 特征提取 |
-| **ST_Seq_Vim_TD3** | Vision Mamba | Temporal Mamba | 状态-视觉双流时空 |
-| **STV_Seq_Vim_TD3** | Vision Mamba | Temporal Mamba | 视觉-状态-视觉三流融合 |
-| **STV_Patch_TD3** | Vision Mamba | Temporal Mamba | Video-style Patch Embedding |
-| **ST_DualVim_TD3** | Dual-Branch VSSM | Temporal Mamba | 双分支视频 Mamba |
-| **Mamba_TD3** | CNN | Temporal Mamba | CNN + Mamba 混合 |
-| **SB-PER-VSSM-TD3** | Vision Mamba | Temporal Mamba | VSSM-TD3 + 成功缓冲优先回放 |
-| **SAFE-VSSM-TD3** | Vision Mamba | Temporal Mamba | 带安全约束的 VSSM-TD3 |
+安装依赖前，先配置 AirSim 场景、UE 可执行文件和项目环境路径。视觉状态空间模块还依赖 PyTorch、CUDA、Mamba 和 causal-conv1d 的兼容安装。
 
-#### 3. SAC 家族（最大）
-| 算法 | 视觉编码 | 时序处理 | 亮点 |
-|------|----------|----------|------|
-| **SAC** | CNN | 帧堆叠 | 标准 Soft Actor-Critic |
-| **SAC_Beta** | CNN | 帧堆叠 | Beta 分布替代高斯 |
-| **LSTM_SAC** | CNN | LSTM | 循环神经网络时序建模 |
-| **VSSM-SAC** | Vision Mamba | Temporal Mamba | 完整方法：VSSM + SB-PER + SAC |
-| **no SB-PER** | Vision Mamba | Temporal Mamba | 消融：去掉成功缓冲优先回放 |
-| **no VSSM** | CNN | 帧堆叠 | 消融：去掉视觉状态空间记忆，仅保留 SB-PER |
-| **VSSM-SAC_Beta** | Vision Mamba | Temporal Mamba | VSSM-SAC + Beta 分布 |
-| **SVSSM-SAC** | Vision Mamba | Temporal Mamba | **状态分解** VSSM-SAC |
-| **PER-VSSM-SAC** | Vision Mamba | Temporal Mamba | VSSM-SAC + 优先回放 |
-| **SB-PER-VSSM-SAC_Beta** | Vision Mamba | Temporal Mamba | VSSM-SAC + Beta 分布 + SB-PER |
-| **SB-PER_SVSSM-SAC** | Vision Mamba | Temporal Mamba | 状态分解 + 成功缓冲优先回放 |
-| **MM-VSSM-SAC** | Vision Mamba | Temporal Mamba | 多模态 VSSM-SAC |
-| **SAFE-VSSM-SAC** | Vision Mamba | Temporal Mamba | 带安全约束的 VSSM-SAC |
-| **Mamba_SAC** | CNN | Temporal Mamba | CNN + Mamba 混合 SAC |
-| **Transformer_SAC** | CNN | Transformer Encoder | CNN + Transformer 历史观测融合 + SAC |
-| **PER_Mamba_SAC** | CNN | Temporal Mamba | Mamba_SAC + 优先回放 |
-| **MambaCSJA_SAC** | CNN | CSJA-Mamba | Mamba + 通道-空间联合注意力 |
-| **SB-PER_MambaCSJA_SAC** | CNN | CSJA-Mamba | MambaCSJA + 成功缓冲优先回放 |
-| **Mamba_RSAC** | CNN | Temporal Mamba | Mamba + 循环 SAC |
-
-#### 4. PPO 家族
-| 算法 | 视觉编码 | 时序处理 | 亮点 |
-|------|----------|----------|------|
-| **PPO** | CNN | 帧堆叠 | 标准 Proximal Policy Optimization |
-| **VSSM-PPO** | Vision Mamba | Temporal Mamba | PPO + Mamba 时空编码 |
-| **PL-VSSM-PPO** | Vision Mamba | Temporal Mamba | 特权学习 VSSM-PPO |
-
-#### 5. 特权学习 (PL) 变体
-所有 PL 前缀算法允许 Actor 访问无噪声的"干净"深度图作为特权观测，Critic 仍使用带噪声的常规观测：
-
-`PL_TD3` · `PL_SB-PER_TD3` · `PL-VSSM-TD3` · `PL_SB-PER-VSSM-TD3` · `PL_SAC` · `PL_SAC_Beta` · `PL-VSSM-SAC` · `PL_PER-VSSM-SAC` · `PL_SB-PER-VSSM-SAC` · `PL_SB-PER-VSSM-SAC_Beta` · `PL_Mamba_RSAC`
-
----
-
-## 🎯 环境设计
-
-### 观测空间 (Dict)
-
-```python
-observation_space = {
-    "depth":       (n_frames, H, W),        # 深度图像序列 (带噪声)
-    "base":        (11,),                   # 状态向量 (见下方说明)
-    "distance_sensor": (108,),              # 3层距离传感器阵列 (每层36个)
-    # ↓ 仅 PL_ 前缀算法额外提供
-    "clean_depth": (n_frames, H, W),        # 干净深度图 (特权信息)
-}
-```
-
-**状态向量 (11维)**：
-- `[dx, dy, dz]` — 相对目标位置
-- `[body_x_velocity, body_y_velocity, z_velocity]` — 机体速度
-- `[yaw_rate]` — 偏航角速度
-- `[yaw]` — 当前偏航角
-- `[relative_angle_to_target]` — 朝向目标的相对角度
-- `[altitude]` — 当前高度
-- `[collision]` — 碰撞标志
-
-### 动作空间 (Continuous)
-
-```python
-action_space = Box(
-    low  = [-2.0, -π/3, -0.3],
-    high = [2.0,  π/3,  0.3],
-)
-```
-
-| 维度 | 含义 | 范围 |
-|------|------|------|
-| `body_x_velocity` | 机体系 x 轴速度 | [-2.0, 2.0] m/s |
-| `yaw_rate` | 偏航角速度 | [-π/3, π/3] rad/s |
-| `z_velocity` | 垂直速度 | [-0.3, 0.3] m/s |
-
-### 奖励函数
-
-| 奖励项 | 设计 | 目的 |
-|--------|------|------|
-| **距离奖励** | `-distance × 0.02` | 鼓励接近目标 |
-| **朝向奖励** | `speed × cos(yaw_error)` | 鼓励朝向目标飞行 |
-| **成功奖励** | `+20` | 到达目标点 |
-| **碰撞惩罚** | `-20` | 避免碰撞 |
-| **超时惩罚** | `-30` | 惩罚超时未到达 |
-| **步数惩罚** | `-0.1` | 鼓励尽快完成 |
-| **急动惩罚** | 动作变化量 | 提高飞行平稳性 |
-| **曲率惩罚** | 偏航率变化 | 优化轨迹平滑度 |
-| **高度惩罚** | 超出 [0, 2.5]m 时 | 保持安全飞行高度 |
-| **停滞惩罚** | 滑动窗口位移过小 | 防止悬停不动 |
-| **距离传感器惩罚** | 对数距离惩罚 | 近距障碍物避障 |
-
-### 难度等级
-
-| Level | 名称 | 描述 |
-|-------|------|------|
-| 0 | Easy | 简单环境，稀疏静态障碍物 |
-| 1 | Medium | 中等难度，较多静态障碍物 |
-| 2 | Hard | 困难环境，密集静态障碍物 |
-| 3 | Dynamic | 动态障碍物，最高难度 |
-
----
-
-## 🚀 快速开始
-
-### 环境要求
-
-- Ubuntu 22.04 / Windows 10+
-- Python 3.9+
-- CUDA 12.8 (GPU 训练推荐)
-- PyTorch 2.7.0
-- Unreal Engine 4.27+ (AirSim 依赖)
-- AirSim 1.8.1
-
-### 安装
+- [安装指南](INSTALL_GUIDE.md)
+- [Ubuntu 22.04 构建方法](Ubuntu%2022.04%20构建方法.md)
+- [Unreal/AirSim 编译指南](README_Compilation_Guide.md)
+- [场景修改说明](README_AirLearningArenaMeshes_Modification.md)
+- [Python 依赖文件](requirements.txt)
 
 ```bash
-# 1. 克隆项目
-git clone https://github.com/yimu1225/airsim_rl.git
-cd airsim_rl
-
-# 2. 创建 Conda 环境
-conda create -n AirSim python=3.9 -y
 conda activate AirSim
-
-# 3. 安装 CUDA 工具链
-conda install -c "nvidia/label/cuda-12.8.0" cuda-toolkit=12.8 cuda-nvcc=12.8 -y
-
-# 4. 安装 PyTorch
-pip install torch==2.7.0 torchvision==0.22.0 torchaudio==2.7.0 --index-url https://download.pytorch.org/whl/cu128
-
-# 5. 安装项目依赖
-pip install -r requirements.txt
-
-# 6. 编译 Mamba 组件 (可选 — 仅 Mamba 系列算法需要)
-cd Vim/mamba-1p1p1
-pip install -e .
-cd ../..
+python main_async.py --help
+python algorithm/SSVM_SAC/train.py --help
 ```
 
-> 详细安装指南参见 [INSTALL_GUIDE.md](INSTALL_GUIDE.md) 和 [Ubuntu 22.04 构建方法](Ubuntu%2022.04%20构建方法.md)
+训练和环境评估需要可用的 AirSim 服务；Mamba 的完整执行还需要匹配的运行环境。离线视觉/记忆训练使用已采集的数据集。
 
-### 训练
+## 训练
+
+以下命令从项目根目录执行。
 
 ```bash
-# 单算法训练 (推荐使用算法组名)
-python main_async.py --algorithm_name VSSM-SAC --max_timesteps 1000000
+# 单算法
+python main_async.py --algorithm_name VSSM-SAC --max_timesteps 150000
 
-# 训练带课程学习的版本
-python main_async.py --algorithm_name CL-VSSM-SAC --max_timesteps 1000000
+# 四个对照算法，均启用课程学习
+python main_async.py \
+  --algorithm_name "CL-VSSM-SAC,CL-no-SB-PER,CL-no-VSSM,CL-SAC" \
+  --seed 25 --max_timesteps 150000
 
-# 训练状态分解版本
-python main_async.py --algorithm_name SVSSM-SAC --max_timesteps 1000000
+# 多随机种子
+python main_async.py --algorithm_name CL-VSSM-SAC --seed "25,26,27"
 
-# 批量训练 — 使用算法组
-python main_async.py --algorithm_name base --max_timesteps 500000   # 基础算法组
-python main_async.py --algorithm_name seq  --max_timesteps 500000   # 时序算法组
-python main_async.py --algorithm_name vssm_sac_ablation --max_timesteps 500000   # VSSM-SAC 消融组
-python main_async.py --algorithm_name all  --max_timesteps 500000   # 全部算法
+# PPO 使用独立入口
+python main_ppo.py --algorithm_name PPO
 
-# 手动指定多个算法
-python main_async.py --algorithm_name "VSSM-SAC,no-SB-PER,no-VSSM,SAC" --max_timesteps 500000
-
-# 多种子训练
-python main_async.py --algorithm_name VSSM-SAC --seed "1,2,3" --max_timesteps 1000000
+# LSTM-SAC 使用独立入口
+python train_lstm_sac.py --algorithm_name LSTM-SAC
 ```
 
-### 评估
+`config.py` 中当前默认算法列表为：
 
-```bash
-# 评估训练好的模型
-python -m eval.eval_async --algorithm_name VSSM-SAC --load_model models/VSSM-SAC/seed1/async_final.pth
-
-# 指定评估回合数
-python -m eval.eval_async --algorithm_name VSSM-SAC --load_model path/to/model.pth --eval_episodes 100
-
-# 测试场景评估
-python -m eval.eval_async --algorithm_name CL-VSSM-SAC --seed 29 --load_model models/CL-VSSM-SAC/seed29/async_final.pth
+```python
+default='CL-VSSM-SAC, CL-no-SB-PER, CL-no-VSSM, CL-SAC'
 ```
 
----
+SSVM-SAC 按 `bootstrap → collect → vision → memory → sac` 五个阶段执行，完整可运行命令见[算法说明](algorithm/SSVM_SAC/README.md#训练命令)。
 
-## ⚙️ 核心配置
+## 配置与课程学习
 
-### 关键参数
+通用参数由 [config.py](config.py) 定义。通用训练入口再通过 [config_loader.py](algorithm/config_loader.py) 加载所选算法的 `params.yaml`，其中同名算法参数会覆盖命令行命名空间中的值。
 
-| 参数 | 默认值 | 说明 |
-|------|--------|------|
-| `--algorithm_name` | `vssm_sac_ablation` | 算法名称，支持逗号分隔多算法、算法组名 |
-| `--seed` | `1,2,3` | 随机种子，逗号分隔多种子 |
-| `--max_timesteps` | `120000` | 总训练步数 |
-| `--hidden_dim` | `128` | 隐藏层维度 |
-| `--base_feature_dim` | `32` | 状态向量映射维度 |
-| `--batch_size` | `256` | 批次大小 |
-| `--buffer_size` | `30000` | 经验回放池大小 |
-| `--gamma` | `0.95` | 折扣因子 |
-| `--tau` | `0.003` | 目标网络软更新系数 |
-| `--actor_lr` / `--critic_lr` | `4e-4` | Actor/Critic 学习率 |
-| `--n_frames` | `4` | 输入帧数 (堆叠帧数 / 序列长度) |
-| `--episode_length` | `300` | 每回合最大步数 |
-| `--action_duration` | `0.15` | 动作执行时间 (秒) |
-
-### 算法专属参数
-
-每个算法在内部目录 `algorithm/<内部算法名>/params.yaml` 中定义专属参数，由 `config_loader` 自动加载。例如展示名 `VSSM-SAC` 对应内部目录 `algorithm/SB_PER_VSSM_SAC/params.yaml`，`no-SB-PER` 对应 `algorithm/VSSM_SAC/params.yaml`。
-
-### 课程学习配置
+SSVM-SAC 使用自己的 [config.py](algorithm/SSVM_SAC/config.py) 和 [params.yaml](algorithm/SSVM_SAC/params.yaml)，并将未识别的环境参数转交项目全局配置解析器。其模型结构还会从上游 checkpoint 恢复，详见算法 README。
 
 ```bash
-# progress 模式 — 随训练进度连续增加难度
-python main_async.py --algorithm_name CL-VSSM-SAC --curriculum_mode progress --curriculum_progress_max_ratio 0.9
+# 按训练进度调整环境难度
+python main_async.py --algorithm_name CL-VSSM-SAC --curriculum_mode progress
 
-# success 模式 — 按成功率离散切换难度
+# 按成功率调整环境难度
 python main_async.py --algorithm_name CL-VSSM-SAC --curriculum_mode success
 
-# 指定起始难度
-python main_async.py --algorithm_name CL-VSSM-SAC --curriculum_start_level 1
-
-# 非课程学习的固定难度
+# 固定难度
 python main_async.py --algorithm_name VSSM-SAC --non_curriculum_level 2
 ```
 
----
+SSVM-SAC 的独立入口用 `--curriculum` / `--no-curriculum` 控制课程学习；最终 `sac` 阶段默认启用，启用时要求 `--curriculum_mode progress`。
 
-## 📁 项目结构
+## 环境与观测
 
-```
-airsim_rl/
-├── algorithm/                     # 算法实现 (45+ 变体)
-│   ├── config_loader.py           # 算法参数自动加载
-│   ├── DDPG/                      #   DDPG
-│   ├── SDDPG/                     #   状态分解 DDPG
-│   ├── TD3/                       #   TD3 基准
-│   ├── AETD3/                     #   自适应集成 TD3
-│   ├── SB-PER_TD3/                  #   成功缓冲优先回放 TD3
-│   ├── VSSM-TD3/                     #   Vision Mamba TD3
-│   ├── Vim_TD3/                   #   纯 Vim TD3
-│   ├── ST_Seq_Vim_TD3/            #   状态-视觉双流 TD3
-│   ├── STV_Seq_Vim_TD3/           #   视觉-状态-视觉三流 TD3
-│   ├── STV_Patch_TD3/             #   Video Patch TD3
-│   ├── ST_DualVim_TD3/            #   双分支 Mamba TD3
-│   ├── Mamba_TD3/                 #   CNN + Mamba TD3
-│   ├── SB-PER-VSSM-TD3/                #   成功缓冲优先回放 VSSM-TD3
-│   ├── SAFE-VSSM-TD3/                 #   安全约束 VSSM-TD3
-│   ├── SAC/                       #   SAC 基准
-│   ├── SAC_Beta/                  #   Beta 分布 SAC
-│   ├── LSTM_SAC/                  #   LSTM 时序 SAC
-│   ├── SB_PER_VSSM_SAC/             #   VSSM-SAC 完整方法
-│   ├── VSSM_SAC/                    #   no-SB-PER 消融
-│   ├── SB_PER_SAC/                  #   no-VSSM 消融
-│   ├── VSSM_SAC_Beta/               #   VSSM-SAC Beta
-│   ├── SVSSM-SAC/                    #   状态分解 VSSM-SAC
-│   ├── PER-VSSM-SAC/                 #   优先回放 VSSM-SAC
-│   ├── SB_PER_VSSM_SAC_Beta/        #   成功缓冲优先回放 VSSM-SAC Beta
-│   ├── SB-PER_SVSSM-SAC/               #   状态分解 + 成功缓冲优先回放
-│   ├── MM-VSSM-SAC/                  #   多模态 VSSM-SAC
-│   ├── SAFE-VSSM-SAC/                 #   安全约束 VSSM-SAC
-│   ├── Mamba_SAC/ / PER_Mamba_SAC/ # Mamba SAC 系列
-│   ├── Mamba_RSAC/                #   Mamba 循环 SAC
-│   ├── MambaCSJA_SAC/             #   Mamba + 通道空间注意力 SAC
-│   ├── SB-PER_MambaCSJA_SAC/        #   成功缓冲优先回放 MambaCSJA SAC
-│   ├── PPO/                       #   PPO 基准
-│   ├── VSSM-PPO/                     #   Vision Mamba PPO
-│   ├── PL_TD3/ ... PL_SB-PER-VSSM-TD3/ # 特权学习 TD3 系列
-│   ├── PL_SAC/ ... PL_Mamba_RSAC/ # 特权学习 SAC 系列
-│   └── PL-VSSM-PPO/                  #   特权学习 PPO
-│
-├── gym_airsim/                    # AirSim Gymnasium 环境
-│   └── envs/
-│       └── AirGym.py              # 环境主实现
-│
-├── Vim/                           # Vision Mamba 核心库
-│   └── mamba-1p1p1/               # Mamba 编译包
-├── vmamba/                        # VMamba 实现
-├── VideoMamba/                    # VideoMamba 实现
-│
-├── common/                        # 通用工具
-│   ├── utils.py                   # 工具函数
-│   └── file_handling.py           # 文件处理
-│
-├── environment_randomization/     # 环境参数随机化
-├── game_handling/                 # UE4 游戏进程管理
-├── scripts/                       # 辅助脚本
-├── models/                        # 预训练模型
-├── results/                       # 训练结果 & TensorBoard 日志
-│   └── <algorithm>/seed<seed>/   # 与 models/ 相同的算法/种子分层
-│
-├── main_async.py                  # 主训练入口 (异步架构)
-├── main_ppo.py                    # PPO 专用训练入口
-├── main_mamba_rsac.py             # Mamba RSAC 训练入口
-├── train_lstm_sac.py              # LSTM-SAC 专用训练脚本
-├── train_ppo.py                   # PPO 训练脚本
-├── eval/                          # 模型评估脚本
-├── plot_curves.py                 # 训练曲线绘制
-│
-├── config.py                      # 全局配置 & 命令行参数
-├── algo_name_utils.py             # 算法名解析 & 分组管理
-├── requirements.txt               # Python 依赖列表
-│
-├── INSTALL_GUIDE.md               # 详细安装指南
-└── Ubuntu 22.04 构建方法.md        # Ubuntu 构建文档
-```
+环境主体位于 [AirGym.py](gym_airsim/envs/AirGym.py)。观测字典包含深度图 `depth`、基础状态 `base` 和距离传感器信息 `distance_sensor`；算法是否使用某一观测字段由其实现决定。
 
----
+- 通用视觉序列方法通过 `n_frames` 设置观测窗口。
+- SSVM-SAC 使用 [AirGymSSVM.py](gym_airsim/envs/AirGymSSVM.py)，每步输入一张深度图，由记忆缓存维持历史。
+- SSVM-SAC 数据采集可用 `--clean-targets` 额外保存干净深度监督。
+- 动作范围、奖励项、回合终止和场景随机化以环境代码及配置为准。
 
-## 🔧 开发指南
-
-### 添加新算法
-
-1. 在 `algorithm/` 下创建算法目录 (如 `algorithm/MyAlgo/`)
-2. 编写 `network.py` — 定义 Actor / Critic 网络
-3. 编写 `agent.py` — 实现 `select_action`、`update`、`save` / `load` 等接口
-4. 添加 `params.yaml` — 算法专属超参数
-5. 在 `algo_name_utils.py` 的 `_CANONICAL_ALGORITHMS` 中注册算法名
-6. 在 `main_async.py` 中 import agent 类并注册到 agent 分发表
-
-### 修改环境
-
-1. 编辑 `gym_airsim/envs/AirGym.py` — 调整观测/动作空间、奖励函数
-2. 修改 `environment_randomization/` 中的配置 — 调整环境随机化参数
-3. 更新 `settings_folder/` — 调整 AirSim settings
-
----
-
-## 📊 训练监控
+## 评估与曲线
 
 ```bash
-# 启动 TensorBoard
-tensorboard --logdir=./results --port=6007
+# 通用异步算法评估
+python -m eval.eval_async \
+  --algorithm_name CL-VSSM-SAC --seed 25 \
+  --load_model models/CL-VSSM-SAC/seed25/async_final.pth
 
-# 绘制训练曲线
-python plot_curves.py --algorithm_name VSSM-SAC
-# 默认图例不显示 CL-；需要保留课程学习前缀时：
-python plot_curves.py --algorithm_name vssm_sac_ablation --plot_show_cl_prefix
+# 训练曲线
+python plot_curves.py \
+  --algorithm_name "VSSM-SAC,no-SB-PER,no-VSSM,SAC" \
+  --plot_show_cl_prefix
+
+tensorboard --logdir results --port 6007
 ```
 
----
+PPO 与 LSTM-SAC 分别使用 `eval/eval_ppo.py` 和 `eval/eval_lstm_sac.py`。SSVM-SAC 使用自身的 `eval` 子命令。场景评估说明见 [eval/README.md](eval/README.md)。
 
-## 🐛 常见问题
+通用结果和模型按算法、随机种子区分：
 
-<details>
-<summary><b>AirSim 连接失败</b></summary>
-
-```bash
-# 检查 AirSim 是否正确启动
-# 确认 IP 和端口配置
-python main_async.py --airsim_ip 127.0.0.1 --airsim_port 41451
-
-# 尝试禁用游戏重启，仅重连
-python main_async.py --disable_game_restart
+```text
+results/<algorithm>/seed<seed>/
+models/<algorithm>/seed<seed>/
 ```
-</details>
 
-<details>
-<summary><b>CUDA 内存不足 (OOM)</b></summary>
+SSVM-SAC 自动生成的曲线目录为 `results/CL-SSVM-SAC/seed<seed>/` 或非课程版本 `results/SSVM-SAC/seed<seed>/`。
 
-```bash
-# 减小 batch size
-python main_async.py --batch_size 64
+## 项目结构
 
-# 减小经验池
-python main_async.py --buffer_size 10000
+```text
+algorithm/
+├── VSSM/
+│   ├── VSSM_SAC/        # VSSM-SAC
+│   ├── no_SB_PER/       # 去掉 SB-PER
+│   └── no_VSSM/         # 去掉 VSSM
+├── SSVM_SAC/            # 自监督视觉记忆增强 SAC
+├── SAC/                 # 基础 SAC
+├── SAC_FAE/
+├── LSTM_SAC/
+├── TD3/
+├── DDPG/
+├── PPO/
+└── config_loader.py     # 算法参数加载，其他保留算法见上表
+
+gym_airsim/              # 环境及 AirSim 接口
+environment_randomization/ # 场景随机化
+game_handling/          # 仿真进程管理
+settings_folder/        # 仿真与环境设置
+eval/                   # 评估及可视化
+explainability_aosa/    # 策略解释分析
+tests/                  # 测试与环境诊断
+main_async.py           # 通用异步训练入口
+main_ppo.py             # PPO 训练入口
+train_lstm_sac.py       # LSTM-SAC 训练入口
+plot_curves.py          # 曲线绘制
+algo_name_utils.py      # 算法名称解析，不再提供分组
 ```
-</details>
 
-<details>
-<summary><b>Mamba 编译错误</b></summary>
+## 实验记录与验证边界
 
-```bash
-# 确保安装了正确的 CUDA 版本
-conda install -c "nvidia/label/cuda-12.8.0" cuda-toolkit=12.8 cuda-nvcc=12.8 -y
-cd Vim/mamba-1p1p1
-pip install -e . --verbose
-```
-</details>
+实验记录应包含代码版本、算法参数、随机种子、课程设置、训练步数、场景条件和 checkpoint。SSVM-SAC 还需记录数据采集策略、是否使用干净深度监督、视觉与记忆预训练 checkpoint。
 
----
-
-## 📄 许可证
-
-本项目采用 MIT 许可证 — 详见 [LICENSE](LICENSE) 文件。
-
----
-
-## 📚 参考文献
-
-- **TD3**: [Addressing Function Approximation Error in Actor-Critic Methods](https://arxiv.org/abs/1802.09477)
-- **SAC**: [Soft Actor-Critic: Off-Policy Maximum Entropy Deep RL](https://arxiv.org/abs/1801.01290)
-- **DDPG**: [Continuous Control with Deep Reinforcement Learning](https://arxiv.org/abs/1509.02971)
-- **PPO**: [Proximal Policy Optimization Algorithms](https://arxiv.org/abs/1707.06347)
-- **PER**: [Prioritized Experience Replay](https://arxiv.org/abs/1511.05952)
-- **SB-PER**: Success-Buffer Prioritized Experience Replay
-- **Mamba**: [Mamba: Linear-Time Sequence Modeling with Selective State Spaces](https://arxiv.org/abs/2312.00752)
-- **Vision Mamba**: [Vision Mamba: Efficient Visual Representation Learning with Bidirectional SSM](https://arxiv.org/abs/2401.13666)
-- **VideoMamba**: [VideoMamba: State Space Model for Efficient Video Understanding](https://arxiv.org/abs/2403.06977)
-- **State Decomposition DDPG**: [A State-Decomposition DDPG Algorithm for UAV Autonomous Navigation](https://ieeexplore.ieee.org/)
-- **AirSim**: [AirSim: High-Fidelity Visual and Physical Simulation for UAVs](https://arxiv.org/abs/1705.09530)
+本轮目录清理已检查 Python 语法、算法导入路径和参数文件加载；这不等于完成 GPU/AirSim 训练验证。论文中的性能结论应来自实际训练与统一条件下的评估。
