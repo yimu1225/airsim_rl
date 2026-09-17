@@ -67,6 +67,15 @@ from .networks import (
 )
 
 
+ALGORITHM_NAME = "SSVM-SAC"
+CURRICULUM_ALGORITHM_NAME = f"CL-{ALGORITHM_NAME}"
+
+
+def _result_algorithm_name(curriculum: bool) -> str:
+    """Return the canonical name used by logs, result paths, and plots."""
+    return CURRICULUM_ALGORITHM_NAME if curriculum else ALGORITHM_NAME
+
+
 def _device(name: str) -> torch.device:
     if name == "auto":
         return torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -132,9 +141,8 @@ def _make_env(args: argparse.Namespace, unknown_args: list[str]):
     if getattr(args, "curriculum", False) and environment_config.curriculum_mode != "progress":
         raise ValueError("SSVM curriculum requires --curriculum_mode progress")
     environment_config.include_clean_depth = bool(getattr(args, "clean_targets", False))
-    algorithm_name = "SSVM-SAC"
-    environment_config.algorithm_name = (
-        f"CL-{algorithm_name}" if getattr(args, "curriculum", False) else algorithm_name
+    environment_config.algorithm_name = _result_algorithm_name(
+        getattr(args, "curriculum", False)
     )
     env = AirSimEnvSSVM(
         takeoff_height=environment_config.takeoff_height,
@@ -214,7 +222,7 @@ def _environment_train(
     curve_logger = None
     display_name = "bootstrap"
     if stage == "sac":
-        algorithm_name = "CL-SSVM-SAC" if args.curriculum else "SSVM-SAC"
+        algorithm_name = _result_algorithm_name(args.curriculum)
         display_name = algorithm_name
         curve_logger = FinalStageCurveLogger(
             algorithm_name=algorithm_name,
@@ -1204,7 +1212,7 @@ def build_parser() -> argparse.ArgumentParser:
     sac.add_argument(
         "--results-root",
         default="results",
-        help="root directory for VSSM-SAC-compatible final-stage curve data",
+        help="root directory for SSVM-SAC final-stage curve data",
     )
     sac.add_argument(
         "--overwrite-results",

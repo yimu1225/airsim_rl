@@ -185,8 +185,11 @@ python algorithm/SSVM_SAC/visualization/visualize_memory_reconstruction.py \
 手动指定的 `--output` 保存 checkpoint 等产物。最终阶段训练曲线按算法与随机种子生成，例如：
 
 ```text
+results/SSVM-SAC/seed25/SSVM-SAC_seed25_log.csv
 results/CL-SSVM-SAC/seed25/CL-SSVM-SAC_seed25_log.csv
 ```
+
+未启用课程学习时使用 `SSVM-SAC`，启用课程学习时使用 `CL-SSVM-SAC`；目录名、CSV 文件名、TensorBoard 日志和绘图参数使用同一个正式算法名。
 
 CSV 字段为 `episode,total_timesteps,reward,episode_length,success_rate`。使用统一的算法名称绘图：
 

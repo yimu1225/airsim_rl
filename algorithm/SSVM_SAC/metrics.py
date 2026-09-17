@@ -15,7 +15,7 @@ from result_paths import (
 
 
 class FinalStageCurveLogger:
-    """Write final-stage episode metrics in the VSSM-SAC CSV format."""
+    """Write final-stage episode metrics using the shared training CSV format."""
 
     def __init__(
         self,

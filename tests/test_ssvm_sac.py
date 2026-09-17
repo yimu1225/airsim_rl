@@ -220,7 +220,7 @@ def test_config_projects_one_reconstruction_code_per_offset():
     assert config.batch_size > 0
 
 
-def test_final_stage_curve_logger_writes_vssm_sac_compatible_csv(tmp_path):
+def test_final_stage_curve_logger_uses_ssvm_sac_result_names(tmp_path):
     metrics_module = _load_ssvm_package_module("metrics")
     logger = metrics_module.FinalStageCurveLogger(
         algorithm_name="SSVM-SAC",
@@ -239,6 +239,9 @@ def test_final_stage_curve_logger_writes_vssm_sac_compatible_csv(tmp_path):
     with logger.csv_path.open(newline="") as stream:
         rows = list(csv.reader(stream))
     assert logger.run_dir == tmp_path / "SSVM-SAC" / "seed25"
+    assert logger.csv_path == (
+        tmp_path / "SSVM-SAC" / "seed25" / "SSVM-SAC_seed25_log.csv"
+    )
     assert rows == [
         ["episode", "total_timesteps", "reward", "episode_length", "success_rate"],
         ["3", "1200", "18.5", "97", "0.625"],
@@ -258,6 +261,13 @@ def test_final_stage_tensorboard_uses_the_formal_results_run_directory(tmp_path)
     assert train_module._event_log_dir(tmp_path / "output", None) == (
         tmp_path / "output" / "tensorboard"
     )
+
+
+def test_result_algorithm_name_is_consistent_for_curriculum_modes():
+    train_module = _load_ssvm_package_module("train")
+
+    assert train_module._result_algorithm_name(False) == "SSVM-SAC"
+    assert train_module._result_algorithm_name(True) == "CL-SSVM-SAC"
 
 
 def test_shared_curve_plotter_recognizes_ssvm_sac_name():
