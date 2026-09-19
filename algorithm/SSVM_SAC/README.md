@@ -116,22 +116,24 @@ python algorithm/SSVM_SAC/train.py vision \
 # 4. 自监督时序记忆
 python algorithm/SSVM_SAC/train.py memory \
   --dataset datasets/SSVM_SAC \
-  --vision-checkpoint runs/SSVM_SAC/vision/vision_latest.pt \
-  --output runs/SSVM_SAC/memory --epochs 100 --seed 25
+  --vision-checkpoint runs/SSVM_SAC/vision2/vision_latest.pt \
+  --output runs/SSVM_SAC/memory2 --epochs 200 --batch-size 1
 
 # 5. 冻结表示，训练最终 SAC；本阶段默认启用课程学习
+#    --level 指定课程终点等级：0=easy 1=medium 2=hard 3=dynamic（默认 3）
 python algorithm/SSVM_SAC/train.py sac \
   --perception-checkpoint runs/SSVM_SAC/memory/memory_latest.pt \
   --output runs/SSVM_SAC/final --max-steps 150000 --seed 25 \
-  --curriculum_mode progress
+  --curriculum_mode progress --level 3
 ```
+tensorboard --logdir runs/SSVM_SAC/tb_compare --port 6007
 
 ```bash
-for seed in 25 26 27; do
+for seed in 42; do
   python algorithm/SSVM_SAC/train.py sac \
     --perception-checkpoint runs/SSVM_SAC/memory/memory_latest.pt \
     --output runs/SSVM_SAC/final/seed${seed} \
-    --max-steps 150000 --seed "$seed" --curriculum_mode progress
+    --max-steps 150000 --seed "$seed" --curriculum_mode progress --level 3
 done
 ```
 

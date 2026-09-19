@@ -95,7 +95,7 @@ def visualize_vision(args: argparse.Namespace) -> Path:
 def build_parser():
     parser = argparse.ArgumentParser(description="Test stage-3 Vision reconstruction")
     parser.add_argument("--dataset", default=str(_PROJECT_ROOT / "datasets/SSVM_SAC"))
-    parser.add_argument("--vision-checkpoint", default=str(_PROJECT_ROOT / "runs/SSVM_SAC/vision/vision_latest.pt"))
+    parser.add_argument("--vision-checkpoint", default=str(_PROJECT_ROOT / "runs/SSVM_SAC/vision2/vision_latest.pt"))
     parser.add_argument("--output", default=str(_PROJECT_ROOT / "runs/SSVM_SAC/vision/reconstruction_test.png"))
     parser.add_argument("--split", choices=("train", "validation", "all"), default="validation")
     parser.add_argument("--episode-index", type=int)

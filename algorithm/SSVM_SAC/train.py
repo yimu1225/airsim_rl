@@ -1003,11 +1003,6 @@ def train_memory(args: argparse.Namespace, _unknown_args: list[str]) -> None:
                     raise FloatingPointError("Non-finite Memory image loss")
                 optimizer.zero_grad(set_to_none=True)
                 loss.backward()
-                torch.nn.utils.clip_grad_norm_(
-                    [*memory.parameters(), *reconstructor.projection.parameters()],
-                    config.gradient_clip,
-                    error_if_nonfinite=True,
-                )
                 optimizer.step()
                 epoch_loss_sum += float(loss.detach())
                 epoch_updates += 1

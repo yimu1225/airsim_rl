@@ -39,7 +39,7 @@ offline_lr_decay: 0.99  # deprecated; vision now uses cosine annealing.
 vision_batch_size: 128
 # Stage 4 random sampling: n groups per batch, m optimizer updates per epoch.
 # Each group contains one current frame and three valid target frames (n x 3).
-memory_batch_size: 16       # n; overridden by --batch-size.
+memory_batch_size: 1       # n; overridden by --batch-size.
 memory_validation_interval: 10 # Full validation every N epochs and at the final epoch.
 
 # Frozen-feature SAC.

@@ -318,7 +318,7 @@ def build_parser() -> argparse.ArgumentParser:
         description="Render stage-4 SSVM temporal reconstruction results"
     )
     parser.add_argument(
-        "--dataset", default=str(_PROJECT_ROOT / "datasets" / "SSVM_SAC")
+        "--dataset", default=str(_PROJECT_ROOT / "val_datasets" / "SSVM_SAC")
     )
     parser.add_argument(
         "--vision-checkpoint",
@@ -326,7 +326,7 @@ def build_parser() -> argparse.ArgumentParser:
             _PROJECT_ROOT
             / "runs"
             / "SSVM_SAC"
-            / "vision"
+            / "vision2"
             / "vision_latest.pt"
         ),
     )
@@ -336,7 +336,7 @@ def build_parser() -> argparse.ArgumentParser:
             _PROJECT_ROOT
             / "runs"
             / "SSVM_SAC"
-            / "memory"
+            / "memory2"
             / "memory_latest.pt"
         ),
     )
@@ -349,7 +349,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--episode-index", type=int)
     parser.add_argument("--time-index", type=int)
-    parser.add_argument("--seed", type=int, default=29)
+    parser.add_argument("--seed", type=int, default=21)
     parser.add_argument("--device", default="auto")
     parser.add_argument(
         "--observed-targets",
